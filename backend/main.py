@@ -11,7 +11,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from .db import db_session, init_db, Generation, EnvSource
-from .storage import upload_image, upload_source_image
+from .storage import upload_image, upload_source_image, get_object_bytes
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
@@ -211,7 +211,6 @@ async def generate_env_random():
     try:
         # Fetch random one
         async with db_session() as session:
-            # simple approach: get first; in real app use ORDER BY RANDOM()
             res = await session.execute(
                 "SELECT s3_key FROM env_sources ORDER BY created_at DESC LIMIT 1"
             )
@@ -220,12 +219,12 @@ async def generate_env_random():
             return JSONResponse({"error": "no sources uploaded"}, status_code=400)
 
         instruction = "randomize the scene and the mirror frame"
+        # Load source image bytes from S3 and include as input
+        src_bytes, mime = get_object_bytes(row[0])
+        image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
         resp = get_client().models.generate_content(
             model=MODEL,
-            contents=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=instruction)],
-            ),
+            contents=types.Content(role="user", parts=[types.Part.from_text(text=instruction), image_part]),
         )
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
@@ -242,9 +241,19 @@ async def generate_env(prompt: str = Form("")):
     try:
         instruction = "randomize the scene and the mirror frame"
         full = instruction if not prompt.strip() else f"{instruction}. {prompt.strip()}"
+        # Use latest uploaded source image for now
+        async with db_session() as session:
+            res = await session.execute(
+                "SELECT s3_key FROM env_sources ORDER BY created_at DESC LIMIT 1"
+            )
+            row = res.first()
+        if not row:
+            return JSONResponse({"error": "no sources uploaded"}, status_code=400)
+        src_bytes, mime = get_object_bytes(row[0])
+        image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
         resp = get_client().models.generate_content(
             model=MODEL,
-            contents=types.Content(role="user", parts=[types.Part.from_text(text=full)]),
+            contents=types.Content(role="user", parts=[types.Part.from_text(text=full), image_part]),
         )
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:

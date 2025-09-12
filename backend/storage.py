@@ -52,3 +52,12 @@ def upload_source_image(bytes_data: bytes, mime: Optional[str] = None) -> Tuple[
         ACL="private",
     )
     return AWS_S3_BUCKET, key
+
+
+def get_object_bytes(key: str) -> Tuple[bytes, str]:
+    if not AWS_S3_BUCKET:
+        raise RuntimeError("AWS_S3_BUCKET not configured")
+    resp = get_s3().get_object(Bucket=AWS_S3_BUCKET, Key=key)
+    data = resp["Body"].read()
+    content_type = resp.get("ContentType", "application/octet-stream")
+    return data, content_type
