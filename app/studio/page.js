@@ -9,6 +9,8 @@ export default function StudioPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [bulkFiles, setBulkFiles] = useState([]);
+  const [sources, setSources] = useState([]);
+  const [generated, setGenerated] = useState([]);
   // Model tab state
   const [modelPrompt, setModelPrompt] = useState("");
   const [isModelGenerating, setIsModelGenerating] = useState(false);
@@ -95,6 +97,43 @@ export default function StudioPage() {
         alert("Bulk upload failed.");
       }
     })();
+  }
+
+  async function refreshSources() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/env/sources`);
+      const data = await res.json();
+      if (data?.items) setSources(data.items);
+    } catch {}
+  }
+
+  async function refreshGenerated() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/env/generated`);
+      const data = await res.json();
+      if (data?.items) setGenerated(data.items);
+    } catch {}
+  }
+
+  useEffect(() => {
+    refreshSources();
+    refreshGenerated();
+  }, []);
+
+  async function deleteAllSources() {
+    if (!confirm("Delete all uploaded sources? This cannot be undone.")) return;
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/env/sources`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      await refreshSources();
+      alert("All sources deleted");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete sources");
+    }
   }
 
   function onPickMale(e) {
@@ -240,6 +279,39 @@ export default function StudioPage() {
                   </button>
                 </div>
               </div>
+              {/* Sources list */}
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">Uploaded sources</h3>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={refreshSources}
+                      className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                    >
+                      Refresh
+                    </button>
+                    {sources.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={deleteAllSources}
+                        className="h-9 px-3 rounded-md bg-red-600 text-white text-xs font-medium"
+                      >
+                        Delete all
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {sources.length === 0 ? (
+                  <p className="text-xs text-gray-500 mt-2">No sources uploaded.</p>
+                ) : (
+                  <ul className="mt-2 text-xs text-gray-500 break-all">
+                    {sources.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -287,6 +359,33 @@ export default function StudioPage() {
                   <p className="text-xs text-gray-500">Your generated model will appear here.</p>
                 )}
               </div>
+            </div>
+
+            {/* Generated images grid */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Recent generated environments</h3>
+                <button
+                  type="button"
+                  onClick={refreshGenerated}
+                  className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                >
+                  Refresh
+                </button>
+              </div>
+              {generated.length === 0 ? (
+                <p className="text-xs text-gray-500 mt-2">No generated images yet.</p>
+              ) : (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {generated.map((g) => (
+                    <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
+                      <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 p-2 text-center">
+                        <span className="truncate">{g.s3_key.split('/').slice(-1)[0]}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Two source images (male/female) */}

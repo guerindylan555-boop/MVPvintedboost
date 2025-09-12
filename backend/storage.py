@@ -1,7 +1,7 @@
 import os
 import uuid
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 import boto3
 
@@ -61,3 +61,17 @@ def get_object_bytes(key: str) -> Tuple[bytes, str]:
     data = resp["Body"].read()
     content_type = resp.get("ContentType", "application/octet-stream")
     return data, content_type
+
+
+def delete_objects(keys: List[str]) -> None:
+    if not keys:
+        return
+    if not AWS_S3_BUCKET:
+        raise RuntimeError("AWS_S3_BUCKET not configured")
+    # Batch delete in chunks of 1000 (S3 API limit)
+    for i in range(0, len(keys), 1000):
+        chunk = keys[i : i + 1000]
+        get_s3().delete_objects(
+            Bucket=AWS_S3_BUCKET,
+            Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": True},
+        )

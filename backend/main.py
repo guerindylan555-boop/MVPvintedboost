@@ -11,7 +11,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from .db import db_session, init_db, Generation, EnvSource
-from .storage import upload_image, upload_source_image, get_object_bytes
+from .storage import upload_image, upload_source_image, get_object_bytes, delete_objects
 from sqlalchemy import select, func, text
 
 # Config
@@ -206,6 +206,38 @@ async def upload_env_sources(files: list[UploadFile] = File(...)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/env/sources")
+async def list_env_sources():
+    try:
+        async with db_session() as session:
+            stmt = select(EnvSource.s3_key).order_by(EnvSource.created_at.desc())
+            res = await session.execute(stmt)
+            items = [row[0] for row in res.all()]
+        return {"ok": True, "count": len(items), "items": items}
+    except Exception as e:
+        logger.exception("Failed to list env sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/env/sources")
+async def delete_env_sources():
+    try:
+        # Fetch all keys
+        async with db_session() as session:
+            stmt = select(EnvSource.s3_key)
+            res = await session.execute(stmt)
+            keys = [row[0] for row in res.all()]
+        # Delete from S3 first
+        delete_objects(keys)
+        # Delete from DB
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM env_sources"))
+        return {"ok": True, "deleted": len(keys)}
+    except Exception as e:
+        logger.exception("Failed to delete env sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/env/random")
 async def generate_env_random():
     """Pick a random stored source and generate with strict instruction."""
@@ -285,6 +317,19 @@ async def generate_env(prompt: str = Form("")):
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
         logger.exception("env generate failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/env/generated")
+async def list_generated():
+    try:
+        async with db_session() as session:
+            stmt = select(Generation.s3_key, Generation.created_at).order_by(Generation.created_at.desc()).limit(200)
+            res = await session.execute(stmt)
+            items = [{"s3_key": row[0], "created_at": row[1].isoformat()} for row in res.all()]
+        return {"ok": True, "count": len(items), "items": items}
+    except Exception as e:
+        logger.exception("Failed to list generated images")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
