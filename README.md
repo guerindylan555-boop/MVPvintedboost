@@ -19,6 +19,17 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
 - Generate button (sticky). Sends structured fields; backend builds prompt and generates with the image
 - History gallery (localStorage) of generated images with quick preview
 
+### Studio (Environments & Models)
+- Environment tab:
+  - Bulk upload environment source images (stored in S3 and tracked in Postgres)
+  - Random: picks a random uploaded source and generates with strict instruction “randomize the scene and the mirror frame”
+  - Generate: same instruction, plus user prompt appended
+  - Recent generated environments grid (last 200), streamed from backend via `/env/image`
+  - Select up to 5 generated images, name them, and save as defaults via `/env/defaults`
+  - List and delete all uploaded sources (S3 + DB) from the UI
+- Model tab:
+  - Text‑only generation (preview), with placeholders to upload male/female source images (for future use)
+
 ## Local development
 
 ### Prerequisites
@@ -55,7 +66,16 @@ npm run dev:full
   - `POST /edit` (primary): accepts clothing image + options; prompts Gemini and returns a PNG
   - `POST /generate`: text‑only generation (basic test)
   - `GET /health`: health probe
+  - `POST /env/sources/upload`: bulk upload environment sources (S3 + DB)
+  - `GET /env/sources`: list uploaded sources; `DELETE /env/sources`: delete all (S3 + DB)
+  - `POST /env/random`: pick random source and generate with strict instruction
+  - `POST /env/generate`: same instruction + user prompt
+  - `GET /env/generated`: list recent environment generations (S3 keys)
+  - `GET /env/image?s3_key=...`: stream any stored image from S3
+  - `GET /env/defaults`, `POST /env/defaults`: manage up to 5 named defaults
 - `backend/db.py`: async SQLAlchemy setup, `Generation` model, `init_db()` at startup
+- `EnvSource` model for uploaded environment sources
+- `EnvDefault` model for named default environments
 - `backend/storage.py`: S3 client and upload helpers
 
 ### Model and SDK
@@ -77,6 +97,8 @@ npm run dev:full
   - Uploads the PNG to S3 at `generated/YYYY/MM/DD/<uuid>-<pose>.png`
   - Inserts a `generations` row with: `s3_key`, `pose`, `prompt`, `options_json`, `model`, `created_at`
 - Table is created automatically on app startup (simple `create_all`; migrations can be added later)
+- Environment sources are stored under `env_sources/` and tracked in `env_sources` table
+- Named defaults stored in `env_defaults` table (up to 5)
 
 ### Backend environment variables
 Required (Dokploy → Backend → Environment):
