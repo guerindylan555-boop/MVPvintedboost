@@ -324,7 +324,12 @@ async def generate_env(prompt: str = Form("")):
 async def list_generated():
     try:
         async with db_session() as session:
-            stmt = select(Generation.s3_key, Generation.created_at).order_by(Generation.created_at.desc()).limit(200)
+            stmt = (
+                select(Generation.s3_key, Generation.created_at)
+                .where(Generation.pose == "env")
+                .order_by(Generation.created_at.desc())
+                .limit(200)
+            )
             res = await session.execute(stmt)
             items = [{"s3_key": row[0], "created_at": row[1].isoformat()} for row in res.all()]
         return {"ok": True, "count": len(items), "items": items}

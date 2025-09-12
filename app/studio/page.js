@@ -247,6 +247,34 @@ export default function StudioPage() {
               </div>
             </div>
 
+            {/* Generated env grid below the preview */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Recent generated environments</h3>
+                <button
+                  type="button"
+                  onClick={refreshGenerated}
+                  className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                >
+                  Refresh
+                </button>
+              </div>
+              {generated.length === 0 ? (
+                <p className="text-xs text-gray-500 mt-2">No generated images yet.</p>
+              ) : (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {generated.map((g) => {
+                    const src = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                    return (
+                      <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
+                        <img src={src} alt="Generated" className="h-full w-full object-cover" />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Bulk upload (Admin only) */}
             <div className="mt-4">
               <div className="flex items-center justify-between">
