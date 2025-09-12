@@ -33,6 +33,7 @@ def upload_image(png_bytes: bytes, pose: str) -> Tuple[str, str]:
         Key=key,
         Body=png_bytes,
         ContentType="image/png",
+        CacheControl="public, max-age=31536000, immutable",
         ACL="private",
     )
     return AWS_S3_BUCKET, key
@@ -49,6 +50,7 @@ def upload_source_image(bytes_data: bytes, mime: Optional[str] = None) -> Tuple[
         Key=key,
         Body=bytes_data,
         ContentType=mime or "application/octet-stream",
+        CacheControl="public, max-age=31536000, immutable",
         ACL="private",
     )
     return AWS_S3_BUCKET, key
