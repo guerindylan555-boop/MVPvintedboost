@@ -27,21 +27,7 @@ export default function StudioPage() {
     };
   }, [previewUrl, modelPreviewUrl, malePreview, femalePreview]);
 
-  const randomPrompts = useMemo(
-    () => [
-      "Minimalist photo studio with seamless white backdrop and softbox lighting",
-      "Urban street at dusk with neon reflections and wet pavement",
-      "Cozy bedroom interior with warm lamps and wooden floor",
-      "Beach at golden hour with gentle waves and clean horizon",
-      "Modern indoor loft with large windows and natural light",
-    ],
-    []
-  );
-
-  function fillRandom() {
-    const next = randomPrompts[Math.floor(Math.random() * randomPrompts.length)];
-    setPrompt(next);
-  }
+  // (Old random prompt suggestions removed – Random now triggers backend generation)
 
   async function handleGenerate() {
     try {
@@ -57,6 +43,24 @@ export default function StudioPage() {
       } else {
         res = await fetch(`${baseUrl}${endpoint}`, { method: "POST" });
       }
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (previewUrl && previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(url);
+    } catch (err) {
+      console.error(err);
+      alert("Environment generation failed.");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function handleRandomGenerate() {
+    try {
+      setIsGenerating(true);
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/env/random`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -175,7 +179,7 @@ export default function StudioPage() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={fillRandom}
+                onClick={handleRandomGenerate}
                 className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
               >
                 Random
