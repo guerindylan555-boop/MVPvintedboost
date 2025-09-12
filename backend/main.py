@@ -2,17 +2,20 @@ import os
 from io import BytesIO
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, Form
+import logging
+from fastapi import FastAPI, UploadFile, Form, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from PIL import Image
 from google import genai
+from google.genai import errors as genai_errors
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
 API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 app = FastAPI(title="VintedBoost Backend", version="0.1.0")
+logger = logging.getLogger("uvicorn.error")
 
 # CORS - allow local Next.js dev and same-origin deployments
 # CORS origins from env (comma-separated). Fallback to permissive during MVP.
@@ -45,38 +48,54 @@ async def health():
 
 @app.post("/generate")
 async def generate(prompt: str = Form("i want this clothe on someone")):
-    client = get_client()
-    resp = client.models.generate_content(model=MODEL, contents=[prompt])
-    for c in resp.candidates:
-        for p in c.content.parts:
-            if getattr(p, "inline_data", None):
-                img_bytes = BytesIO(p.inline_data.data)
-                return StreamingResponse(img_bytes, media_type="image/png")
-    return JSONResponse({"error": "no image"}, status_code=500)
+    try:
+        client = get_client()
+        resp = client.models.generate_content(model=MODEL, contents=[prompt])
+        for c in getattr(resp, "candidates", []) or []:
+            for p in getattr(c, "content", {}).parts or []:
+                if getattr(p, "inline_data", None):
+                    img_bytes = BytesIO(p.inline_data.data)
+                    return StreamingResponse(img_bytes, media_type="image/png")
+        return JSONResponse({"error": "no image from model"}, status_code=502)
+    except genai_errors.APIError as e:
+        logger.exception("GenAI API error on /generate")
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    except Exception as e:
+        logger.exception("Unhandled error on /generate")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/edit")
 async def edit(
     prompt: str = Form("i want this clothe on someone"),
-    image: UploadFile = Form(...),
+    image: UploadFile = File(...),
 ):
-    # Read uploaded image and normalize to PNG bytes
-    src = Image.open(BytesIO(await image.read()))
-    buf = BytesIO()
-    src.convert("RGBA").save(buf, format="PNG")
-    buf.seek(0)
+    try:
+        if not image or not image.filename:
+            return JSONResponse({"error": "image file required"}, status_code=400)
+        # Read uploaded image and normalize to PNG bytes
+        src = Image.open(BytesIO(await image.read()))
+        buf = BytesIO()
+        src.convert("RGBA").save(buf, format="PNG")
+        buf.seek(0)
 
-    contents = [
-        prompt,
-        {"mime_type": "image/png", "data": buf.getvalue()},
-    ]
-    client = get_client()
-    resp = client.models.generate_content(model=MODEL, contents=contents)
-    for c in resp.candidates:
-        for p in c.content.parts:
-            if getattr(p, "inline_data", None):
-                return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
-    return JSONResponse({"error": "no edited image"}, status_code=500)
+        contents = [
+            prompt,
+            {"mime_type": "image/png", "data": buf.getvalue()},
+        ]
+        client = get_client()
+        resp = client.models.generate_content(model=MODEL, contents=contents)
+        for c in getattr(resp, "candidates", []) or []:
+            for p in getattr(c, "content", {}).parts or []:
+                if getattr(p, "inline_data", None):
+                    return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
+        return JSONResponse({"error": "no edited image from model"}, status_code=502)
+    except genai_errors.APIError as e:
+        logger.exception("GenAI API error on /edit")
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    except Exception as e:
+        logger.exception("Unhandled error on /edit")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":
