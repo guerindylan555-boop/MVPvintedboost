@@ -17,6 +17,8 @@ export default function Home() {
     extra: "",
   });
   const [title, setTitle] = useState("");
+  const [descEnabled, setDescEnabled] = useState(false);
+  const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
 
   useEffect(() => {
@@ -49,6 +51,11 @@ export default function Home() {
     if (Array.isArray(options.poses) && options.poses.length > 0) {
       const list = options.poses.join(", ");
       chunks.push(`Poses: ${list}.`);
+    }
+    if (descEnabled) {
+      if (desc.brand?.trim()) chunks.push(`Brand: ${desc.brand.trim()}.`);
+      if (desc.productModel?.trim()) chunks.push(`Model: ${desc.productModel.trim()}.`);
+      if (desc.size?.trim()) chunks.push(`Size: ${desc.size.trim().toUpperCase()}.`);
     }
     if (options.extra?.trim()) chunks.push(options.extra.trim());
     chunks.push("Realistic fit, high-quality fashion photo, natural lighting.");
@@ -123,6 +130,12 @@ export default function Home() {
         form.append("poses", pose);
         form.append("extra", options.extra || "");
         form.append("title", title || "");
+        form.append("desc_enabled", descEnabled ? "true" : "false");
+        if (descEnabled) {
+          if (desc.brand?.trim()) form.append("brand", desc.brand.trim());
+          if (desc.productModel?.trim()) form.append("product_model", desc.productModel.trim());
+          if (desc.size?.trim()) form.append("size", desc.size.trim());
+        }
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
@@ -153,7 +166,7 @@ export default function Home() {
         dataUrl: s.dataUrl,
         createdAt: now,
         prompt: buildPrompt(),
-        options: { ...options, poses: [s.pose] },
+        options: { ...options, poses: [s.pose], title, desc: descEnabled ? desc : undefined },
       }));
       const next = [...newItems, ...history].slice(0, 12);
       persistHistory(next);
@@ -272,6 +285,62 @@ export default function Home() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
+        </section>
+
+        {/* Description generation toggle */}
+        <section>
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm font-medium">Description generation</span>
+            <button
+              type="button"
+              onClick={() => setDescEnabled((v) => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${descEnabled ? "bg-foreground" : "bg-black/20 dark:bg-white/20"}`}
+              aria-pressed={descEnabled}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${descEnabled ? "translate-x-5" : "translate-x-1"}`}
+              />
+            </button>
+          </div>
+          {descEnabled && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Brand</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  placeholder="e.g., Nike, Zara"
+                  value={desc.brand}
+                  onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Model</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  placeholder="e.g., Air Max 90, Oversized Hoodie"
+                  value={desc.productModel}
+                  onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Size</label>
+                <div className="mt-1 grid grid-cols-5 gap-2">
+                  {["xs", "s", "m", "l", "xl"].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setDesc((d) => ({ ...d, size: s }))}
+                      className={`h-10 rounded-md border text-sm ${desc.size === s ? "border-foreground" : "border-black/10 dark:border-white/15"}`}
+                    >
+                      {s.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Options */}
