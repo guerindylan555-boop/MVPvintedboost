@@ -14,7 +14,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
 - Options panel:
   - gender: woman/man
   - environment: studio/street/bed/beach/indoor (when Studio defaults exist, shows their names instead)
-  - poses: select up to 3 poses; parallel generation per pose
+  - poses: select up to 3 (Face, three-quarter pose, from the side, random). Random uses a saved pose description from Studio; one is pre-picked on page load for the prompt preview and appended at generation time as “Pose description: …”
   - extra: free text instructions
 - model reference toggle: choose the gender default as image, or send its description only
 - Prompt preview/editor: live view of the exact prompt; optionally override before generating
@@ -125,6 +125,19 @@ npm run dev:full
 - The frontend sends structured fields (gender, environment, poses[], extra) and may include environment/person reference images
 - The backend builds a deterministic "Mirror Selfie for Vinted" prompt, or uses a `prompt_override` from the UI when provided
 - Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 3)
+
+Prompt rules (Mirror Selfie for Vinted)
+- Always a mirror selfie, amateur smartphone look
+- Black iPhone 16 Pro held in front of the face (occluding it with correct reflection) while keeping the garment clearly visible
+- The model must be wearing the uploaded garment; preserve exact silhouette, color, fabric, print scale/alignment, closures, and logos
+- If an environment default image is attached: treat it as the mirror scene reference (match lighting, angle, palette, shadows, DoF) and avoid conflicting textual descriptions
+- If a model default image is attached: preserve identity cues (hair/build) and omit textual identity description. If using description‑only: include the stored identity description under PERSON BEHAVIOR
+- Pose handling on main page:
+  - Face: front-facing mirror view; squared shoulders; phone centered. Adds a short pose description to the prompt.
+  - three-quarter pose: three-quarter view toward the mirror; torso angled; weight slightly on one leg. Adds a short pose description.
+  - from the side: profile toward the mirror; ensure torso and garment remain visible. Adds a short pose description.
+  - random: pulls one saved pose description from Studio at generation time and appends it as “Pose description: …”. A random pick is also selected on page load for the prompt preview.
+- Safety/quality constraints are always included (hands anatomy, face realism, no explicit content, no text/watermarks). The pose must not occlude the garment.
 
 ### Database and S3 side‑effects
 - On successful generation, backend:
