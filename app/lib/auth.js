@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { Pool } from "pg";
 import { nextCookies } from "better-auth/next-js";
 import { getMigrations } from "better-auth/db";
+import { isAdminEmail } from "@/app/lib/admin";
 
 // Prefer a dedicated URL for Better Auth; fallback to DATABASE_URL.
 // Accept Python-style Postgres URLs by normalizing the scheme for node-postgres.
@@ -26,6 +27,15 @@ const socialProviders =
           clientSecret: process.env.GOOGLE_CLIENT_SECRET,
           accessType: "offline",
           prompt: "select_account consent",
+          // Map Google profile to enrich the user if needed
+          mapProfileToUser: (profile) => {
+            const firstName = profile?.given_name;
+            const lastName = profile?.family_name;
+            return {
+              name: profile?.name || [firstName, lastName].filter(Boolean).join(" "),
+              image: profile?.picture,
+            };
+          },
         },
       }
     : undefined;
@@ -37,6 +47,11 @@ const authOptions = {
   secret: process.env.BETTER_AUTH_SECRET,
   // Respect base URL via env (BETTER_AUTH_URL); Better Auth will infer path.
   ...(socialProviders ? { socialProviders } : {}),
+  // Customize session payload minimally to add an isAdmin flag
+  customSession: async ({ user }) => {
+    const isAdmin = isAdminEmail(user?.email);
+    return { user: { ...user, isAdmin } };
+  },
 };
 
 // Initialize Better Auth instance
