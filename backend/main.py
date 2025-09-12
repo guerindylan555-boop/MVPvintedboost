@@ -57,9 +57,6 @@ async def generate(prompt: str = Form("i want this clothe on someone")):
                 role="user",
                 parts=[types.Part.from_text(text=prompt)],
             ),
-            config=types.GenerateContentConfig(
-                response_mime_type="image/png",
-            ),
         )
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
@@ -101,9 +98,6 @@ async def edit(
         resp = client.models.generate_content(
             model=MODEL,
             contents=contents,
-            config=types.GenerateContentConfig(
-                response_mime_type="image/png",
-            ),
         )
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
