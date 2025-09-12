@@ -3,9 +3,22 @@ import { useCallback } from "react";
 
 export default function LoginPage() {
   const onGoogle = useCallback(() => {
-    // Kick off Google OAuth via Better Auth
-    const url = "/api/auth/sign-in/social?provider=google&callbackURL=/studio";
-    window.location.assign(url);
+    // Better Auth's sign-in/social expects POST; submit a form to navigate
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/auth/sign-in/social";
+    const provider = document.createElement("input");
+    provider.type = "hidden";
+    provider.name = "provider";
+    provider.value = "google";
+    form.appendChild(provider);
+    const cb = document.createElement("input");
+    cb.type = "hidden";
+    cb.name = "callbackURL";
+    cb.value = "/studio";
+    form.appendChild(cb);
+    document.body.appendChild(form);
+    form.submit();
   }, []);
 
   return (
