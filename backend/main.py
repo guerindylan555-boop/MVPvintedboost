@@ -10,11 +10,12 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault, ModelSource, ModelDescription
+from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault, ModelSource, ModelDescription, PoseSource, PoseDescription
 from .storage import (
     upload_image,
     upload_source_image,
     upload_model_source_image,
+    upload_pose_source_image,
     get_object_bytes,
     delete_objects,
     generate_presigned_get_url,
@@ -704,6 +705,118 @@ async def delete_generated(s3_key: str):
         return {"ok": True}
     except Exception as e:
         logger.exception("Failed to delete generated image")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- Pose sources upload and pose-only description generation ---
+
+@app.post("/pose/sources/upload")
+async def upload_pose_sources(files: list[UploadFile] = File(...)):
+    try:
+        stored = []
+        for f in files:
+            data = await f.read()
+            _, key = upload_pose_source_image(data, mime=f.content_type)
+            async with db_session() as session:
+                session.add(PoseSource(s3_key=key))
+            stored.append({"s3_key": key})
+        return {"ok": True, "count": len(stored), "items": stored}
+    except Exception as e:
+        logger.exception("Failed to upload pose sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/pose/sources")
+async def list_pose_sources():
+    try:
+        async with db_session() as session:
+            stmt = select(PoseSource.s3_key).order_by(PoseSource.created_at.desc())
+            res = await session.execute(stmt)
+            items = [row[0] for row in res.all()]
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list pose sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/pose/sources")
+async def delete_pose_sources():
+    try:
+        async with db_session() as session:
+            res = await session.execute(select(PoseSource.s3_key))
+            keys = [row[0] for row in res.all()]
+        delete_objects(keys)
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM pose_sources"))
+            await session.execute(text("DELETE FROM pose_descriptions"))
+        return {"ok": True, "deleted": len(keys)}
+    except Exception as e:
+        logger.exception("Failed to delete pose sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/pose/describe")
+async def generate_pose_descriptions():
+    """Generate pose-only textual descriptions for all uploaded pose sources that lack one."""
+    try:
+        # Fetch sources without a PoseDescription
+        async with db_session() as session:
+            src_rows = await session.execute(select(PoseSource.s3_key).order_by(PoseSource.created_at.desc()))
+            src_keys = [row[0] for row in src_rows.all()]
+            if not src_keys:
+                return {"ok": True, "generated": 0}
+            # Find which already have descriptions
+            have_rows = await session.execute(select(PoseDescription.s3_key))
+            have = {row[0] for row in have_rows.all()}
+        todo = [k for k in src_keys if k not in have]
+        if not todo:
+            return {"ok": True, "generated": 0}
+
+        client = get_client()
+        count = 0
+        for key in todo:
+            try:
+                img_bytes, mime = get_object_bytes(key)
+                instruction = (
+                    "Analyze this image and output only a concise pose description of the person. "
+                    "Do not describe clothing, identity, background, or environment. "
+                    "Mention body orientation, weight distribution, limb positions, and hand placements succinctly."
+                )
+                parts = [types.Part.from_text(text=instruction), types.Part.from_bytes(data=img_bytes, mime_type=mime or "image/png")]
+                resp = client.models.generate_content(model=MODEL, contents=types.Content(role="user", parts=parts))
+                desc_text = None
+                for c in getattr(resp, "candidates", []) or []:
+                    if getattr(c, "content", None) and getattr(c.content, "parts", None):
+                        for p in c.content.parts:
+                            if getattr(p, "text", None):
+                                desc_text = p.text
+                                break
+                    if desc_text:
+                        break
+                if not desc_text:
+                    continue
+                async with db_session() as session:
+                    session.add(PoseDescription(s3_key=key, description=desc_text))
+                count += 1
+            except Exception:
+                # Continue with others
+                continue
+        return {"ok": True, "generated": count}
+    except Exception as e:
+        logger.exception("Failed to generate pose descriptions")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/pose/descriptions")
+async def list_pose_descriptions():
+    try:
+        async with db_session() as session:
+            stmt = select(PoseDescription.s3_key, PoseDescription.description, PoseDescription.created_at).order_by(PoseDescription.created_at.desc())
+            res = await session.execute(stmt)
+            items = [{"s3_key": r[0], "description": r[1], "created_at": r[2].isoformat()} for r in res.all()]
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list pose descriptions")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

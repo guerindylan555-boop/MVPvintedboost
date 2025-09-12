@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 export default function StudioPage() {
-  const [activeTab, setActiveTab] = useState("environment"); // environment | model
+  const [activeTab, setActiveTab] = useState("environment"); // environment | model | pose
   // Environment tab state
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -27,6 +27,12 @@ export default function StudioPage() {
   const [malePreview, setMalePreview] = useState(null);
   const [femaleFile, setFemaleFile] = useState(null);
   const [femalePreview, setFemalePreview] = useState(null);
+  // Pose tab state
+  const [poseFiles, setPoseFiles] = useState([]);
+  const [poseSources, setPoseSources] = useState([]); // s3_keys
+  const [poseDescs, setPoseDescs] = useState([]); // [{s3_key, description, created_at}]
+  const [isPoseUploading, setIsPoseUploading] = useState(false);
+  const [isPoseDescribing, setIsPoseDescribing] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -166,7 +172,67 @@ export default function StudioPage() {
     refreshDefaults();
     refreshModelGenerated();
     refreshModelDefaults();
+    refreshPoseSources();
+    refreshPoseDescriptions();
   }, []);
+
+  async function refreshPoseSources() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/pose/sources`);
+      const data = await res.json();
+      if (data?.items) setPoseSources(data.items);
+    } catch {}
+  }
+
+  async function refreshPoseDescriptions() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/pose/descriptions`);
+      const data = await res.json();
+      if (data?.items) setPoseDescs(data.items);
+    } catch {}
+  }
+
+  function handlePoseFilesChange(e) {
+    setPoseFiles(Array.from(e.target.files || []));
+  }
+
+  async function uploadPoseFiles() {
+    try {
+      if (poseFiles.length === 0) return alert("Choose pose images first");
+      setIsPoseUploading(true);
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const form = new FormData();
+      for (const f of poseFiles) form.append("files", f);
+      const res = await fetch(`${baseUrl}/pose/sources/upload`, { method: "POST", body: form });
+      if (!res.ok) throw new Error(await res.text());
+      await refreshPoseSources();
+      alert("Pose sources uploaded.");
+      setPoseFiles([]);
+    } catch (e) {
+      console.error(e);
+      alert("Pose upload failed.");
+    } finally {
+      setIsPoseUploading(false);
+    }
+  }
+
+  async function generatePoseDescriptions() {
+    try {
+      setIsPoseDescribing(true);
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/pose/describe`, { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      await refreshPoseDescriptions();
+      alert("Pose descriptions generated.");
+    } catch (e) {
+      console.error(e);
+      alert("Pose description generation failed.");
+    } finally {
+      setIsPoseDescribing(false);
+    }
+  }
 
   function toggleSelect(key) {
     setSelectedKeys((prev) => {
@@ -293,6 +359,14 @@ export default function StudioPage() {
             onClick={() => setActiveTab("model")}
           >
             Model
+          </button>
+          <button
+            className={`h-10 text-sm font-medium ${
+              activeTab === "pose" ? "bg-foreground text-background" : "bg-transparent"
+            }`}
+            onClick={() => setActiveTab("pose")}
+          >
+            Pose
           </button>
         </div>
 
@@ -896,6 +970,93 @@ export default function StudioPage() {
                   <option value="woman">Woman</option>
                 </select>
               </div>
+            </div>
+          </section>
+        )}
+
+        {/* Pose tab */}
+        {activeTab === "pose" && (
+          <section className="flex flex-col gap-4">
+            <div>
+              <label className="text-xs text-gray-500">Bulk upload pose images</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handlePoseFilesChange}
+                className="mt-1 block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 dark:file:border-white/15 file:px-3 file:py-2 file:bg-transparent file:text-sm"
+              />
+              {poseFiles.length > 0 && (
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-500">{poseFiles.length} file(s) selected</span>
+                  <button
+                    type="button"
+                    onClick={uploadPoseFiles}
+                    disabled={isPoseUploading}
+                    className={`h-9 px-3 rounded-md text-xs font-medium ${isPoseUploading ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"}`}
+                  >
+                    {isPoseUploading ? "Uploading…" : "Upload"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">Pose sources</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={refreshPoseSources}
+                  className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                >
+                  Refresh
+                </button>
+                {poseSources.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={generatePoseDescriptions}
+                    disabled={isPoseDescribing}
+                    className={`h-9 px-3 rounded-md text-xs font-medium ${isPoseDescribing ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"}`}
+                  >
+                    {isPoseDescribing ? "Generating…" : "Generate descriptions"}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {poseSources.length === 0 ? (
+              <p className="text-xs text-gray-500">No pose sources uploaded.</p>
+            ) : (
+              <ul className="mt-1 text-xs text-gray-500 break-all">
+                {poseSources.map((k) => (
+                  <li key={k}>{k}</li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Pose descriptions</h3>
+                <button
+                  type="button"
+                  onClick={refreshPoseDescriptions}
+                  className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                >
+                  Refresh
+                </button>
+              </div>
+              {poseDescs.length === 0 ? (
+                <p className="text-xs text-gray-500 mt-2">No pose descriptions yet.</p>
+              ) : (
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  {poseDescs.map((d) => (
+                    <div key={d.s3_key} className="rounded-md border border-black/10 dark:border-white/15 p-2">
+                      <div className="text-[10px] text-gray-500 truncate">{d.s3_key}</div>
+                      <div className="mt-1 text-xs whitespace-pre-wrap">{d.description}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         )}

@@ -71,6 +71,21 @@ class ModelDescription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
+class PoseSource(Base):
+    __tablename__ = "pose_sources"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class PoseDescription(Base):
+    __tablename__ = "pose_descriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
 _engine: AsyncEngine | None = None
 _SessionFactory: sessionmaker | None = None
 

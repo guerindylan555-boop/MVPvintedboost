@@ -56,6 +56,23 @@ def upload_source_image(bytes_data: bytes, mime: Optional[str] = None) -> Tuple[
     return AWS_S3_BUCKET, key
 
 
+def upload_pose_source_image(bytes_data: bytes, mime: Optional[str] = None) -> Tuple[str, str]:
+    """Uploads a pose source image to S3 under pose_sources/ and returns (bucket, key)."""
+    if not AWS_S3_BUCKET:
+        raise RuntimeError("AWS_S3_BUCKET not configured")
+    ext = "png" if (mime == "image/png") else "jpg"
+    key = f"pose_sources/{datetime.utcnow().year:04d}/{uuid.uuid4().hex}.{ext}"
+    get_s3().put_object(
+        Bucket=AWS_S3_BUCKET,
+        Key=key,
+        Body=bytes_data,
+        ContentType=mime or "application/octet-stream",
+        CacheControl="public, max-age=31536000, immutable",
+        ACL="private",
+    )
+    return AWS_S3_BUCKET, key
+
+
 def upload_model_source_image(bytes_data: bytes, gender: str, mime: Optional[str] = None) -> Tuple[str, str]:
     """Uploads a model source image to S3 under model_sources/<gender>/ and returns (bucket, key)."""
     if not AWS_S3_BUCKET:
