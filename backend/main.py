@@ -97,6 +97,7 @@ def _normalize_choice(value: str, allowed: list[str], default: str) -> str:
 
 
 def _build_prompt(*, gender: str, environment: str, poses: list[str], extra: str) -> str:
+    """Legacy prompt builder (kept for reference)."""
     pieces: list[str] = []
     pieces.append("Put this clothing item on a realistic person model.")
     pieces.append(f"Gender: {gender}.")
@@ -107,6 +108,101 @@ def _build_prompt(*, gender: str, environment: str, poses: list[str], extra: str
         pieces.append(extra)
     pieces.append("Realistic fit, high-quality fashion photo, natural lighting.")
     return " ".join(pieces)
+
+
+def build_mirror_selfie_prompt(
+    *,
+    gender: str,
+    environment: str,
+    pose: str,
+    extra: str,
+    use_env_image: bool,
+    use_person_image: bool,
+    person_description: Optional[str] = None,
+) -> str:
+    """Builds the canonical 'Mirror Selfie for Vinted' prompt with constraints.
+
+    - Always instructs mirror selfie with a black iPhone 16 Pro and amateur style.
+    - If an environment ref is provided, we avoid prescribing a textual environment.
+    - Optionally includes a short person description when no person image is provided.
+    """
+    # Normalize fields and ensure empty strings for missing conditioned controls
+    def norm(x: Optional[str]) -> str:
+        return (x or "").strip()
+
+    conditioned_gender = norm(gender)
+    conditioned_env = norm(environment) if not use_env_image else ""
+    conditioned_pose = norm(pose)
+    conditioned_extra = norm(extra)
+
+    lines: list[str] = []
+    lines.append("High-level goals")
+    lines.append("- Photorealistic mirror selfie suitable for a Vinted listing.")
+    lines.append("- The person holds a black iPhone 16 Pro; amateur smartphone look.")
+    lines.append("- Garment is the hero: exact shape, color, fabric, prints, logos.")
+    lines.append("")
+    lines.append("TASK")
+    lines.append(
+        "You render a photorealistic mirror selfie of a person wearing the provided garment. "
+        "The person holds a black iPhone 16 Pro. If a person reference is provided, keep hair and overall build consistent (the face may be occluded by the phone). "
+        "If an environment reference is provided, treat it as a mirror scene and match its lighting, camera angle, color palette, and depth of field. Keep an amateur phone-shot look."
+    )
+    lines.append("")
+    lines.append("REQUIRED OUTPUT")
+    lines.append("- One 2D PNG photo, vertical smartphone framing (prefer 4:5).")
+    lines.append("- Realistic lighting and skin; garment clearly visible and dominant.")
+    lines.append("")
+    lines.append("HARD CONSTRAINTS (must follow)")
+    lines.append("1) Garment fidelity: preserve exact silhouette, color, fabric texture, print scale/alignment, closures, and logos from the garment image.")
+    lines.append("2) Body realism: natural proportions; correct anatomy; no extra fingers; no warped limbs.")
+    lines.append("3) Face realism: plausible expression; no duplicates/melting; preserve identity cues (hair/build) if a person ref is provided.")
+    lines.append("4) Clothing fit: believable size and drape; respect gravity and fabric stiffness.")
+    lines.append("5) Clean output: no watermarks, no AI artifacts, no text overlays, no added logos.")
+    lines.append("6) Safety: PG-13; no explicit content.")
+    lines.append("7) Mirror selfie: a black iPhone 16 Pro is held in front of the face in the mirror; ensure the phone occludes the face area consistently (with correct reflection), without obscuring key garment details.")
+    lines.append("")
+    lines.append("CONDITIONED CONTROLS")
+    lines.append(f"- Gender: {conditioned_gender if conditioned_gender else '""'}")
+    lines.append(f"- Environment: {conditioned_env if conditioned_env else '""'}")
+    lines.append(f"- Pose: {conditioned_pose if conditioned_pose else '""'}")
+    lines.append(f"- Extra user instructions: \"{conditioned_extra.replace('\\n', ' ')}\"")
+    lines.append("")
+    lines.append("STYLE & CAMERA DIRECTION")
+    lines.append("- Smartphone mirror-selfie aesthetic; natural colors; mild grain acceptable.")
+    lines.append("- 3/4 or full-body by default so the garment is fully visible.")
+    lines.append("- Camera look: ~26–35mm equivalent; mild lens distortion; f/2.8–f/5.6; soft bokeh if indoors.")
+    lines.append("- Lighting: match environment reference if given; otherwise soft directional key + gentle fill; subtle rim for separation.")
+    lines.append("- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible naturally.")
+    lines.append("")
+    lines.append("ENVIRONMENT BEHAVIOR")
+    lines.append("- If an environment reference is provided: treat it as a mirror scene; imitate its framing, palette, light direction, shadows, and DoF; keep any mirror frame consistent.")
+    lines.append("- If not provided: synthesize a clean mirror setting (bedroom/closet/bath) that complements the garment; uncluttered background.")
+    lines.append("")
+    lines.append("PERSON BEHAVIOR")
+    lines.append("- If a person reference is provided: keep hair, skin tone, and general build consistent (face may be partly occluded by phone).")
+    lines.append("- If not provided: synthesize a plausible model matching the gender; friendly neutral expression.")
+    if person_description:
+        lines.append("- Use a person that matches this description.")
+        lines.append(f"- Person description: {person_description}")
+    lines.append("- Hand pose: holding a black iPhone 16 Pro naturally; fingers look correct; phone and its reflection visible.")
+    lines.append("")
+    lines.append("POSE RENDERING")
+    lines.append(f"- Enforce the requested pose: {conditioned_pose if conditioned_pose else '""'}. Make it balanced and anatomically plausible.")
+    lines.append("- Ensure the garment remains fully visible and not occluded by the phone or pose.")
+    lines.append("")
+    lines.append("QUALITY CHECK BEFORE OUTPUT")
+    lines.append("- Fingers: five per hand; shapes correct.")
+    lines.append("- Garment: crisp edges; seams/hemlines visible; prints/logos accurate.")
+    lines.append("- Face: no duplicates; no melting; if visible, eyes symmetrical; otherwise occluded by phone.")
+    lines.append("- Mirror: phone and reflection consistent; no extra phones; no camera artifacts.")
+    lines.append("- Background: clean and coherent; matches env ref if provided.")
+    lines.append("")
+    lines.append("NEGATIVE GUIDANCE (avoid)")
+    lines.append("blurry, over-saturated, HDR halos, duplicated limbs, extra fingers, warped faces, melted textures, text overlays, watermarks, added/brand-new logos, heavy beauty retouching, studio glamour look, ring-light glare, tripod/DSLR look, explicit content.")
+    lines.append("")
+    lines.append("END OF INSTRUCTIONS")
+
+    return "\n".join(lines)
 
 
 @app.post("/edit")
@@ -158,35 +254,28 @@ async def edit(
         if not norm_poses:
             norm_poses = ["standing"]
 
-        # Build prompt considering optional environment/person reference inputs
+        # Build prompt (Mirror Selfie template) considering optional environment/person references
         parts: list[types.Part] = []
         env_key_used: str | None = None
         person_key_used: str | None = None
-        base_lines: list[str] = []
-        base_lines.append("Put this clothing item on a realistic person model.")
-        # Omit gender description if a person reference image is provided
-        if not model_default_s3_key:
-            base_lines.append(f"Gender: {gender}.")
-        # Use textual environment only if no environment reference is provided
-        if not env_default_s3_key:
-            base_lines.append(f"Environment: {environment}.")
-        if norm_poses:
-            base_lines.append("Poses: " + ", ".join(norm_poses) + ".")
-        if extra:
-            base_lines.append(extra)
-        # If caller provided a textual person description (and likely no image), include it explicitly
-        if model_description_text:
-            base_lines.append("Use a person that matches this description.")
-            base_lines.append(f"Person description: {model_description_text}")
-        if env_default_s3_key:
-            base_lines.append("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.")
-        if model_default_s3_key:
-            base_lines.append("Use the provided person reference image as the subject; preserve identity and pose while dressing them with the garment.")
-        base_lines.append("Realistic fit, high-quality fashion photo, natural lighting.")
-        prompt_text = " ".join(base_lines)
-        # Allow caller to override the exact prompt text
+
+        use_env_image = bool(env_default_s3_key)
+        use_person_image = bool(model_default_s3_key)
+        pose_str = norm_poses[0] if norm_poses else ""
+
+        # Prefer explicit override; otherwise build canonical mirror selfie prompt
         if prompt_override and prompt_override.strip():
             prompt_text = prompt_override.strip()
+        else:
+            prompt_text = build_mirror_selfie_prompt(
+                gender=gender,
+                environment=environment,
+                pose=pose_str,
+                extra=extra,
+                use_env_image=use_env_image,
+                use_person_image=use_person_image,
+                person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+            )
         parts.append(types.Part.from_text(text=prompt_text))
 
         if env_default_s3_key:
