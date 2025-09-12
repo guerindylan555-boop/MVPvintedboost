@@ -57,10 +57,29 @@ export default function Home() {
     if (!selectedFile) return;
     try {
       setIsGenerating(true);
-      // TODO: Wire up API call to your generation backend
-      await new Promise((r) => setTimeout(r, 1200));
-      console.log("Generate with file:", selectedFile);
-      alert("Pretend we generated an image! (hook up backend next)");
+      const form = new FormData();
+      form.append("prompt", "i want this clothe on someone");
+      form.append("image", selectedFile);
+
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/edit`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Request failed: ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const genUrl = URL.createObjectURL(blob);
+      // Replace preview with generated result for now
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(genUrl);
+    } catch (err) {
+      console.error(err);
+      alert("Generation failed. Check backend logs and API key.");
     } finally {
       setIsGenerating(false);
     }
