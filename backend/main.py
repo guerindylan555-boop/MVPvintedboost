@@ -10,6 +10,8 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
+from .db import db_session, init_db, Generation
+from .storage import upload_image
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
@@ -45,6 +47,15 @@ def get_client() -> genai.Client:
 @app.get("/health")
 async def health():
     return {"ok": True, "model": MODEL}
+
+
+@app.on_event("startup")
+async def on_startup():
+    try:
+        await init_db()
+        logger.info("DB initialized")
+    except Exception:
+        logger.exception("Failed to initialize DB")
 
 
 @app.post("/generate")
@@ -146,7 +157,26 @@ async def edit(
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
                 if getattr(p, "inline_data", None):
-                    return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
+                    png_bytes = p.inline_data.data
+                    # Upload to S3
+                    bucket, key = upload_image(png_bytes, pose=norm_poses[0])
+                    # Persist to DB
+                    async with db_session() as session:
+                        rec = Generation(
+                            s3_key=key,
+                            pose=norm_poses[0],
+                            prompt=prompt_text,
+                            options_json={
+                                "gender": gender,
+                                "environment": environment,
+                                "poses": norm_poses,
+                                "extra": extra,
+                            },
+                            model=MODEL,
+                        )
+                        session.add(rec)
+                    # Stream bytes back for current UI
+                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
         return JSONResponse({"error": "no edited image from model"}, status_code=502)
     except genai_errors.APIError as e:
         logger.exception("GenAI API error on /edit")

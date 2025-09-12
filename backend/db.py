@@ -1,0 +1,70 @@
+import os
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import String, JSON, Integer, Text, DateTime
+from datetime import datetime
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgresql+") and "+psycopg2" in DATABASE_URL:
+    # Convert sync psycopg2 URL to async driver (psycopg)
+    DATABASE_URL_ASYNC = DATABASE_URL.replace("+psycopg2", "+psycopg")
+else:
+    # Allow already-async URLs
+    DATABASE_URL_ASYNC = DATABASE_URL
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Generation(Base):
+    __tablename__ = "generations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    pose: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    options_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+_engine: AsyncEngine | None = None
+_SessionFactory: sessionmaker | None = None
+
+
+def get_engine() -> AsyncEngine:
+    global _engine
+    if _engine is None:
+        if not DATABASE_URL_ASYNC:
+            raise RuntimeError("DATABASE_URL not configured")
+        _engine = create_async_engine(DATABASE_URL_ASYNC, pool_pre_ping=True)
+    return _engine
+
+
+def get_sessionmaker() -> sessionmaker:
+    global _SessionFactory
+    if _SessionFactory is None:
+        _SessionFactory = sessionmaker(bind=get_engine(), class_=AsyncSession, expire_on_commit=False)
+    return _SessionFactory
+
+
+@asynccontextmanager
+async def db_session() -> AsyncIterator[AsyncSession]:
+    session = get_sessionmaker()()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
+
+
+async def init_db() -> None:
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
