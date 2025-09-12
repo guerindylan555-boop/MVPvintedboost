@@ -16,6 +16,7 @@ export default function Home() {
     poses: ["standing"],
     extra: "",
   });
+  const [title, setTitle] = useState("");
   const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
 
   useEffect(() => {
@@ -121,6 +122,7 @@ export default function Home() {
         form.append("environment", options.environment);
         form.append("poses", pose);
         form.append("extra", options.extra || "");
+        form.append("title", title || "");
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
@@ -173,86 +175,7 @@ export default function Home() {
   return (
     <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
       <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
-        <header className="pt-2">
-          <h1 className="text-xl font-semibold tracking-tight">VintedBoost</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Upload a clothing photo. We will place it on a model.
-          </p>
-        </header>
-
-        {/* Options */}
-        <section className="mt-1">
-          <button
-            type="button"
-            className="w-full flex items-center justify-between py-3"
-            onClick={() => setOptionsOpen((s) => !s)}
-          >
-            <span className="text-sm font-medium">Options</span>
-            <span className="text-xs text-gray-500">{optionsOpen ? "Hide" : "Show"}</span>
-          </button>
-          {optionsOpen && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-1">
-                <label className="text-xs text-gray-500">Gender</label>
-                <select
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={options.gender}
-                  onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
-                >
-                  <option value="woman">Woman</option>
-                  <option value="man">Man</option>
-                  <option value="unisex">Unisex</option>
-                </select>
-              </div>
-              <div className="col-span-1">
-                <label className="text-xs text-gray-500">Environment</label>
-                <select
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={options.environment}
-                  onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
-                >
-                  <option value="studio">Studio</option>
-                  <option value="street">Street</option>
-                  <option value="bed">Bed</option>
-                  <option value="beach">Beach</option>
-                  <option value="indoor">Indoor</option>
-                </select>
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Poses (up to 3)</label>
-                <div className="mt-1 grid grid-cols-2 gap-2">
-                  {allowedPoses.map((pose) => {
-                    const selected = options.poses.includes(pose);
-                    const limitReached = !selected && options.poses.length >= 3;
-                    return (
-                      <label key={pose} className={`flex items-center gap-2 text-sm rounded-md border px-3 py-2 ${selected ? "border-foreground" : "border-black/10 dark:border-white/15"}`}>
-                        <input
-                          type="checkbox"
-                          className="size-4"
-                          checked={selected}
-                          disabled={limitReached}
-                          onChange={() => togglePose(pose)}
-                        />
-                        {pose}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Extra instructions</label>
-                <input
-                  type="text"
-                  placeholder="e.g., natural daylight, smiling, medium shot"
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={options.extra}
-                  onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
-                />
-              </div>
-            </div>
-          )}
-        </section>
-
+        {/* Upload first */}
         <section>
           <input
             ref={fileInputRef}
@@ -338,6 +261,93 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        {/* Title */}
+        <section>
+          <label className="text-xs text-gray-500">Title</label>
+          <input
+            type="text"
+            placeholder="Give this generation a name"
+            className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </section>
+
+        {/* Options */}
+        <section className="mt-1">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between py-3"
+            onClick={() => setOptionsOpen((s) => !s)}
+          >
+            <span className="text-sm font-medium">Options</span>
+            <span className="text-xs text-gray-500">{optionsOpen ? "Hide" : "Show"}</span>
+          </button>
+          {optionsOpen && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Gender</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.gender}
+                  onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
+                >
+                  <option value="woman">Woman</option>
+                  <option value="man">Man</option>
+                  <option value="unisex">Unisex</option>
+                </select>
+              </div>
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Environment</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.environment}
+                  onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
+                >
+                  <option value="studio">Studio</option>
+                  <option value="street">Street</option>
+                  <option value="bed">Bed</option>
+                  <option value="beach">Beach</option>
+                  <option value="indoor">Indoor</option>
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Poses (up to 3)</label>
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  {allowedPoses.map((pose) => {
+                    const selected = options.poses.includes(pose);
+                    const limitReached = !selected && options.poses.length >= 3;
+                    return (
+                      <label key={pose} className={`flex items-center gap-2 text-sm rounded-md border px-3 py-2 ${selected ? "border-foreground" : "border-black/10 dark:border-white/15"}`}>
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={selected}
+                          disabled={limitReached}
+                          onChange={() => togglePose(pose)}
+                        />
+                        {pose}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Extra instructions</label>
+                <input
+                  type="text"
+                  placeholder="e.g., natural daylight, smiling, medium shot"
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.extra}
+                  onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+
+        
 
         {/* History */}
         <section className="mt-2">
