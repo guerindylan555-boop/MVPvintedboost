@@ -15,12 +15,9 @@ API_KEY = os.getenv("GOOGLE_API_KEY", "")
 app = FastAPI(title="VintedBoost Backend", version="0.1.0")
 
 # CORS - allow local Next.js dev and same-origin deployments
-origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost",
-    "*",  # Relaxed for MVP; lock down in production
-]
+# CORS origins from env (comma-separated). Fallback to permissive during MVP.
+env_origins = os.getenv("CORS_ALLOW_ORIGINS", "*")
+origins = [o.strip() for o in env_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
