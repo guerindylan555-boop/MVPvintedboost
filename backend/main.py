@@ -421,6 +421,89 @@ async def list_defaults():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# --- Model generation (randomize a person with optional env reference) ---
+
+def _normalize_gender(g: str) -> str:
+    g = (g or "").strip().lower()
+    return g if g in ("man", "woman") else "man"
+
+
+@app.post("/model/generate")
+async def model_generate(
+    image: UploadFile = File(...),
+    gender: str = Form("man"),
+    prompt: str = Form(""),
+    env_default_s3_key: str | None = Form(None),
+):
+    try:
+        if not image or not image.filename:
+            return JSONResponse({"error": "image file required"}, status_code=400)
+        # Read and normalize uploaded image to PNG bytes
+        raw_bytes = await image.read()
+        if len(raw_bytes) > 10 * 1024 * 1024:
+            return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
+        src = Image.open(BytesIO(raw_bytes))
+        buf = BytesIO()
+        src.convert("RGBA").save(buf, format="PNG")
+        buf.seek(0)
+
+        gender = _normalize_gender(gender)
+        user_prompt = (prompt or "").strip()
+
+        # Build instruction
+        lines: list[str] = []
+        lines.append(f"Randomize this {gender}.")
+        if user_prompt:
+            lines.append(user_prompt)
+        if env_default_s3_key:
+            lines.append("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.")
+        lines.append("High quality fashion photo, natural lighting, realistic skin and fabric.")
+        text_part = types.Part.from_text(text=" ".join(lines))
+
+        parts: list[types.Part] = [text_part]
+        env_key_used: str | None = None
+        if env_default_s3_key:
+            try:
+                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
+                parts.append(types.Part.from_text(text="Environment reference:"))
+                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
+                env_key_used = env_default_s3_key
+            except Exception:
+                env_key_used = None
+
+        # Person source image
+        parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
+
+        resp = get_client().models.generate_content(
+            model=MODEL,
+            contents=types.Content(role="user", parts=parts),
+        )
+        for c in getattr(resp, "candidates", []) or []:
+            for p in getattr(c, "content", {}).parts or []:
+                if getattr(p, "inline_data", None):
+                    png_bytes = p.inline_data.data
+                    bucket, key = upload_image(png_bytes, pose=f"model-{gender}")
+                    async with db_session() as session:
+                        rec = Generation(
+                            s3_key=key,
+                            pose=f"model-{gender}",
+                            prompt=" ".join(lines),
+                            options_json={
+                                "mode": "model",
+                                "gender": gender,
+                                "user_prompt": user_prompt,
+                                "env_default_s3_key": env_key_used,
+                            },
+                            model=MODEL,
+                        )
+                        session.add(rec)
+                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+        return JSONResponse({"error": "no image from model"}, status_code=502)
+    except Exception as e:
+        logger.exception("model generate failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.post("/env/defaults")
 async def set_defaults(
     s3_keys: list[str] = Form(...),

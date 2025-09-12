@@ -18,6 +18,7 @@ export default function StudioPage() {
   const [modelPrompt, setModelPrompt] = useState("");
   const [isModelGenerating, setIsModelGenerating] = useState(false);
   const [modelPreviewUrl, setModelPreviewUrl] = useState(null);
+  const [modelGender, setModelGender] = useState("man"); // which source to use
   const [maleFile, setMaleFile] = useState(null);
   const [malePreview, setMalePreview] = useState(null);
   const [femaleFile, setFemaleFile] = useState(null);
@@ -194,14 +195,25 @@ export default function StudioPage() {
   }
 
   async function handleModelGenerate() {
-    if (!modelPrompt.trim()) return;
+    if (!maleFile && !femaleFile) {
+      alert("Pick a male or female source image first");
+      return;
+    }
     try {
       setIsModelGenerating(true);
-      // For now, model generation uses text-only endpoint. Images will be used later.
       const form = new FormData();
-      form.append("prompt", modelPrompt.trim());
+      const gender = modelGender;
+      const file = gender === "man" ? maleFile || femaleFile : femaleFile || maleFile;
+      form.append("image", file);
+      form.append("gender", gender);
+      if (modelPrompt.trim()) form.append("prompt", modelPrompt.trim());
+      // Add environment default if any is selected globally via main page localStorage
+      try {
+        const savedEnv = localStorage.getItem("vb_env_default_key");
+        if (savedEnv) form.append("env_default_s3_key", savedEnv);
+      } catch {}
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/generate`, { method: "POST", body: form });
+      const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -507,7 +519,34 @@ export default function StudioPage() {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setModelPrompt("Studio portrait, soft lighting, neutral background")}
+                onClick={async () => {
+                  try {
+                    setIsModelGenerating(true);
+                    const form = new FormData();
+                    const gender = modelGender;
+                    const file = gender === "man" ? maleFile || femaleFile : femaleFile || maleFile;
+                    if (!file) return alert("Pick a male or female source image first");
+                    form.append("image", file);
+                    form.append("gender", gender);
+                    // Add environment default if any (same behavior as environment tab)
+                    try {
+                      const savedEnv = localStorage.getItem("vb_env_default_key");
+                      if (savedEnv) form.append("env_default_s3_key", savedEnv);
+                    } catch {}
+                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                    const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
+                    if (!res.ok) throw new Error(await res.text());
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
+                    setModelPreviewUrl(url);
+                  } catch (e) {
+                    console.error(e);
+                    alert("Model randomization failed");
+                  } finally {
+                    setIsModelGenerating(false);
+                  }
+                }}
                 className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
               >
                 Random
@@ -627,6 +666,17 @@ export default function StudioPage() {
                     )}
                   </div>
                 </div>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Model gender</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={modelGender}
+                  onChange={(e) => setModelGender(e.target.value)}
+                >
+                  <option value="man">Man</option>
+                  <option value="woman">Woman</option>
+                </select>
               </div>
             </div>
           </section>
