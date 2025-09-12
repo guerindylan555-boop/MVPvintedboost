@@ -52,11 +52,7 @@ export default function Home() {
       const list = options.poses.join(", ");
       chunks.push(`Poses: ${list}.`);
     }
-    if (descEnabled) {
-      if (desc.brand?.trim()) chunks.push(`Brand: ${desc.brand.trim()}.`);
-      if (desc.productModel?.trim()) chunks.push(`Model: ${desc.productModel.trim()}.`);
-      if (desc.size?.trim()) chunks.push(`Size: ${desc.size.trim().toUpperCase()}.`);
-    }
+    // Description fields are for later use; not included in generation prompt
     if (options.extra?.trim()) chunks.push(options.extra.trim());
     chunks.push("Realistic fit, high-quality fashion photo, natural lighting.");
     return chunks.join(" ");
@@ -130,12 +126,7 @@ export default function Home() {
         form.append("poses", pose);
         form.append("extra", options.extra || "");
         form.append("title", title || "");
-        form.append("desc_enabled", descEnabled ? "true" : "false");
-        if (descEnabled) {
-          if (desc.brand?.trim()) form.append("brand", desc.brand.trim());
-          if (desc.productModel?.trim()) form.append("product_model", desc.productModel.trim());
-          if (desc.size?.trim()) form.append("size", desc.size.trim());
-        }
+        // Description fields are not sent to backend for generation
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
@@ -448,6 +439,14 @@ export default function Home() {
               ))}
             </div>
           )}
+          <div className="mt-4">
+            <a
+              href="/studio"
+              className="inline-flex items-center gap-2 text-sm font-medium underline underline-offset-4"
+            >
+              Open Studio (Environment & Model)
+            </a>
+          </div>
         </section>
       </main>
 
