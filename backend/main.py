@@ -10,7 +10,7 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault, ModelSource
+from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault, ModelSource, ModelDescription
 from .storage import (
     upload_image,
     upload_source_image,
@@ -508,6 +508,30 @@ async def model_generate(
                             model=MODEL,
                         )
                         session.add(rec)
+                    # Run a follow-up description generation on the produced image
+                    try:
+                        describe_prompt = "descibe this person in the most detail way possible espacialy the face not the clothe output max token"
+                        desc_parts = [types.Part.from_text(text=describe_prompt), types.Part.from_bytes(data=png_bytes, mime_type="image/png")]
+                        desc_resp = get_client().models.generate_content(
+                            model=MODEL,
+                            contents=types.Content(role="user", parts=desc_parts),
+                        )
+                        description_text = None
+                        for dc in getattr(desc_resp, "candidates", []) or []:
+                            # attempt to extract text
+                            if getattr(dc, "content", None) and getattr(dc.content, "parts", None):
+                                for part in dc.content.parts:
+                                    if getattr(part, "text", None):
+                                        description_text = part.text
+                                        break
+                            if description_text:
+                                break
+                        if description_text:
+                            async with db_session() as session:
+                                session.add(ModelDescription(s3_key=key, description=description_text))
+                    except Exception:
+                        # Non-fatal if description generation fails
+                        pass
                     return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
@@ -601,11 +625,20 @@ async def list_model_generated():
                 key = row[0]
                 created = row[1]
                 gender = (row[2] or {}).get("gender")
+                # fetch description if present
+                desc_text = None
+                try:
+                    dres = await session.execute(text("SELECT description FROM model_descriptions WHERE s3_key = :k"), {"k": key})
+                    drow = dres.first()
+                    if drow:
+                        desc_text = drow[0]
+                except Exception:
+                    pass
                 try:
                     url = generate_presigned_get_url(key)
                 except Exception:
                     url = None
-                items.append({"s3_key": key, "created_at": created.isoformat(), "gender": gender, "url": url})
+                items.append({"s3_key": key, "created_at": created.isoformat(), "gender": gender, "url": url, "description": desc_text})
         return {"ok": True, "items": items}
     except Exception as e:
         logger.exception("Failed to list model generated images")

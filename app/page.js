@@ -469,18 +469,6 @@ export default function Home() {
                   </select>
                 </div>
               )}
-              {/* Model defaults selection based on gender */}
-              <div className="col-span-1">
-                <label className="text-xs text-gray-500">Gender</label>
-                <select
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={options.gender}
-                  onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
-                >
-                  <option value="woman">Woman</option>
-                  <option value="man">Man</option>
-                </select>
-              </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Poses (up to 3)</label>
                 <div className="mt-1 grid grid-cols-2 gap-2">

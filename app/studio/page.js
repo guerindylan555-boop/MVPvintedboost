@@ -624,6 +624,9 @@ export default function StudioPage() {
                     return (
                       <div key={g.s3_key} className={`relative rounded-md overflow-hidden border ${isDefault ? "border-blue-500" : "border-black/10 dark:border-white/15"} aspect-square`}>
                         <img src={src} alt="Generated model" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                        {g.description && (
+                          <div className="absolute inset-x-0 bottom-0 text-[10px] bg-black/70 text-white p-1 max-h-20 overflow-auto whitespace-pre-wrap">{g.description}</div>
+                        )}
                         <div className="absolute top-1 right-1 flex gap-1">
                           {isDefault ? (
                             <>
@@ -723,6 +726,9 @@ export default function StudioPage() {
                     return (
                       <div key={g.s3_key} className={`relative rounded-md overflow-hidden border ${isDefault ? "border-blue-500" : "border-black/10 dark:border-white/15"} aspect-square`}>
                         <img src={src} alt="Generated model" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                        {g.description && (
+                          <div className="absolute inset-x-0 bottom-0 text-[10px] bg-black/70 text-white p-1 max-h-20 overflow-auto whitespace-pre-wrap">{g.description}</div>
+                        )}
                         <div className="absolute top-1 right-1 flex gap-1">
                           {isDefault ? (
                             <>

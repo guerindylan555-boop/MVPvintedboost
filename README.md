@@ -12,7 +12,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
 ### Features
 - Upload clothing image (tap or drag‑and‑drop)
 - Options panel:
-  - gender: woman/man/unisex
+  - gender: woman/man
   - environment: studio/street/bed/beach/indoor
   - poses: select up to 3 poses; parallel generation per pose
   - extra: free text instructions
@@ -162,7 +162,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Content-Type: `multipart/form-data`
 - Fields:
   - `image` (file, required)
-  - `gender` (woman|man|unisex, optional)
+- `gender` (woman|man, optional)
   - `environment` (studio|street|bed|beach|indoor, optional)
   - `poses` (repeated; standing|sitting|lying down|walking; UI sends one per request)
   - `extra` (string, optional)
