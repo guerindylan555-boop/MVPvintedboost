@@ -10,10 +10,11 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault
+from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault, ModelSource
 from .storage import (
     upload_image,
     upload_source_image,
+    upload_model_source_image,
     get_object_bytes,
     delete_objects,
     generate_presigned_get_url,
@@ -459,8 +460,15 @@ async def model_generate(
 
         parts: list[types.Part] = [text_part]
 
-        # Person source image
+        # Person source image (also store source in S3 and DB)
         parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
+        try:
+            _, src_key = upload_model_source_image(buf.getvalue(), gender=gender, mime="image/png")
+            async with db_session() as session:
+                session.add(ModelSource(gender=gender, s3_key=src_key))
+        except Exception:
+            # Non-fatal if source upload fails; continue generation
+            pass
 
         resp = get_client().models.generate_content(
             model=MODEL,
@@ -644,6 +652,20 @@ async def unset_model_default(gender: str):
         return {"ok": True}
     except Exception as e:
         logger.exception("Failed to unset model default")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/model/generated")
+async def delete_model_generated(s3_key: str):
+    """Delete a generated model image from S3 and DB; clear from model defaults if set."""
+    try:
+        delete_objects([s3_key])
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM generations WHERE s3_key = :k"), {"k": s3_key})
+            await session.execute(text("DELETE FROM model_defaults WHERE s3_key = :k"), {"k": s3_key})
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to delete model generated image")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

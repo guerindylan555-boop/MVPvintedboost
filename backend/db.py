@@ -55,6 +55,14 @@ class ModelDefault(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
+class ModelSource(Base):
+    __tablename__ = "model_sources"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    gender: Mapped[str] = mapped_column(String(16), nullable=False)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
 _engine: AsyncEngine | None = None
 _SessionFactory: sessionmaker | None = None
 

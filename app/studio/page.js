@@ -12,6 +12,8 @@ export default function StudioPage() {
   const [sources, setSources] = useState([]);
   const [generated, setGenerated] = useState([]);
   const [modelGenerated, setModelGenerated] = useState([]);
+  const [modelGeneratedMen, setModelGeneratedMen] = useState([]);
+  const [modelGeneratedWomen, setModelGeneratedWomen] = useState([]);
   const [selectedKeys, setSelectedKeys] = useState([]);
   const [defaultNames, setDefaultNames] = useState({}); // s3_key -> name
   const [defaults, setDefaults] = useState([]); // [{s3_key,name,url}]
@@ -128,7 +130,11 @@ export default function StudioPage() {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       const res = await fetch(`${baseUrl}/model/generated`);
       const data = await res.json();
-      if (data?.items) setModelGenerated(data.items);
+      if (data?.items) {
+        setModelGenerated(data.items);
+        setModelGeneratedMen(data.items.filter((i) => i.gender === "man"));
+        setModelGeneratedWomen(data.items.filter((i) => i.gender === "woman"));
+      }
     } catch {}
   }
 
@@ -221,23 +227,18 @@ export default function StudioPage() {
   }
 
   async function handleModelGenerate() {
-    if (!maleFile && !femaleFile) {
-      alert("Pick a male or female source image first");
+    const gender = modelGender;
+    const file = gender === "man" ? maleFile : femaleFile;
+    if (!file) {
+      alert(`Pick a ${gender} source image first`);
       return;
     }
     try {
       setIsModelGenerating(true);
       const form = new FormData();
-      const gender = modelGender;
-      const file = gender === "man" ? maleFile || femaleFile : femaleFile || maleFile;
       form.append("image", file);
       form.append("gender", gender);
       if (modelPrompt.trim()) form.append("prompt", modelPrompt.trim());
-      // Add environment default if any is selected globally via main page localStorage
-      try {
-        const savedEnv = localStorage.getItem("vb_env_default_key");
-        if (savedEnv) form.append("env_default_s3_key", savedEnv);
-      } catch {}
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
       if (!res.ok) throw new Error(await res.text());
@@ -551,15 +552,10 @@ export default function StudioPage() {
                     setIsModelGenerating(true);
                     const form = new FormData();
                     const gender = modelGender;
-                    const file = gender === "man" ? maleFile || femaleFile : femaleFile || maleFile;
-                    if (!file) return alert("Pick a male or female source image first");
+                    const file = gender === "man" ? maleFile : femaleFile;
+                    if (!file) return alert(`Pick a ${gender} source image first`);
                     form.append("image", file);
                     form.append("gender", gender);
-                    // Add environment default if any (same behavior as environment tab)
-                    try {
-                      const savedEnv = localStorage.getItem("vb_env_default_key");
-                      if (savedEnv) form.append("env_default_s3_key", savedEnv);
-                    } catch {}
                     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
                     const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
                     if (!res.ok) throw new Error(await res.text());
@@ -582,9 +578,9 @@ export default function StudioPage() {
               <button
                 type="button"
                 onClick={handleModelGenerate}
-                disabled={!modelPrompt.trim() || isModelGenerating}
+                disabled={(modelGender === "man" ? !maleFile : !femaleFile) || isModelGenerating}
                 className={`h-10 px-4 rounded-md text-sm font-semibold active:translate-y-px ${
-                  !modelPrompt.trim() || isModelGenerating
+                  (modelGender === "man" ? !maleFile : !femaleFile) || isModelGenerating
                     ? "bg-foreground/30 text-background/60 cursor-not-allowed"
                     : "bg-foreground text-background"
                 }`}
@@ -603,10 +599,10 @@ export default function StudioPage() {
               </div>
             </div>
 
-            {/* Generated images grid */}
+            {/* Generated model images (separate grids by gender) */}
             <div className="mt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Recent generated models</h3>
+                <h3 className="text-sm font-medium">Recent generated models — Men</h3>
                 <button
                   type="button"
                   onClick={refreshModelGenerated}
@@ -615,17 +611,16 @@ export default function StudioPage() {
                   Refresh
                 </button>
               </div>
-              {modelGenerated.length === 0 ? (
+              {modelGeneratedMen.length === 0 ? (
                 <p className="text-xs text-gray-500 mt-2">No generated models yet.</p>
               ) : (
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {modelGenerated.map((g) => {
+                  {modelGeneratedMen.map((g) => {
                     const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
                     const isMaleDefault = defaultsModel?.man?.s3_key === g.s3_key;
-                    const isFemaleDefault = defaultsModel?.woman?.s3_key === g.s3_key;
-                    const isDefault = isMaleDefault || isFemaleDefault;
-                    const gender = g.gender || (isMaleDefault ? "man" : isFemaleDefault ? "woman" : "model");
-                    const defaultName = isMaleDefault ? defaultsModel.man.name : isFemaleDefault ? defaultsModel.woman.name : null;
+                    const isDefault = isMaleDefault;
+                    const gender = "man";
+                    const defaultName = isMaleDefault ? defaultsModel.man.name : null;
                     return (
                       <div key={g.s3_key} className={`relative rounded-md overflow-hidden border ${isDefault ? "border-blue-500" : "border-black/10 dark:border-white/15"} aspect-square`}>
                         <img src={src} alt="Generated model" loading="lazy" decoding="async" className="h-full w-full object-cover" />
@@ -696,6 +691,105 @@ export default function StudioPage() {
                         </div>
                         {isDefault && (
                           <div className="absolute bottom-0 left-0 right-0 text-[10px] bg-blue-600 text-white px-1 truncate">{defaultName || (gender === "woman" ? "Female default" : "Male default")}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">Recent generated models — Women</h3>
+                <button
+                  type="button"
+                  onClick={refreshModelGenerated}
+                  className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                >
+                  Refresh
+                </button>
+              </div>
+              {modelGeneratedWomen.length === 0 ? (
+                <p className="text-xs text-gray-500 mt-2">No generated models yet.</p>
+              ) : (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {modelGeneratedWomen.map((g) => {
+                    const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                    const isFemaleDefault = defaultsModel?.woman?.s3_key === g.s3_key;
+                    const isDefault = isFemaleDefault;
+                    const gender = "woman";
+                    const defaultName = isFemaleDefault ? defaultsModel.woman.name : null;
+                    return (
+                      <div key={g.s3_key} className={`relative rounded-md overflow-hidden border ${isDefault ? "border-blue-500" : "border-black/10 dark:border-white/15"} aspect-square`}>
+                        <img src={src} alt="Generated model" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                        <div className="absolute top-1 right-1 flex gap-1">
+                          {isDefault ? (
+                            <>
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-[10px] rounded bg-yellow-500 text-white"
+                                onClick={async () => {
+                                  const newName = prompt("Rename default", defaultName || "");
+                                  if (newName == null) return;
+                                  try {
+                                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                    const form = new FormData();
+                                    form.append("gender", gender);
+                                    form.append("name", newName);
+                                    const res = await fetch(`${baseUrl}/model/defaults`, { method: "PATCH", body: form });
+                                    if (!res.ok) throw new Error(await res.text());
+                                    await refreshModelDefaults();
+                                  } catch (e) {
+                                    alert("Rename failed");
+                                  }
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-[10px] rounded bg-gray-700 text-white"
+                                onClick={async () => {
+                                  if (!confirm("Remove from defaults?")) return;
+                                  try {
+                                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                    const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
+                                    if (!res.ok) throw new Error(await res.text());
+                                    await refreshModelDefaults();
+                                  } catch (e) {
+                                    alert("Failed to remove default");
+                                  }
+                                }}
+                              >
+                                Undefault
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-[10px] rounded bg-blue-600 text-white"
+                              onClick={async () => {
+                                try {
+                                  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                  const form = new FormData();
+                                  form.append("gender", gender);
+                                  form.append("s3_key", g.s3_key);
+                                  form.append("name", "Female default");
+                                  const res = await fetch(`${baseUrl}/model/defaults`, { method: "POST", body: form });
+                                  if (!res.ok) throw new Error(await res.text());
+                                  await refreshModelDefaults();
+                                } catch (e) {
+                                  alert("Failed to set default");
+                                }
+                              }}
+                            >
+                              Set default
+                            </button>
+                          )}
+                        </div>
+                        {isDefault && (
+                          <div className="absolute bottom-0 left-0 right-0 text-[10px] bg-blue-600 text-white px-1 truncate">{defaultName || "Female default"}</div>
                         )}
                       </div>
                     );
