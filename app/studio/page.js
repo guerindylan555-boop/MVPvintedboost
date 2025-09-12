@@ -226,6 +226,19 @@ export default function StudioPage() {
     setFemalePreview(URL.createObjectURL(f));
   }
 
+  // Ensure only the selected gender's source image is kept
+  useEffect(() => {
+    if (modelGender === "man") {
+      if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
+      setFemalePreview(null);
+      setFemaleFile(null);
+    } else {
+      if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
+      setMalePreview(null);
+      setMaleFile(null);
+    }
+  }, [modelGender]);
+
   async function handleModelGenerate() {
     const gender = modelGender;
     const file = gender === "man" ? maleFile : femaleFile;
