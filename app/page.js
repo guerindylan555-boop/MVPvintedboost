@@ -25,6 +25,9 @@ export default function Home() {
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
+  // Prompt preview/editor
+  const [promptInput, setPromptInput] = useState("");
+  const [promptDirty, setPromptDirty] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -106,21 +109,55 @@ export default function Home() {
     } catch {}
   }
 
-  function buildPrompt() {
-    const chunks = ["Put this clothing item on a realistic person model."];
-    // When using a person reference image, backend omits gender text. We still
-    // show it in the preview/history prompt, but it won't affect backend logic.
-    if (options.gender) chunks.push(`Gender: ${options.gender}.`);
-    if (options.environment) chunks.push(`Environment: ${options.environment}.`);
+  function computeEffectivePrompt() {
+    const lines = ["Put this clothing item on a realistic person model."];
+    // Determine references identical to send logic
+    const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
+      ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
+      : undefined;
+    const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
+    const personDefaultKey = personDefault?.s3_key;
+    const personDesc = personDefault?.description;
+    const usingPersonImage = !!(useModelImage && personDefaultKey);
+    const usingPersonDesc = !!(!useModelImage && personDesc);
+
+    if (!usingPersonImage && options.gender) lines.push(`Gender: ${options.gender}.`);
+    if (!envDefaultKey && options.environment) lines.push(`Environment: ${options.environment}.`);
     if (Array.isArray(options.poses) && options.poses.length > 0) {
       const list = options.poses.join(", ");
-      chunks.push(`Poses: ${list}.`);
+      lines.push(`Poses: ${list}.`);
     }
-    // Description fields are for later use; not included in generation prompt
-    if (options.extra?.trim()) chunks.push(options.extra.trim());
-    chunks.push("Realistic fit, high-quality fashion photo, natural lighting.");
-    return chunks.join(" ");
+    if (options.extra?.trim()) lines.push(options.extra.trim());
+    if (usingPersonDesc) {
+      lines.push("Use a person that matches this description.");
+      lines.push(`Person description: ${personDesc}`);
+    }
+    if (envDefaultKey) {
+      lines.push("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.");
+    }
+    if (usingPersonImage) {
+      lines.push("Use the provided person reference image as the subject; preserve identity and pose while dressing them with the garment.");
+    }
+    lines.push("Realistic fit, high-quality fashion photo, natural lighting.");
+    return lines.join(" ");
   }
+
+  // Keep prompt preview in sync unless user edited it
+  useEffect(() => {
+    if (!promptDirty) {
+      setPromptInput(computeEffectivePrompt());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    options.gender,
+    options.environment,
+    JSON.stringify(options.poses),
+    options.extra,
+    selectedEnvDefaultKey,
+    JSON.stringify(envDefaults),
+    JSON.stringify(modelDefaults),
+    useModelImage,
+  ]);
 
   function togglePose(pose) {
     setOptions((o) => {
@@ -206,6 +243,9 @@ export default function Home() {
         } else if (!useModelImage && personDesc) {
           form.append("model_description_text", personDesc);
         }
+        // Always send the visible prompt as override so backend uses exactly this text
+        const effective = (promptInput && promptInput.trim()) ? promptInput : computeEffectivePrompt();
+        form.append("prompt_override", effective);
         // Description fields are not sent to backend for generation
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
         if (!res.ok) throw new Error(await res.text());
@@ -236,7 +276,7 @@ export default function Home() {
         id: `${now}-${s.pose}-${Math.random().toString(36).slice(2, 6)}`,
         dataUrl: s.dataUrl,
         createdAt: now,
-        prompt: buildPrompt(),
+        prompt: (promptInput && promptInput.trim()) ? promptInput : computeEffectivePrompt(),
         options: { ...options, poses: [s.pose], title, desc: descEnabled ? desc : undefined },
       }));
       const next = [...newItems, ...history].slice(0, 12);
@@ -412,6 +452,36 @@ export default function Home() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* Prompt preview and editor */}
+        <section>
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm font-medium">Prompt</span>
+            {promptDirty ? (
+              <button
+                type="button"
+                className="text-xs text-gray-500 hover:underline"
+                onClick={() => {
+                  setPromptDirty(false);
+                  setPromptInput(computeEffectivePrompt());
+                }}
+              >
+                Reset to suggested
+              </button>
+            ) : null}
+          </div>
+          <textarea
+            rows={4}
+            className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+            placeholder="Exact prompt that will be sent"
+            value={promptInput}
+            onChange={(e) => {
+              setPromptInput(e.target.value);
+              setPromptDirty(true);
+            }}
+          />
+          <p className="mt-1 text-[10px] text-gray-500">This exact text is sent to the model. Changing options updates the suggestion unless you edit it.</p>
         </section>
 
         {/* Options */}

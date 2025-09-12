@@ -119,6 +119,7 @@ async def edit(
     env_default_s3_key: str | None = Form(None),
     model_default_s3_key: str | None = Form(None),
     model_description_text: str | None = Form(None),
+    prompt_override: str | None = Form(None),
 ):
     try:
         if not image or not image.filename:
@@ -183,6 +184,9 @@ async def edit(
             base_lines.append("Use the provided person reference image as the subject; preserve identity and pose while dressing them with the garment.")
         base_lines.append("Realistic fit, high-quality fashion photo, natural lighting.")
         prompt_text = " ".join(base_lines)
+        # Allow caller to override the exact prompt text
+        if prompt_override and prompt_override.strip():
+            prompt_text = prompt_override.strip()
         parts.append(types.Part.from_text(text=prompt_text))
 
         if env_default_s3_key:
