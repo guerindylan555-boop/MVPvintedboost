@@ -7,6 +7,7 @@ export default function StudioPage() {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [bulkFiles, setBulkFiles] = useState([]);
 
   useEffect(() => {
     return () => {
@@ -49,6 +50,15 @@ export default function StudioPage() {
     } finally {
       setIsGenerating(false);
     }
+  }
+
+  function handleBulkChange(e) {
+    const files = Array.from(e.target.files || []);
+    setBulkFiles(files);
+  }
+
+  function handleBulkUpload() {
+    alert("Admin only feature. Coming soon.");
   }
 
   return (
@@ -123,6 +133,40 @@ export default function StudioPage() {
                 ) : (
                   <p className="text-xs text-gray-500">Your generated environment will appear here.</p>
                 )}
+              </div>
+            </div>
+
+            {/* Bulk upload (Admin only) */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium">Bulk upload images</h2>
+                <span className="text-xs text-gray-500">Admin only</span>
+              </div>
+              <div className="mt-2 grid gap-2">
+                <input
+                  id="bulk"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleBulkChange}
+                  className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 dark:file:border-white/15 file:px-3 file:py-2 file:bg-transparent file:text-sm"
+                />
+                {bulkFiles.length > 0 && (
+                  <ul className="text-xs text-gray-500 list-disc ml-4">
+                    {bulkFiles.map((f) => (
+                      <li key={f.name}>{f.name} ({Math.round(f.size / 1024)} KB)</li>
+                    ))}
+                  </ul>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleBulkUpload}
+                    className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                  >
+                    Upload (disabled)
+                  </button>
+                </div>
               </div>
             </div>
           </section>
