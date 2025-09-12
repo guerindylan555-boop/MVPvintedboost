@@ -10,7 +10,7 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation, EnvSource
+from .db import db_session, init_db, Generation, EnvSource, EnvDefault
 from .storage import upload_image, upload_source_image, get_object_bytes, delete_objects
 from sqlalchemy import select, func, text
 
@@ -346,6 +346,42 @@ async def get_generated_image(s3_key: str):
     except Exception as e:
         logger.exception("Failed to fetch generated image")
         return JSONResponse({"error": str(e)}, status_code=404)
+
+
+# --- Defaults (select up to 5, name them) ---
+
+@app.get("/env/defaults")
+async def list_defaults():
+    try:
+        async with db_session() as session:
+            stmt = select(EnvDefault.s3_key, EnvDefault.name).order_by(EnvDefault.created_at.desc())
+            res = await session.execute(stmt)
+            items = [{"s3_key": row[0], "name": row[1]} for row in res.all()]
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list defaults")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/env/defaults")
+async def set_defaults(
+    s3_keys: list[str] = Form(...),
+    names: list[str] = Form(...),
+):
+    try:
+        if len(s3_keys) != len(names):
+            return JSONResponse({"error": "mismatched arrays"}, status_code=400)
+        if len(s3_keys) > 5:
+            return JSONResponse({"error": "max 5 defaults"}, status_code=400)
+        # Overwrite all defaults
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM env_defaults"))
+            for key, name in zip(s3_keys, names):
+                session.add(EnvDefault(s3_key=key, name=name.strip() or "Untitled"))
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to set defaults")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":

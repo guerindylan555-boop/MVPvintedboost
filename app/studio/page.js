@@ -11,6 +11,8 @@ export default function StudioPage() {
   const [bulkFiles, setBulkFiles] = useState([]);
   const [sources, setSources] = useState([]);
   const [generated, setGenerated] = useState([]);
+  const [selectedKeys, setSelectedKeys] = useState([]);
+  const [defaultNames, setDefaultNames] = useState({}); // s3_key -> name
   // Model tab state
   const [modelPrompt, setModelPrompt] = useState("");
   const [isModelGenerating, setIsModelGenerating] = useState(false);
@@ -121,6 +123,30 @@ export default function StudioPage() {
     refreshSources();
     refreshGenerated();
   }, []);
+
+  function toggleSelect(key) {
+    setSelectedKeys((prev) => {
+      const has = prev.includes(key);
+      if (has) return prev.filter((k) => k !== key);
+      if (prev.length >= 5) return prev; // limit 5
+      return [...prev, key];
+    });
+  }
+
+  async function saveDefaults() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const form = new FormData();
+      for (const k of selectedKeys) form.append("s3_keys", k);
+      for (const k of selectedKeys) form.append("names", defaultNames[k] || "Untitled");
+      const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", body: form });
+      if (!res.ok) throw new Error(await res.text());
+      alert("Defaults saved");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save defaults");
+    }
+  }
 
   async function deleteAllSources() {
     if (!confirm("Delete all uploaded sources? This cannot be undone.")) return;
@@ -262,16 +288,52 @@ export default function StudioPage() {
               {generated.length === 0 ? (
                 <p className="text-xs text-gray-500 mt-2">No generated images yet.</p>
               ) : (
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {generated.map((g) => {
-                    const src = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
-                    return (
-                      <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
-                        <img src={src} alt="Generated" className="h-full w-full object-cover" />
+                <>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {generated.map((g) => {
+                      const src = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                      const selected = selectedKeys.includes(g.s3_key);
+                      return (
+                        <button
+                          key={g.s3_key}
+                          type="button"
+                          className={`relative rounded-md overflow-hidden border aspect-square ${selected ? "border-blue-500" : "border-black/10 dark:border-white/15"}`}
+                          onClick={() => toggleSelect(g.s3_key)}
+                          title={g.s3_key}
+                        >
+                          <img src={src} alt="Generated" className="h-full w-full object-cover" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Naming inputs for selected */}
+                  {selectedKeys.length > 0 && (
+                    <div className="mt-3 grid gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Selected ({selectedKeys.length}/5)</span>
+                        <button
+                          type="button"
+                          onClick={saveDefaults}
+                          className="h-9 px-3 rounded-md bg-foreground text-background text-xs font-medium"
+                        >
+                          Save defaults
+                        </button>
                       </div>
-                    );
-                  })}
-                </div>
+                      {selectedKeys.map((k) => (
+                        <div key={k} className="grid grid-cols-3 gap-2 items-center">
+                          <span className="col-span-2 truncate text-xs">{k}</span>
+                          <input
+                            type="text"
+                            placeholder="Name"
+                            className="h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-xs"
+                            value={defaultNames[k] || ""}
+                            onChange={(e) => setDefaultNames((d) => ({ ...d, [k]: e.target.value }))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
