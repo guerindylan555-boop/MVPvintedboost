@@ -9,10 +9,11 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(true);
+  const allowedPoses = ["standing", "sitting", "lying down", "walking"];
   const [options, setOptions] = useState({
     gender: "woman",
     environment: "studio",
-    pose: "standing",
+    poses: ["standing"],
     extra: "",
   });
   const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
@@ -44,10 +45,25 @@ export default function Home() {
     const chunks = ["Put this clothing item on a realistic person model."];
     if (options.gender) chunks.push(`Gender: ${options.gender}.`);
     if (options.environment) chunks.push(`Environment: ${options.environment}.`);
-    if (options.pose) chunks.push(`Pose: ${options.pose}.`);
+    if (Array.isArray(options.poses) && options.poses.length > 0) {
+      const list = options.poses.join(", ");
+      chunks.push(`Poses: ${list}.`);
+    }
     if (options.extra?.trim()) chunks.push(options.extra.trim());
     chunks.push("Realistic fit, high-quality fashion photo, natural lighting.");
     return chunks.join(" ");
+  }
+
+  function togglePose(pose) {
+    setOptions((o) => {
+      const has = o.poses.includes(pose);
+      if (has) {
+        return { ...o, poses: o.poses.filter((p) => p !== pose) };
+      }
+      // limit to 3
+      if (o.poses.length >= 3) return o;
+      return { ...o, poses: [...o.poses, pose] };
+    });
   }
 
   function setImageFile(file) {
@@ -97,7 +113,9 @@ export default function Home() {
       form.append("image", selectedFile);
       form.append("gender", options.gender);
       form.append("environment", options.environment);
-      form.append("pose", options.pose);
+      if (Array.isArray(options.poses)) {
+        for (const p of options.poses) form.append("poses", p);
+      }
       form.append("extra", options.extra || "");
 
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -196,18 +214,26 @@ export default function Home() {
                   <option value="indoor">Indoor</option>
                 </select>
               </div>
-              <div className="col-span-1">
-                <label className="text-xs text-gray-500">Pose</label>
-                <select
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={options.pose}
-                  onChange={(e) => setOptions((o) => ({ ...o, pose: e.target.value }))}
-                >
-                  <option value="standing">Standing</option>
-                  <option value="sitting">Sitting</option>
-                  <option value="lying down">Lying down</option>
-                  <option value="walking">Walking</option>
-                </select>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Poses (up to 3)</label>
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  {allowedPoses.map((pose) => {
+                    const selected = options.poses.includes(pose);
+                    const limitReached = !selected && options.poses.length >= 3;
+                    return (
+                      <label key={pose} className={`flex items-center gap-2 text-sm rounded-md border px-3 py-2 ${selected ? "border-foreground" : "border-black/10 dark:border-white/15"}`}>
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={selected}
+                          disabled={limitReached}
+                          onChange={() => togglePose(pose)}
+                        />
+                        {pose}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Extra instructions</label>

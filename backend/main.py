@@ -77,12 +77,13 @@ def _normalize_choice(value: str, allowed: list[str], default: str) -> str:
     return value if value in allowed else default
 
 
-def _build_prompt(*, gender: str, environment: str, pose: str, extra: str) -> str:
+def _build_prompt(*, gender: str, environment: str, poses: list[str], extra: str) -> str:
     pieces: list[str] = []
     pieces.append("Put this clothing item on a realistic person model.")
     pieces.append(f"Gender: {gender}.")
     pieces.append(f"Environment: {environment}.")
-    pieces.append(f"Pose: {pose}.")
+    if poses:
+        pieces.append("Poses: " + ", ".join(poses) + ".")
     if extra:
         pieces.append(extra)
     pieces.append("Realistic fit, high-quality fashion photo, natural lighting.")
@@ -94,7 +95,7 @@ async def edit(
     image: UploadFile = File(...),
     gender: str = Form("woman"),
     environment: str = Form("studio"),
-    pose: str = Form("standing"),
+    poses: list[str] = Form(default_factory=list),
     extra: str = Form("")
 ):
     try:
@@ -114,12 +115,24 @@ async def edit(
         # Validate and normalize options
         gender = _normalize_choice(gender, ["woman", "man", "unisex"], "woman")
         environment = _normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio")
-        pose = _normalize_choice(pose, ["standing", "sitting", "lying down", "walking"], "standing")
+        # Normalize poses array (multi-select). Accept up to 3 unique values
+        allowed_poses = ["standing", "sitting", "lying down", "walking"]
+        if not isinstance(poses, list):
+            poses = [poses] if poses else []
+        norm_poses: list[str] = []
+        for p in poses:
+            p_norm = _normalize_choice(p, allowed_poses, "")
+            if p_norm and p_norm not in norm_poses:
+                norm_poses.append(p_norm)
+            if len(norm_poses) >= 3:
+                break
         extra = (extra or "").strip()
         if len(extra) > 200:
             extra = extra[:200]
 
-        prompt_text = _build_prompt(gender=gender, environment=environment, pose=pose, extra=extra)
+        if not norm_poses:
+            norm_poses = ["standing"]
+        prompt_text = _build_prompt(gender=gender, environment=environment, poses=norm_poses, extra=extra)
 
         image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
         contents = types.Content(role="user", parts=[types.Part.from_text(text=prompt_text), image_part])
