@@ -322,18 +322,88 @@ export default function StudioPage() {
                 <>
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     {generated.map((g) => {
+                      const isDefault = defaults.some((d) => d.s3_key === g.s3_key);
                       const selected = selectedKeys.includes(g.s3_key);
                       const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                      const name = defaults.find((d) => d.s3_key === g.s3_key)?.name;
                       return (
-                        <button
-                          key={g.s3_key}
-                          type="button"
-                          className={`relative rounded-md overflow-hidden border aspect-square ${selected ? "border-blue-500" : "border-black/10 dark:border-white/15"}`}
-                          onClick={() => toggleSelect(g.s3_key)}
-                          title={g.s3_key}
-                        >
+                        <div key={g.s3_key} className={`relative rounded-md overflow-hidden border aspect-square ${isDefault ? "border-blue-500" : selected ? "border-blue-500" : "border-black/10 dark:border-white/15"}`} title={g.s3_key}>
                           <img src={src} alt="Generated" loading="lazy" decoding="async" className="h-full w-full object-cover" />
-                        </button>
+                          <div className="absolute top-1 right-1 flex gap-1">
+                            {isDefault ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-[10px] rounded bg-yellow-500 text-white"
+                                  onClick={async () => {
+                                    const newName = prompt("Rename default", name || "");
+                                    if (newName == null) return;
+                                    try {
+                                      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                      const form = new FormData();
+                                      form.append("s3_key", g.s3_key);
+                                      form.append("name", newName);
+                                      const res = await fetch(`${baseUrl}/env/defaults`, { method: "PATCH", body: form });
+                                      if (!res.ok) throw new Error(await res.text());
+                                      await refreshDefaults();
+                                    } catch (e) {
+                                      alert("Rename failed");
+                                    }
+                                  }}
+                                >
+                                  Rename
+                                </button>
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-[10px] rounded bg-gray-700 text-white"
+                                  onClick={async () => {
+                                    if (!confirm("Remove from defaults?")) return;
+                                    try {
+                                      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                      const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE" });
+                                      if (!res.ok) throw new Error(await res.text());
+                                      await refreshDefaults();
+                                    } catch (e) {
+                                      alert("Failed to remove default");
+                                    }
+                                  }}
+                                >
+                                  Undefault
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-[10px] rounded bg-blue-600 text-white"
+                                onClick={() => toggleSelect(g.s3_key)}
+                                disabled={isDefault}
+                              >
+                                {selected ? "Unselect" : "Select"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-[10px] rounded bg-red-600 text-white"
+                              onClick={async () => {
+                                if (!confirm("Delete this image? This cannot be undone.")) return;
+                                try {
+                                  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                  const res = await fetch(`${baseUrl}/env/generated?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE" });
+                                  if (!res.ok) throw new Error(await res.text());
+                                  await refreshGenerated();
+                                  await refreshDefaults();
+                                } catch (e) {
+                                  alert("Delete failed");
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                          {isDefault && (
+                            <div className="absolute bottom-0 left-0 right-0 text-[10px] bg-blue-600 text-white px-1 truncate">{name || "Default"}</div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -350,7 +420,7 @@ export default function StudioPage() {
                           Save defaults
                         </button>
                       </div>
-                  {selectedKeys.map((k) => (
+                      {selectedKeys.map((k) => (
                     <div key={k} className="grid grid-cols-3 gap-2 items-center">
                       <span className="col-span-2 truncate text-xs">{k}</span>
                       <input
@@ -361,7 +431,7 @@ export default function StudioPage() {
                         onChange={(e) => setDefaultNames((d) => ({ ...d, [k]: e.target.value }))}
                       />
                     </div>
-                  ))}
+                      ))}
                     </div>
                   )}
                 </>

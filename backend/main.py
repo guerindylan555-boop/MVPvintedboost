@@ -429,6 +429,52 @@ async def set_defaults(
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.delete("/env/defaults")
+async def unset_default(s3_key: str):
+    """Remove a single default by s3_key, keeping others intact."""
+    try:
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM env_defaults WHERE s3_key = :k"), {"k": s3_key})
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to unset default")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.patch("/env/defaults")
+async def rename_default(s3_key: str = Form(...), name: str = Form(...)):
+    """Rename a single default by s3_key."""
+    try:
+        name = (name or "").strip() or "Untitled"
+        async with db_session() as session:
+            await session.execute(
+                text("UPDATE env_defaults SET name = :n WHERE s3_key = :k"),
+                {"n": name, "k": s3_key},
+            )
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to rename default")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- Manage generated images (delete) ---
+
+@app.delete("/env/generated")
+async def delete_generated(s3_key: str):
+    """Delete a generated environment image from S3 and DB. If it's set as a default, remove that too."""
+    try:
+        # Delete S3 object
+        delete_objects([s3_key])
+        # Delete from DB (generations + possibly defaults)
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM generations WHERE s3_key = :k"), {"k": s3_key})
+            await session.execute(text("DELETE FROM env_defaults WHERE s3_key = :k"), {"k": s3_key})
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to delete generated image")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
 
