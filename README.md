@@ -16,6 +16,8 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - environment: studio/street/bed/beach/indoor (when Studio defaults exist, shows their names instead)
   - poses: select up to 3 poses; parallel generation per pose
   - extra: free text instructions
+- model reference toggle: choose the gender default as image, or send its description only
+- Prompt preview/editor: live view of the exact prompt; optionally override before generating
 - Generate button (sticky). Sends:
   - the uploaded garment image (always)
   - the selected environment default image (optional)
@@ -23,7 +25,12 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   Backend builds one prompt and includes all references for the model
 - History gallery (localStorage) of generated images with quick preview
 
-### Studio (Environments & Models)
+Default generation style (Mirror Selfie for Vinted)
+- Photorealistic mirror selfie, amateur smartphone look
+- Person holds a black iPhone 16 Pro; phone occludes the face (with correct reflection) without hiding key garment details
+- The person must be wearing the uploaded garment; strict garment fidelity (shape, color, fabric, prints, logos)
+
+### Studio (Environments, Models & Poses)
 - Environment tab:
   - Bulk upload environment source images (stored in S3 and tracked in Postgres)
   - Random: picks a random uploaded source and generates with strict instruction “randomize the scene and the mirror frame”
@@ -39,6 +46,11 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - After generation, the resulting image is re‑sent to the model to generate a detailed description of the person (especially the face). The text is stored and shown as an overlay in the grid
   - Two grids (last 200 each): “Recent generated models — Men” and “— Women”, each with its own single default. You can Set default, Rename default, or Undefault per gender
   - Person source images are uploaded to S3 and tracked in Postgres
+  - Main page can send the model default as an image or description only (toggle)
+- Pose tab:
+  - Bulk upload pose images (stored in S3 and tracked in Postgres)
+  - Generate pose‑only descriptions for all uploaded images (one click)
+  - Lists uploaded pose sources and the resulting descriptions
 
 ## Local development
 
@@ -74,6 +86,7 @@ npm run dev:full
 ### Key files
 - `backend/main.py`: FastAPI app with endpoints
   - `POST /edit` (primary): accepts clothing image + options; may also include environment and person reference images; prompts Gemini and returns a PNG
+    - Also accepts `model_description_text` (description-only model reference) and `prompt_override` (frontend sends exact prompt)
   - `POST /generate`: text‑only generation (basic test)
   - `GET /health`: health probe
   - `POST /env/sources/upload`: bulk upload environment sources (S3 + DB)
@@ -89,15 +102,16 @@ npm run dev:full
   - `DELETE /env/generated`: delete a generated env image (also unsets default if used)
   - `POST /model/generate`: person model generation; accepts a person source image and optional user prompt; returns PNG; saves result; also auto‑generates and stores a textual person description for the image
   - `GET /model/generated`: list recent model generations (includes `gender`, presigned `url`, and `description`)
-  - `GET /model/defaults`: list model defaults (one per gender)
+  - `GET /model/defaults`: list model defaults (one per gender; includes `description`)
   - `POST /model/defaults`: set default for a gender (overwrites)
   - `PATCH /model/defaults`: rename default for a gender
   - `DELETE /model/defaults`: unset default for a gender
 - `backend/db.py`: async SQLAlchemy setup, `Generation` model, `init_db()` at startup
-  - `EnvSource`, `EnvDefault`, `ModelDefault`, `ModelSource`, `ModelDescription` models
+  - `EnvSource`, `EnvDefault`, `ModelDefault`, `ModelSource`, `ModelDescription`, `PoseSource`, `PoseDescription` models
 - `backend/storage.py`: S3 client and upload helpers
   - `generate_presigned_get_url(...)` for fast grid loads
-  - `upload_model_source_image(...)` for persisting person sources
+- `upload_model_source_image(...)` for persisting person sources
+- `upload_pose_source_image(...)` for persisting pose sources
 
 ### Model and SDK
 - Model: `gemini-2.5-flash-image-preview` (aka Nano Banana)
@@ -109,7 +123,7 @@ npm run dev:full
 
 ### Prompting strategy
 - The frontend sends structured fields (gender, environment, poses[], extra) and may include environment/person reference images
-- The backend normalizes/sanitizes and builds one deterministic prompt per request, omitting textual descriptions when a corresponding reference image is provided
+- The backend builds a deterministic "Mirror Selfie for Vinted" prompt, or uses a `prompt_override` from the UI when provided
 - Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 3)
 
 ### Database and S3 side‑effects
