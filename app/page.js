@@ -8,12 +8,49 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(true);
+  const [options, setOptions] = useState({
+    gender: "woman",
+    environment: "studio",
+    pose: "standing",
+    showFace: true,
+    extra: "",
+  });
+  const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
 
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("vb_history");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setHistory(parsed);
+      }
+    } catch {}
+  }, []);
+
+  function persistHistory(next) {
+    setHistory(next);
+    try {
+      localStorage.setItem("vb_history", JSON.stringify(next));
+    } catch {}
+  }
+
+  function buildPrompt() {
+    const chunks = ["i want this clothe on someone"];
+    if (options.gender) chunks.push(`Gender: ${options.gender}.`);
+    if (options.environment) chunks.push(`Environment: ${options.environment}.`);
+    if (options.pose) chunks.push(`Pose: ${options.pose}.`);
+    chunks.push(options.showFace ? "Show the person's face." : "Do not show the face.");
+    if (options.extra?.trim()) chunks.push(options.extra.trim());
+    chunks.push("High-quality fashion photo, realistic fit, natural lighting.");
+    return chunks.join(" ");
+  }
 
   function setImageFile(file) {
     if (!file) return;
@@ -58,7 +95,7 @@ export default function Home() {
     try {
       setIsGenerating(true);
       const form = new FormData();
-      form.append("prompt", "i want this clothe on someone");
+      form.append("prompt", buildPrompt());
       form.append("image", selectedFile);
 
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -73,10 +110,27 @@ export default function Home() {
       }
 
       const blob = await res.blob();
-      const genUrl = URL.createObjectURL(blob);
-      // Replace preview with generated result for now
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(genUrl);
+      // Convert to data URL for durable storage
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      if (previewUrl && typeof previewUrl === "string" && previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(String(dataUrl));
+
+      const item = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        dataUrl: String(dataUrl),
+        createdAt: Date.now(),
+        prompt: buildPrompt(),
+        options,
+      };
+      const next = [item, ...history].slice(0, 12);
+      persistHistory(next);
     } catch (err) {
       console.error(err);
       alert("Generation failed. Check backend logs and API key.");
@@ -101,6 +155,82 @@ export default function Home() {
             Upload a clothing photo. We will place it on a model.
           </p>
         </header>
+
+        {/* Options */}
+        <section className="mt-1">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between py-3"
+            onClick={() => setOptionsOpen((s) => !s)}
+          >
+            <span className="text-sm font-medium">Options</span>
+            <span className="text-xs text-gray-500">{optionsOpen ? "Hide" : "Show"}</span>
+          </button>
+          {optionsOpen && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Gender</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.gender}
+                  onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
+                >
+                  <option value="woman">Woman</option>
+                  <option value="man">Man</option>
+                  <option value="unisex">Unisex</option>
+                </select>
+              </div>
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Environment</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.environment}
+                  onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
+                >
+                  <option value="studio">Studio</option>
+                  <option value="street">Street</option>
+                  <option value="bed">Bed</option>
+                  <option value="beach">Beach</option>
+                  <option value="indoor">Indoor</option>
+                </select>
+              </div>
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Pose</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.pose}
+                  onChange={(e) => setOptions((o) => ({ ...o, pose: e.target.value }))}
+                >
+                  <option value="standing">Standing</option>
+                  <option value="sitting">Sitting</option>
+                  <option value="lying down">Lying down</option>
+                  <option value="walking">Walking</option>
+                </select>
+              </div>
+              <div className="col-span-1 flex items-end">
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={options.showFace}
+                    onChange={(e) => setOptions((o) => ({ ...o, showFace: e.target.checked }))}
+                  />
+                  Show face
+                </label>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Extra instructions</label>
+                <input
+                  type="text"
+                  placeholder="e.g., natural daylight, smiling, medium shot"
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.extra}
+                  onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+        </section>
 
         <section>
           <input
@@ -188,7 +318,37 @@ export default function Home() {
           )}
         </section>
 
-        <div className="h-1" />
+        {/* History */}
+        <section className="mt-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">History</h2>
+            {history.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-gray-500 hover:underline"
+                onClick={() => persistHistory([])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {history.length === 0 ? (
+            <p className="text-xs text-gray-500 mt-2">No generations yet.</p>
+          ) : (
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {history.map((item) => (
+                <button
+                  key={item.id}
+                  className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square"
+                  onClick={() => setPreviewUrl(item.dataUrl)}
+                  title={new Date(item.createdAt).toLocaleString()}
+                >
+                  <img src={item.dataUrl} alt="History" className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
       <div className="sticky bottom-0 z-10 w-full bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t border-black/10 dark:border-white/15">
