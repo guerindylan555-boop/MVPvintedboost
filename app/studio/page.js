@@ -4,16 +4,28 @@ import { useEffect, useMemo, useState } from "react";
 
 export default function StudioPage() {
   const [activeTab, setActiveTab] = useState("environment"); // environment | model
+  // Environment tab state
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [bulkFiles, setBulkFiles] = useState([]);
+  // Model tab state
+  const [modelPrompt, setModelPrompt] = useState("");
+  const [isModelGenerating, setIsModelGenerating] = useState(false);
+  const [modelPreviewUrl, setModelPreviewUrl] = useState(null);
+  const [maleFile, setMaleFile] = useState(null);
+  const [malePreview, setMalePreview] = useState(null);
+  const [femaleFile, setFemaleFile] = useState(null);
+  const [femalePreview, setFemalePreview] = useState(null);
 
   useEffect(() => {
     return () => {
       if (previewUrl && previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+      if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
+      if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
+      if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
     };
-  }, [previewUrl]);
+  }, [previewUrl, modelPreviewUrl, malePreview, femalePreview]);
 
   const randomPrompts = useMemo(
     () => [
@@ -61,6 +73,44 @@ export default function StudioPage() {
     alert("Admin only feature. Coming soon.");
   }
 
+  function onPickMale(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
+    setMaleFile(f);
+    setMalePreview(URL.createObjectURL(f));
+  }
+
+  function onPickFemale(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
+    setFemaleFile(f);
+    setFemalePreview(URL.createObjectURL(f));
+  }
+
+  async function handleModelGenerate() {
+    if (!modelPrompt.trim()) return;
+    try {
+      setIsModelGenerating(true);
+      // For now, model generation uses text-only endpoint. Images will be used later.
+      const form = new FormData();
+      form.append("prompt", modelPrompt.trim());
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/generate`, { method: "POST", body: form });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
+      setModelPreviewUrl(url);
+    } catch (err) {
+      console.error(err);
+      alert("Model generation failed.");
+    } finally {
+      setIsModelGenerating(false);
+    }
+  }
+
   return (
     <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
       <main className="flex-1 p-5 max-w-2xl w-full mx-auto flex flex-col gap-5">
@@ -82,10 +132,8 @@ export default function StudioPage() {
           <button
             className={`h-10 text-sm font-medium ${
               activeTab === "model" ? "bg-foreground text-background" : "bg-transparent"
-            } opacity-60`}
+            }`}
             onClick={() => setActiveTab("model")}
-            disabled
-            title="Coming soon"
           >
             Model
           </button>
@@ -172,10 +220,116 @@ export default function StudioPage() {
           </section>
         )}
 
-        {/* Model tab placeholder */}
+        {/* Model tab */}
         {activeTab === "model" && (
-          <section>
-            <p className="text-sm text-gray-500">Model generation coming soon.</p>
+          <section className="flex flex-col gap-4">
+            <div>
+              <label className="text-xs text-gray-500">Prompt</label>
+              <textarea
+                rows={3}
+                placeholder="Describe the human model scene (e.g., full-body portrait, casual pose)"
+                className="mt-1 w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                value={modelPrompt}
+                onChange={(e) => setModelPrompt(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setModelPrompt("Studio portrait, soft lighting, neutral background")}
+                className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+              >
+                Random
+              </button>
+              <button
+                type="button"
+                onClick={handleModelGenerate}
+                disabled={!modelPrompt.trim() || isModelGenerating}
+                className={`h-10 px-4 rounded-md text-sm font-semibold active:translate-y-px ${
+                  !modelPrompt.trim() || isModelGenerating
+                    ? "bg-foreground/30 text-background/60 cursor-not-allowed"
+                    : "bg-foreground text-background"
+                }`}
+              >
+                {isModelGenerating ? "Generating…" : "Generate"}
+              </button>
+            </div>
+
+            <div className="w-full rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5">
+              <div className="relative w-full aspect-video bg-black/5 flex items-center justify-center">
+                {modelPreviewUrl ? (
+                  <img src={modelPreviewUrl} alt="Generated model" className="h-full w-full object-cover" />
+                ) : (
+                  <p className="text-xs text-gray-500">Your generated model will appear here.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Two source images (male/female) */}
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500">Male source image</label>
+                <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
+                  <div className="relative w-full aspect-[4/5] bg-black/5">
+                    {malePreview ? (
+                      <img src={malePreview} alt="Male source" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
+                    )}
+                  </div>
+                  <div className="p-2 flex gap-2">
+                    <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
+                      <input type="file" accept="image/*" className="hidden" onChange={onPickMale} />
+                      Choose
+                    </label>
+                    {malePreview && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
+                          setMalePreview(null);
+                          setMaleFile(null);
+                        }}
+                        className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Female source image</label>
+                <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
+                  <div className="relative w-full aspect-[4/5] bg-black/5">
+                    {femalePreview ? (
+                      <img src={femalePreview} alt="Female source" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
+                    )}
+                  </div>
+                  <div className="p-2 flex gap-2">
+                    <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
+                      <input type="file" accept="image/*" className="hidden" onChange={onPickFemale} />
+                      Choose
+                    </label>
+                    {femalePreview && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
+                          setFemalePreview(null);
+                          setFemaleFile(null);
+                        }}
+                        className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
         )}
       </main>
