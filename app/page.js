@@ -108,48 +108,52 @@ export default function Home() {
     if (!selectedFile) return;
     try {
       setIsGenerating(true);
-      const form = new FormData();
-      // unified request: send structured fields; backend builds prompt
-      form.append("image", selectedFile);
-      form.append("gender", options.gender);
-      form.append("environment", options.environment);
-      if (Array.isArray(options.poses)) {
-        for (const p of options.poses) form.append("poses", p);
-      }
-      form.append("extra", options.extra || "");
-
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/edit`, {
-        method: "POST",
-        body: form,
+
+      // Ensure at least one pose
+      const poses = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses : ["standing"];
+
+      // Fire parallel requests per pose (max 3 by UI)
+      const requests = poses.map(async (pose) => {
+        const form = new FormData();
+        form.append("image", selectedFile);
+        form.append("gender", options.gender);
+        form.append("environment", options.environment);
+        form.append("poses", pose);
+        form.append("extra", options.extra || "");
+        const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Failed to read image"));
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+        return { pose, dataUrl: String(dataUrl) };
       });
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || `Request failed: ${res.status}`);
-      }
+      const results = await Promise.allSettled(requests);
+      const successes = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+      if (successes.length === 0) throw new Error("All generations failed");
 
-      const blob = await res.blob();
-      // Convert to data URL for durable storage
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error("Failed to read image"));
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(blob);
-      });
+      // Show first result in preview
+      const first = successes[0];
       if (previewUrl && typeof previewUrl === "string" && previewUrl.startsWith("blob:")) {
         URL.revokeObjectURL(previewUrl);
       }
-      setPreviewUrl(String(dataUrl));
+      setPreviewUrl(first.dataUrl);
 
-      const item = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        dataUrl: String(dataUrl),
-        createdAt: Date.now(),
+      // Save all in history (cap 12)
+      const now = Date.now();
+      const newItems = successes.map((s) => ({
+        id: `${now}-${s.pose}-${Math.random().toString(36).slice(2, 6)}`,
+        dataUrl: s.dataUrl,
+        createdAt: now,
         prompt: buildPrompt(),
-        options,
-      };
-      const next = [item, ...history].slice(0, 12);
+        options: { ...options, poses: [s.pose] },
+      }));
+      const next = [...newItems, ...history].slice(0, 12);
       persistHistory(next);
     } catch (err) {
       console.error(err);

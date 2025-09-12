@@ -95,7 +95,7 @@ async def edit(
     image: UploadFile = File(...),
     gender: str = Form("woman"),
     environment: str = Form("studio"),
-    poses: list[str] = Form(default_factory=list),
+    poses: list[str] = Form(None),
     extra: str = Form("")
 ):
     try:
@@ -117,8 +117,10 @@ async def edit(
         environment = _normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio")
         # Normalize poses array (multi-select). Accept up to 3 unique values
         allowed_poses = ["standing", "sitting", "lying down", "walking"]
+        if not poses:
+            poses = []
         if not isinstance(poses, list):
-            poses = [poses] if poses else []
+            poses = [poses]
         norm_poses: list[str] = []
         for p in poses:
             p_norm = _normalize_choice(p, allowed_poses, "")
