@@ -57,17 +57,19 @@ const authOptions = {
 // Initialize Better Auth instance
 export const auth = betterAuth(authOptions);
 
-// Best-effort: run DB migrations automatically at startup if a DB is configured.
-export const migrationsReady = (async () => {
-  if (!pool) return;
+// Lazy migration runner to avoid doing network work on non-auth pages
+let didMigrate = false;
+export async function migrateIfNeeded() {
+  if (didMigrate || !pool) return;
   try {
     const { runMigrations } = await getMigrations(authOptions);
     await runMigrations();
+    didMigrate = true;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("Better Auth migrations failed (will continue):", err);
   }
-})();
+}
 
 // Export the pg pool for diagnostics
 export const dbPool = pool;
