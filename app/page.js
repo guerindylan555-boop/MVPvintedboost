@@ -72,6 +72,13 @@ export default function Home() {
     }
   }, [envDefaults]);
 
+  // If defaults exist, force environment to studio in options
+  useEffect(() => {
+    if (envDefaults && envDefaults.length > 0 && options.environment !== "studio") {
+      setOptions((o) => ({ ...o, environment: "studio" }));
+    }
+  }, [envDefaults, options.environment]);
+
   function persistHistory(next) {
     setHistory(next);
     try {
@@ -401,25 +408,9 @@ export default function Home() {
                   <option value="unisex">Unisex</option>
                 </select>
               </div>
-              <div className="col-span-1">
-                <label className="text-xs text-gray-500">Environment</label>
-                <select
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={options.environment}
-                  onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
-                >
-                  <option value="studio">
-                    Studio{envDefaults.length > 0 ? ` (${envDefaults.length} default${envDefaults.length > 1 ? "s" : ""})` : ""}
-                  </option>
-                  <option value="street">Street</option>
-                  <option value="bed">Bed</option>
-                  <option value="beach">Beach</option>
-                  <option value="indoor">Indoor</option>
-                </select>
-              </div>
-              {options.environment === "studio" && envDefaults.length > 0 && (
-                <div className="col-span-2">
-                  <label className="text-xs text-gray-500">Studio default</label>
+              {envDefaults.length > 0 ? (
+                <div className="col-span-1">
+                  <label className="text-xs text-gray-500">Environment</label>
                   <select
                     className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
                     value={selectedEnvDefaultKey || ""}
@@ -429,6 +420,9 @@ export default function Home() {
                       try {
                         if (v) localStorage.setItem("vb_env_default_key", v);
                       } catch {}
+                      if (options.environment !== "studio") {
+                        setOptions((o) => ({ ...o, environment: "studio" }));
+                      }
                     }}
                   >
                     {envDefaults.map((d) => (
@@ -436,6 +430,21 @@ export default function Home() {
                         {d.name || d.s3_key}
                       </option>
                     ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="col-span-1">
+                  <label className="text-xs text-gray-500">Environment</label>
+                  <select
+                    className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                    value={options.environment}
+                    onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
+                  >
+                    <option value="studio">Studio</option>
+                    <option value="street">Street</option>
+                    <option value="bed">Bed</option>
+                    <option value="beach">Beach</option>
+                    <option value="indoor">Indoor</option>
                   </select>
                 </div>
               )}
