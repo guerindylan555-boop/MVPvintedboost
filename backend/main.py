@@ -118,6 +118,7 @@ async def edit(
     extra: str = Form(""),
     env_default_s3_key: str | None = Form(None),
     model_default_s3_key: str | None = Form(None),
+    model_description_text: str | None = Form(None),
 ):
     try:
         if not image or not image.filename:
@@ -156,7 +157,7 @@ async def edit(
         if not norm_poses:
             norm_poses = ["standing"]
 
-        # Build prompt considering optional environment/person reference images
+        # Build prompt considering optional environment/person reference inputs
         parts: list[types.Part] = []
         env_key_used: str | None = None
         person_key_used: str | None = None
@@ -172,6 +173,10 @@ async def edit(
             base_lines.append("Poses: " + ", ".join(norm_poses) + ".")
         if extra:
             base_lines.append(extra)
+        # If caller provided a textual person description (and likely no image), include it explicitly
+        if model_description_text:
+            base_lines.append("Use a person that matches this description.")
+            base_lines.append(f"Person description: {model_description_text}")
         if env_default_s3_key:
             base_lines.append("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.")
         if model_default_s3_key:
@@ -226,6 +231,7 @@ async def edit(
                                 "extra": extra,
                                 "env_default_s3_key": env_key_used,
                                 "model_default_s3_key": person_key_used,
+                                "model_description_text": (model_description_text if not person_key_used else None),
                             },
                             model=MODEL,
                         )
@@ -652,13 +658,31 @@ async def list_model_defaults():
             stmt = select(ModelDefault.gender, ModelDefault.s3_key, ModelDefault.name)
             res = await session.execute(stmt)
             rows = res.all()
+            # Preload descriptions for these keys in one query
+            keys = [row[1] for row in rows]
+            desc_map: dict[str, Optional[str]] = {}
+            if keys:
+                try:
+                    dstmt = select(ModelDescription.s3_key, ModelDescription.description).where(ModelDescription.s3_key.in_(keys))
+                    dres = await session.execute(dstmt)
+                    for k, d in dres.all():
+                        desc_map[k] = d
+                except Exception:
+                    # If description lookup fails, proceed without them
+                    desc_map = {}
             items = []
             for gender, key, name in rows:
                 try:
                     url = generate_presigned_get_url(key)
                 except Exception:
                     url = None
-                items.append({"gender": gender, "s3_key": key, "name": name, "url": url})
+                items.append({
+                    "gender": gender,
+                    "s3_key": key,
+                    "name": name,
+                    "url": url,
+                    "description": desc_map.get(key),
+                })
         return {"ok": True, "items": items}
     except Exception as e:
         logger.exception("Failed to list model defaults")

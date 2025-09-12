@@ -16,6 +16,9 @@ export default function Home() {
     poses: ["standing"],
     extra: "",
   });
+  // Toggle to choose whether to send the model default image (true) or
+  // only its stored textual description (false) with the prompt
+  const [useModelImage, setUseModelImage] = useState(true);
   const [envDefaults, setEnvDefaults] = useState([]); // [{s3_key,name,url}]
   const [selectedEnvDefaultKey, setSelectedEnvDefaultKey] = useState(null);
   const [title, setTitle] = useState("");
@@ -105,6 +108,8 @@ export default function Home() {
 
   function buildPrompt() {
     const chunks = ["Put this clothing item on a realistic person model."];
+    // When using a person reference image, backend omits gender text. We still
+    // show it in the preview/history prompt, but it won't affect backend logic.
     if (options.gender) chunks.push(`Gender: ${options.gender}.`);
     if (options.environment) chunks.push(`Environment: ${options.environment}.`);
     if (Array.isArray(options.poses) && options.poses.length > 0) {
@@ -193,9 +198,13 @@ export default function Home() {
         if (envDefaultKey) {
           form.append("env_default_s3_key", envDefaultKey);
         }
-        const personDefaultKey = options.gender === "woman" ? modelDefaults?.woman?.s3_key : modelDefaults?.man?.s3_key;
-        if (personDefaultKey) {
+        const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
+        const personDefaultKey = personDefault?.s3_key;
+        const personDesc = personDefault?.description;
+        if (useModelImage && personDefaultKey) {
           form.append("model_default_s3_key", personDefaultKey);
+        } else if (!useModelImage && personDesc) {
+          form.append("model_description_text", personDesc);
         }
         // Description fields are not sent to backend for generation
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
@@ -428,6 +437,25 @@ export default function Home() {
                   <option value="man">Man</option>
                   
                 </select>
+              </div>
+              {/* Model reference toggle: Image vs Description */}
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Model reference</label>
+                <div className="mt-1 flex items-center justify-between h-10 px-2 rounded-md border border-black/10 dark:border-white/15">
+                  <span className="text-xs text-gray-600">{useModelImage ? "Use default image" : "Use description only"}</span>
+                  <button
+                    type="button"
+                    onClick={() => setUseModelImage((v) => !v)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${useModelImage ? "bg-foreground" : "bg-black/20 dark:bg-white/20"}`}
+                    aria-pressed={useModelImage}
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${useModelImage ? "translate-x-5" : "translate-x-1"}`} />
+                  </button>
+                </div>
+                {/* Tiny helper when description not available for selected gender */}
+                {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
+                  <p className="mt-1 text-[10px] text-amber-600">No description on default; falling back to prompt gender.</p>
+                )}
               </div>
               {envDefaults.length > 0 ? (
                 <div className="col-span-1">
