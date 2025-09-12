@@ -13,6 +13,7 @@ export default function StudioPage() {
   const [generated, setGenerated] = useState([]);
   const [selectedKeys, setSelectedKeys] = useState([]);
   const [defaultNames, setDefaultNames] = useState({}); // s3_key -> name
+  const [defaults, setDefaults] = useState([]); // [{s3_key,name,url}]
   // Model tab state
   const [modelPrompt, setModelPrompt] = useState("");
   const [isModelGenerating, setIsModelGenerating] = useState(false);
@@ -119,9 +120,19 @@ export default function StudioPage() {
     } catch {}
   }
 
+  async function refreshDefaults() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/env/defaults`);
+      const data = await res.json();
+      if (data?.items) setDefaults(data.items);
+    } catch {}
+  }
+
   useEffect(() => {
     refreshSources();
     refreshGenerated();
+    refreshDefaults();
   }, []);
 
   function toggleSelect(key) {
@@ -141,6 +152,10 @@ export default function StudioPage() {
       for (const k of selectedKeys) form.append("names", defaultNames[k] || "Untitled");
       const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", body: form });
       if (!res.ok) throw new Error(await res.text());
+      // Refresh and clear selection for clarity
+      await refreshDefaults();
+      setSelectedKeys([]);
+      setDefaultNames({});
       alert("Defaults saved");
     } catch (e) {
       console.error(e);
@@ -291,8 +306,8 @@ export default function StudioPage() {
                 <>
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     {generated.map((g) => {
-                      const src = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
                       const selected = selectedKeys.includes(g.s3_key);
+                      const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
                       return (
                         <button
                           key={g.s3_key}
@@ -301,7 +316,7 @@ export default function StudioPage() {
                           onClick={() => toggleSelect(g.s3_key)}
                           title={g.s3_key}
                         >
-                          <img src={src} alt="Generated" className="h-full w-full object-cover" />
+                          <img src={src} alt="Generated" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                         </button>
                       );
                     })}
@@ -331,6 +346,19 @@ export default function StudioPage() {
                           />
                         </div>
                       ))}
+                      {defaults.length > 0 && (
+                        <div className="mt-2">
+                          <h4 className="text-xs font-medium">Current defaults</h4>
+                          <div className="mt-1 grid grid-cols-3 gap-2">
+                            {defaults.map((d) => (
+                              <div key={d.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square" title={d.name}>
+                                <img src={d.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(d.s3_key)}`} alt={d.name} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                                <div className="absolute bottom-0 left-0 right-0 text-[10px] bg-black/50 text-white px-1 truncate">{d.name}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -468,10 +496,10 @@ export default function StudioPage() {
               ) : (
                 <div className="mt-2 grid grid-cols-3 gap-2">
                   {generated.map((g) => {
-                    const src = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                    const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
                     return (
                       <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
-                        <img src={src} alt="Generated" className="h-full w-full object-cover" />
+                        <img src={src} alt="Generated" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       </div>
                     );
                   })}

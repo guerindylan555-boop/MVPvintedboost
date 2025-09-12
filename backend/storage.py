@@ -75,3 +75,17 @@ def delete_objects(keys: List[str]) -> None:
             Bucket=AWS_S3_BUCKET,
             Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": True},
         )
+
+
+def generate_presigned_get_url(key: str, expires_in: int = 3600) -> str:
+    """Create a time-limited presigned URL to download an S3 object.
+
+    This avoids proxying image bytes through our backend for every grid tile, reducing latency.
+    """
+    if not AWS_S3_BUCKET:
+        raise RuntimeError("AWS_S3_BUCKET not configured")
+    return get_s3().generate_presigned_url(
+        ClientMethod="get_object",
+        Params={"Bucket": AWS_S3_BUCKET, "Key": key},
+        ExpiresIn=expires_in,
+    )

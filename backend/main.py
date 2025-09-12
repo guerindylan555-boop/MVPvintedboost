@@ -11,7 +11,13 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from .db import db_session, init_db, Generation, EnvSource, EnvDefault
-from .storage import upload_image, upload_source_image, get_object_bytes, delete_objects
+from .storage import (
+    upload_image,
+    upload_source_image,
+    get_object_bytes,
+    delete_objects,
+    generate_presigned_get_url,
+)
 from sqlalchemy import select, func, text
 
 # Config
@@ -108,7 +114,8 @@ async def edit(
     gender: str = Form("woman"),
     environment: str = Form("studio"),
     poses: list[str] = Form(None),
-    extra: str = Form("")
+    extra: str = Form(""),
+    env_default_s3_key: str | None = Form(None),
 ):
     try:
         if not image or not image.filename:
@@ -148,8 +155,24 @@ async def edit(
             norm_poses = ["standing"]
         prompt_text = _build_prompt(gender=gender, environment=environment, poses=norm_poses, extra=extra)
 
+        parts: list[types.Part] = [types.Part.from_text(text=prompt_text)]
+        # If a studio default environment was selected on the frontend, include it as a reference image
+        env_key_used: str | None = None
+        if env_default_s3_key:
+            try:
+                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
+                parts.append(types.Part.from_text(text="Environment reference:"))
+                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
+                env_key_used = env_default_s3_key
+            except Exception:
+                # If fetching fails, continue without env image
+                env_key_used = None
+
+        # Uploaded garment/source image last
         image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
-        contents = types.Content(role="user", parts=[types.Part.from_text(text=prompt_text), image_part])
+        parts.append(image_part)
+
+        contents = types.Content(role="user", parts=parts)
         client = get_client()
         resp = client.models.generate_content(
             model=MODEL,
@@ -172,6 +195,7 @@ async def edit(
                                 "environment": environment,
                                 "poses": norm_poses,
                                 "extra": extra,
+                                "env_default_s3_key": env_key_used,
                             },
                             model=MODEL,
                         )
@@ -331,7 +355,20 @@ async def list_generated():
                 .limit(200)
             )
             res = await session.execute(stmt)
-            items = [{"s3_key": row[0], "created_at": row[1].isoformat()} for row in res.all()]
+            rows = res.all()
+            items = []
+            for row in rows:
+                key = row[0]
+                created = row[1]
+                try:
+                    url = generate_presigned_get_url(key)
+                except Exception:
+                    url = None
+                items.append({
+                    "s3_key": key,
+                    "created_at": created.isoformat(),
+                    "url": url,
+                })
         return {"ok": True, "count": len(items), "items": items}
     except Exception as e:
         logger.exception("Failed to list generated images")
@@ -356,7 +393,15 @@ async def list_defaults():
         async with db_session() as session:
             stmt = select(EnvDefault.s3_key, EnvDefault.name).order_by(EnvDefault.created_at.desc())
             res = await session.execute(stmt)
-            items = [{"s3_key": row[0], "name": row[1]} for row in res.all()]
+            rows = res.all()
+            items = []
+            for row in rows:
+                key, name = row
+                try:
+                    url = generate_presigned_get_url(key)
+                except Exception:
+                    url = None
+                items.append({"s3_key": key, "name": name, "url": url})
         return {"ok": True, "items": items}
     except Exception as e:
         logger.exception("Failed to list defaults")

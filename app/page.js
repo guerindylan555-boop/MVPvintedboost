@@ -16,6 +16,8 @@ export default function Home() {
     poses: ["standing"],
     extra: "",
   });
+  const [envDefaults, setEnvDefaults] = useState([]); // [{s3_key,name,url}]
+  const [selectedEnvDefaultKey, setSelectedEnvDefaultKey] = useState(null);
   const [title, setTitle] = useState("");
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
@@ -36,6 +38,39 @@ export default function Home() {
       }
     } catch {}
   }, []);
+
+  // Load environment defaults to reflect in UI label
+  useEffect(() => {
+    (async () => {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const res = await fetch(`${baseUrl}/env/defaults`);
+        const data = await res.json();
+        if (data?.items) setEnvDefaults(data.items);
+      } catch {}
+    })();
+  }, []);
+
+  // Load saved studio default selection
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("vb_env_default_key");
+      if (saved) setSelectedEnvDefaultKey(saved);
+    } catch {}
+  }, []);
+
+  // Keep selection in sync with available defaults
+  useEffect(() => {
+    if (!envDefaults || envDefaults.length === 0) return;
+    const exists = selectedEnvDefaultKey && envDefaults.some((d) => d.s3_key === selectedEnvDefaultKey);
+    if (!exists) {
+      const first = envDefaults[0]?.s3_key || null;
+      setSelectedEnvDefaultKey(first);
+      try {
+        if (first) localStorage.setItem("vb_env_default_key", first);
+      } catch {}
+    }
+  }, [envDefaults]);
 
   function persistHistory(next) {
     setHistory(next);
@@ -118,6 +153,11 @@ export default function Home() {
       const poses = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses : ["standing"];
 
       // Fire parallel requests per pose (max 3 by UI)
+      // Use selected studio default (persisted), or fall back to first
+      const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
+        ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
+        : undefined;
+
       const requests = poses.map(async (pose) => {
         const form = new FormData();
         form.append("image", selectedFile);
@@ -126,6 +166,9 @@ export default function Home() {
         form.append("poses", pose);
         form.append("extra", options.extra || "");
         form.append("title", title || "");
+        if (envDefaultKey) {
+          form.append("env_default_s3_key", envDefaultKey);
+        }
         // Description fields are not sent to backend for generation
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
         if (!res.ok) throw new Error(await res.text());
@@ -365,13 +408,37 @@ export default function Home() {
                   value={options.environment}
                   onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
                 >
-                  <option value="studio">Studio</option>
+                  <option value="studio">
+                    Studio{envDefaults.length > 0 ? ` (${envDefaults.length} default${envDefaults.length > 1 ? "s" : ""})` : ""}
+                  </option>
                   <option value="street">Street</option>
                   <option value="bed">Bed</option>
                   <option value="beach">Beach</option>
                   <option value="indoor">Indoor</option>
                 </select>
               </div>
+              {options.environment === "studio" && envDefaults.length > 0 && (
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500">Studio default</label>
+                  <select
+                    className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                    value={selectedEnvDefaultKey || ""}
+                    onChange={(e) => {
+                      const v = e.target.value || null;
+                      setSelectedEnvDefaultKey(v);
+                      try {
+                        if (v) localStorage.setItem("vb_env_default_key", v);
+                      } catch {}
+                    }}
+                  >
+                    {envDefaults.map((d) => (
+                      <option key={d.s3_key} value={d.s3_key}>
+                        {d.name || d.s3_key}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Poses (up to 3)</label>
                 <div className="mt-1 grid grid-cols-2 gap-2">
