@@ -5,9 +5,13 @@ import { nextCookies } from "better-auth/next-js";
 // Prefer a dedicated URL for Better Auth; fallback to DATABASE_URL.
 // Accept Python-style Postgres URLs by normalizing the scheme for node-postgres.
 const rawUrl = process.env.BETTER_AUTH_DATABASE_URL || process.env.DATABASE_URL;
-const connectionString = rawUrl
-  ? rawUrl.replace(/^postgresql\+psycopg2:\/\//, "postgres://")
-  : undefined;
+let connectionString = rawUrl;
+if (connectionString) {
+  // Normalize common Python-style schemes to node-postgres compatible.
+  connectionString = connectionString
+    .replace(/^postgresql\+psycopg2:\/\//, "postgres://")
+    .replace(/^postgresql:\/\//, "postgres://");
+}
 
 // Only create the pool if we have a connection string to avoid build-time failures.
 const pool = connectionString ? new Pool({ connectionString }) : undefined;
