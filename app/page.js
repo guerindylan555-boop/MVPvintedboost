@@ -1,103 +1,219 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const fileInputRef = useRef(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function setImageFile(file) {
+    if (!file) return;
+    if (!file.type?.startsWith("image/")) {
+      alert("Please select an image file.");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setSelectedFile(file);
+    setPreviewUrl(objectUrl);
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    setImageFile(file);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    setImageFile(file);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    setIsDragging(false);
+  }
+
+  function handleTriggerPick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleGenerate() {
+    if (!selectedFile) return;
+    try {
+      setIsGenerating(true);
+      // TODO: Wire up API call to your generation backend
+      await new Promise((r) => setTimeout(r, 1200));
+      console.log("Generate with file:", selectedFile);
+      alert("Pretend we generated an image! (hook up backend next)");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  function clearSelection() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  return (
+    <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
+      <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
+        <header className="pt-2">
+          <h1 className="text-xl font-semibold tracking-tight">VintedBoost</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Upload a clothing photo. We will place it on a model.
+          </p>
+        </header>
+
+        <section>
+          <input
+            ref={fileInputRef}
+            id="file"
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+
+          {!previewUrl ? (
+            <button
+              type="button"
+              onClick={handleTriggerPick}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={`w-full aspect-[4/5] rounded-2xl border text-center flex items-center justify-center px-4 transition-colors ${
+                isDragging
+                  ? "border-blue-500 bg-blue-500/10"
+                  : "border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5"
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className="size-12 rounded-full border border-dashed border-current/30 flex items-center justify-center text-gray-500">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    className="size-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.5"
+                      d="M3 15.75V18a3 3 0 003 3h12a3 3 0 003-3v-2.25M7.5 9 12 4.5 16.5 9M12 4.5V15"
+                    />
+                  </svg>
+                </div>
+                <div className="text-sm">
+                  <span className="font-medium">Tap to upload</span> or drop an image
+                </div>
+                <div className="text-xs text-gray-500">PNG, JPG, HEIC up to ~10MB</div>
+              </div>
+            </button>
+          ) : (
+            <div className="w-full rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5">
+              <div className="relative w-full aspect-[4/5] bg-black/5">
+                {/* Using img for local blob preview to avoid domain config */}
+                <img
+                  src={previewUrl}
+                  alt="Selected garment preview"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="p-3 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm truncate">
+                    {selectedFile?.name || "Selected image"}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {(selectedFile?.size ? Math.round(selectedFile.size / 1024) : 0)} KB
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleTriggerPick}
+                    className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px"
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <div className="h-1" />
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+      <div className="sticky bottom-0 z-10 w-full bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t border-black/10 dark:border-white/15">
+        <div className="max-w-md mx-auto p-4 flex gap-3">
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={!selectedFile || isGenerating}
+            className={`flex-1 h-12 rounded-xl text-base font-semibold active:translate-y-px transition-opacity ${
+              !selectedFile || isGenerating
+                ? "bg-foreground/30 text-background/60 cursor-not-allowed"
+                : "bg-foreground text-background"
+            }`}
+          >
+            {isGenerating ? (
+              <span className="inline-flex items-center gap-2">
+                <svg
+                  className="size-5 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                  ></path>
+                </svg>
+                Generating…
+              </span>
+            ) : (
+              "Generate"
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
