@@ -13,7 +13,6 @@ export default function Home() {
     gender: "woman",
     environment: "studio",
     pose: "standing",
-    showFace: true,
     extra: "",
   });
   const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
@@ -42,13 +41,12 @@ export default function Home() {
   }
 
   function buildPrompt() {
-    const chunks = ["i want this clothe on someone"];
+    const chunks = ["Put this clothing item on a realistic person model."];
     if (options.gender) chunks.push(`Gender: ${options.gender}.`);
     if (options.environment) chunks.push(`Environment: ${options.environment}.`);
     if (options.pose) chunks.push(`Pose: ${options.pose}.`);
-    chunks.push(options.showFace ? "Show the person's face." : "Do not show the face.");
     if (options.extra?.trim()) chunks.push(options.extra.trim());
-    chunks.push("High-quality fashion photo, realistic fit, natural lighting.");
+    chunks.push("Realistic fit, high-quality fashion photo, natural lighting.");
     return chunks.join(" ");
   }
 
@@ -95,8 +93,12 @@ export default function Home() {
     try {
       setIsGenerating(true);
       const form = new FormData();
-      form.append("prompt", buildPrompt());
+      // unified request: send structured fields; backend builds prompt
       form.append("image", selectedFile);
+      form.append("gender", options.gender);
+      form.append("environment", options.environment);
+      form.append("pose", options.pose);
+      form.append("extra", options.extra || "");
 
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       const res = await fetch(`${baseUrl}/edit`, {
@@ -206,17 +208,6 @@ export default function Home() {
                   <option value="lying down">Lying down</option>
                   <option value="walking">Walking</option>
                 </select>
-              </div>
-              <div className="col-span-1 flex items-end">
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4"
-                    checked={options.showFace}
-                    onChange={(e) => setOptions((o) => ({ ...o, showFace: e.target.checked }))}
-                  />
-                  Show face
-                </label>
               </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Extra instructions</label>

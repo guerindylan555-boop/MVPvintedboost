@@ -72,28 +72,57 @@ async def generate(prompt: str = Form("i want this clothe on someone")):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+def _normalize_choice(value: str, allowed: list[str], default: str) -> str:
+    value = (value or "").strip().lower()
+    return value if value in allowed else default
+
+
+def _build_prompt(*, gender: str, environment: str, pose: str, extra: str) -> str:
+    pieces: list[str] = []
+    pieces.append("Put this clothing item on a realistic person model.")
+    pieces.append(f"Gender: {gender}.")
+    pieces.append(f"Environment: {environment}.")
+    pieces.append(f"Pose: {pose}.")
+    if extra:
+        pieces.append(extra)
+    pieces.append("Realistic fit, high-quality fashion photo, natural lighting.")
+    return " ".join(pieces)
+
+
 @app.post("/edit")
 async def edit(
-    prompt: str = Form("i want this clothe on someone"),
     image: UploadFile = File(...),
+    gender: str = Form("woman"),
+    environment: str = Form("studio"),
+    pose: str = Form("standing"),
+    extra: str = Form("")
 ):
     try:
         if not image or not image.filename:
             return JSONResponse({"error": "image file required"}, status_code=400)
-        # Read uploaded image and normalize to PNG bytes
-        src = Image.open(BytesIO(await image.read()))
+        # Read uploaded image bytes first for size checks
+        raw_bytes = await image.read()
+        if len(raw_bytes) > 10 * 1024 * 1024:  # 10MB inline safety
+            return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
+
+        # Decode and normalize to PNG bytes
+        src = Image.open(BytesIO(raw_bytes))
         buf = BytesIO()
         src.convert("RGBA").save(buf, format="PNG")
         buf.seek(0)
 
+        # Validate and normalize options
+        gender = _normalize_choice(gender, ["woman", "man", "unisex"], "woman")
+        environment = _normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio")
+        pose = _normalize_choice(pose, ["standing", "sitting", "lying down", "walking"], "standing")
+        extra = (extra or "").strip()
+        if len(extra) > 200:
+            extra = extra[:200]
+
+        prompt_text = _build_prompt(gender=gender, environment=environment, pose=pose, extra=extra)
+
         image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
-        contents = types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=prompt),
-                image_part,
-            ],
-        )
+        contents = types.Content(role="user", parts=[types.Part.from_text(text=prompt_text), image_part])
         client = get_client()
         resp = client.models.generate_content(
             model=MODEL,
