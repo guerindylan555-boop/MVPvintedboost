@@ -377,13 +377,14 @@ export default function StudioPage() {
                 <p className="text-xs text-gray-500 mt-2">No generated images yet.</p>
               ) : (
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {generated.map((g) => (
-                    <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
-                      <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 p-2 text-center">
-                        <span className="truncate">{g.s3_key.split('/').slice(-1)[0]}</span>
+                  {generated.map((g) => {
+                    const src = `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                    return (
+                      <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
+                        <img src={src} alt="Generated" className="h-full w-full object-cover" />
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

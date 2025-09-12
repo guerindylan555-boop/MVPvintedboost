@@ -333,6 +333,16 @@ async def list_generated():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/env/image")
+async def get_generated_image(s3_key: str):
+    try:
+        data, content_type = get_object_bytes(s3_key)
+        return StreamingResponse(BytesIO(data), media_type=content_type)
+    except Exception as e:
+        logger.exception("Failed to fetch generated image")
+        return JSONResponse({"error": str(e)}, status_code=404)
+
+
 if __name__ == "__main__":
     import uvicorn
 
