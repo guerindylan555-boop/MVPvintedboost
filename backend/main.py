@@ -10,7 +10,7 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation, EnvSource, EnvDefault
+from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault
 from .storage import (
     upload_image,
     upload_source_image,
@@ -433,7 +433,6 @@ async def model_generate(
     image: UploadFile = File(...),
     gender: str = Form("man"),
     prompt: str = Form(""),
-    env_default_s3_key: str | None = Form(None),
 ):
     try:
         if not image or not image.filename:
@@ -455,21 +454,10 @@ async def model_generate(
         lines.append(f"Randomize this {gender}.")
         if user_prompt:
             lines.append(user_prompt)
-        if env_default_s3_key:
-            lines.append("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.")
         lines.append("High quality fashion photo, natural lighting, realistic skin and fabric.")
         text_part = types.Part.from_text(text=" ".join(lines))
 
         parts: list[types.Part] = [text_part]
-        env_key_used: str | None = None
-        if env_default_s3_key:
-            try:
-                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
-                parts.append(types.Part.from_text(text="Environment reference:"))
-                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
-                env_key_used = env_default_s3_key
-            except Exception:
-                env_key_used = None
 
         # Person source image
         parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
@@ -492,7 +480,6 @@ async def model_generate(
                                 "mode": "model",
                                 "gender": gender,
                                 "user_prompt": user_prompt,
-                                "env_default_s3_key": env_key_used,
                             },
                             model=MODEL,
                         )
@@ -568,6 +555,95 @@ async def delete_generated(s3_key: str):
         return {"ok": True}
     except Exception as e:
         logger.exception("Failed to delete generated image")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- Model generated listing and defaults management ---
+
+@app.get("/model/generated")
+async def list_model_generated():
+    try:
+        async with db_session() as session:
+            stmt = (
+                select(Generation.s3_key, Generation.created_at, Generation.options_json)
+                .where(Generation.pose.in_(["model-man", "model-woman"]))
+                .order_by(Generation.created_at.desc())
+                .limit(200)
+            )
+            res = await session.execute(stmt)
+            rows = res.all()
+            items = []
+            for row in rows:
+                key = row[0]
+                created = row[1]
+                gender = (row[2] or {}).get("gender")
+                try:
+                    url = generate_presigned_get_url(key)
+                except Exception:
+                    url = None
+                items.append({"s3_key": key, "created_at": created.isoformat(), "gender": gender, "url": url})
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list model generated images")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/model/defaults")
+async def list_model_defaults():
+    try:
+        async with db_session() as session:
+            stmt = select(ModelDefault.gender, ModelDefault.s3_key, ModelDefault.name)
+            res = await session.execute(stmt)
+            rows = res.all()
+            items = []
+            for gender, key, name in rows:
+                try:
+                    url = generate_presigned_get_url(key)
+                except Exception:
+                    url = None
+                items.append({"gender": gender, "s3_key": key, "name": name, "url": url})
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list model defaults")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/model/defaults")
+async def set_model_default(gender: str = Form(...), s3_key: str = Form(...), name: str = Form("Default")):
+    try:
+        gender = _normalize_gender(gender)
+        async with db_session() as session:
+            # Upsert: keep only 1 per gender
+            await session.execute(text("DELETE FROM model_defaults WHERE gender = :g"), {"g": gender})
+            session.add(ModelDefault(gender=gender, s3_key=s3_key, name=(name or "").strip() or "Default"))
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to set model default")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.patch("/model/defaults")
+async def rename_model_default(gender: str = Form(...), name: str = Form(...)):
+    try:
+        gender = _normalize_gender(gender)
+        name = (name or "").strip() or "Default"
+        async with db_session() as session:
+            await session.execute(text("UPDATE model_defaults SET name = :n WHERE gender = :g"), {"n": name, "g": gender})
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to rename model default")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/model/defaults")
+async def unset_model_default(gender: str):
+    try:
+        gender = _normalize_gender(gender)
+        async with db_session() as session:
+            await session.execute(text("DELETE FROM model_defaults WHERE gender = :g"), {"g": gender})
+        return {"ok": True}
+    except Exception as e:
+        logger.exception("Failed to unset model default")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

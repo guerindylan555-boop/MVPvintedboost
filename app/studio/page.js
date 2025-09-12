@@ -11,9 +11,11 @@ export default function StudioPage() {
   const [bulkFiles, setBulkFiles] = useState([]);
   const [sources, setSources] = useState([]);
   const [generated, setGenerated] = useState([]);
+  const [modelGenerated, setModelGenerated] = useState([]);
   const [selectedKeys, setSelectedKeys] = useState([]);
   const [defaultNames, setDefaultNames] = useState({}); // s3_key -> name
   const [defaults, setDefaults] = useState([]); // [{s3_key,name,url}]
+  const [defaultsModel, setDefaultsModel] = useState({}); // { man: {s3_key,name,url}, woman: {…} }
   // Model tab state
   const [modelPrompt, setModelPrompt] = useState("");
   const [isModelGenerating, setIsModelGenerating] = useState(false);
@@ -121,6 +123,15 @@ export default function StudioPage() {
     } catch {}
   }
 
+  async function refreshModelGenerated() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/model/generated`);
+      const data = await res.json();
+      if (data?.items) setModelGenerated(data.items);
+    } catch {}
+  }
+
   async function refreshDefaults() {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -130,10 +141,25 @@ export default function StudioPage() {
     } catch {}
   }
 
+  async function refreshModelDefaults() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/model/defaults`);
+      const data = await res.json();
+      if (data?.items) {
+        const next = {};
+        for (const it of data.items) next[it.gender] = it;
+        setDefaultsModel(next);
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     refreshSources();
     refreshGenerated();
     refreshDefaults();
+    refreshModelGenerated();
+    refreshModelDefaults();
   }, []);
 
   function toggleSelect(key) {
@@ -578,24 +604,97 @@ export default function StudioPage() {
             {/* Generated images grid */}
             <div className="mt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Recent generated environments</h3>
+                <h3 className="text-sm font-medium">Recent generated models</h3>
                 <button
                   type="button"
-                  onClick={refreshGenerated}
+                  onClick={refreshModelGenerated}
                   className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
                 >
                   Refresh
                 </button>
               </div>
-              {generated.length === 0 ? (
-                <p className="text-xs text-gray-500 mt-2">No generated images yet.</p>
+              {modelGenerated.length === 0 ? (
+                <p className="text-xs text-gray-500 mt-2">No generated models yet.</p>
               ) : (
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  {generated.map((g) => {
+                  {modelGenerated.map((g) => {
                     const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                    const isMaleDefault = defaultsModel?.man?.s3_key === g.s3_key;
+                    const isFemaleDefault = defaultsModel?.woman?.s3_key === g.s3_key;
+                    const isDefault = isMaleDefault || isFemaleDefault;
+                    const gender = g.gender || (isMaleDefault ? "man" : isFemaleDefault ? "woman" : "model");
+                    const defaultName = isMaleDefault ? defaultsModel.man.name : isFemaleDefault ? defaultsModel.woman.name : null;
                     return (
-                      <div key={g.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square">
-                        <img src={src} alt="Generated" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                      <div key={g.s3_key} className={`relative rounded-md overflow-hidden border ${isDefault ? "border-blue-500" : "border-black/10 dark:border-white/15"} aspect-square`}>
+                        <img src={src} alt="Generated model" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                        <div className="absolute top-1 right-1 flex gap-1">
+                          {isDefault ? (
+                            <>
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-[10px] rounded bg-yellow-500 text-white"
+                                onClick={async () => {
+                                  const newName = prompt("Rename default", defaultName || "");
+                                  if (newName == null) return;
+                                  try {
+                                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                    const form = new FormData();
+                                    form.append("gender", gender === "man" ? "man" : "woman");
+                                    form.append("name", newName);
+                                    const res = await fetch(`${baseUrl}/model/defaults`, { method: "PATCH", body: form });
+                                    if (!res.ok) throw new Error(await res.text());
+                                    await refreshModelDefaults();
+                                  } catch (e) {
+                                    alert("Rename failed");
+                                  }
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-[10px] rounded bg-gray-700 text-white"
+                                onClick={async () => {
+                                  if (!confirm("Remove from defaults?")) return;
+                                  try {
+                                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                    const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender === "man" ? "man" : "woman")}`, { method: "DELETE" });
+                                    if (!res.ok) throw new Error(await res.text());
+                                    await refreshModelDefaults();
+                                  } catch (e) {
+                                    alert("Failed to remove default");
+                                  }
+                                }}
+                              >
+                                Undefault
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-[10px] rounded bg-blue-600 text-white"
+                              onClick={async () => {
+                                try {
+                                  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                  const form = new FormData();
+                                  form.append("gender", g.gender || "man");
+                                  form.append("s3_key", g.s3_key);
+                                  form.append("name", g.gender === "woman" ? "Female default" : "Male default");
+                                  const res = await fetch(`${baseUrl}/model/defaults`, { method: "POST", body: form });
+                                  if (!res.ok) throw new Error(await res.text());
+                                  await refreshModelDefaults();
+                                } catch (e) {
+                                  alert("Failed to set default");
+                                }
+                              }}
+                            >
+                              Set default
+                            </button>
+                          )}
+                        </div>
+                        {isDefault && (
+                          <div className="absolute bottom-0 left-0 right-0 text-[10px] bg-blue-600 text-white px-1 truncate">{defaultName || (gender === "woman" ? "Female default" : "Male default")}</div>
+                        )}
                       </div>
                     );
                   })}
