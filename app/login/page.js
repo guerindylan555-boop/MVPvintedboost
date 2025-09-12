@@ -1,25 +1,13 @@
 "use client";
 import { useCallback } from "react";
+import { createAuthClient } from "better-auth/react";
+
+const { signIn } = createAuthClient();
 
 export default function LoginPage() {
-  const onGoogle = useCallback(() => {
-    // Better Auth's sign-in/social expects POST; submit a form to navigate
-    const form = document.createElement("form");
-    form.method = "POST";
-    form.action = "/api/auth/sign-in/social";
-    const provider = document.createElement("input");
-    provider.type = "hidden";
-    provider.name = "provider";
-    provider.value = "google";
-    form.appendChild(provider);
-    const cb = document.createElement("input");
-    cb.type = "hidden";
-    cb.name = "callbackURL";
-    cb.value = "/studio";
-    form.appendChild(cb);
-    document.body.appendChild(form);
-    form.submit();
-  }, []);
+  const onGoogle = useCallback(async () => {
+    await signIn.social({ provider: "google", callbackURL: "/studio" });
+  }, [signIn]);
 
   return (
     <div className="p-6 max-w-sm mx-auto">
