@@ -153,20 +153,33 @@ async def edit(
 
         if not norm_poses:
             norm_poses = ["standing"]
-        prompt_text = _build_prompt(gender=gender, environment=environment, poses=norm_poses, extra=extra)
 
-        parts: list[types.Part] = [types.Part.from_text(text=prompt_text)]
-        # If a studio default environment was selected on the frontend, include it as a reference image
+        # Build prompt differently when an environment reference image is provided
+        parts: list[types.Part] = []
         env_key_used: str | None = None
         if env_default_s3_key:
+            # When using a default environment, avoid textual environment description and rely on the image
+            base_lines: list[str] = []
+            base_lines.append("Put this clothing item on a realistic person model.")
+            base_lines.append(f"Gender: {gender}.")
+            if norm_poses:
+                base_lines.append("Poses: " + ", ".join(norm_poses) + ".")
+            if extra:
+                base_lines.append(extra)
+            base_lines.append("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.")
+            base_lines.append("Realistic fit, high-quality fashion photo, natural lighting.")
+            prompt_text = " ".join(base_lines)
+            parts.append(types.Part.from_text(text=prompt_text))
             try:
                 env_bytes, env_mime = get_object_bytes(env_default_s3_key)
                 parts.append(types.Part.from_text(text="Environment reference:"))
                 parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
                 env_key_used = env_default_s3_key
             except Exception:
-                # If fetching fails, continue without env image
                 env_key_used = None
+        else:
+            prompt_text = _build_prompt(gender=gender, environment=environment, poses=norm_poses, extra=extra)
+            parts.append(types.Part.from_text(text=prompt_text))
 
         # Uploaded garment/source image last
         image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
