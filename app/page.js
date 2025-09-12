@@ -9,7 +9,8 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(true);
-  const allowedPoses = ["standing", "sitting", "lying down", "walking"];
+  // Pose choices for mirror selfie flow
+  const allowedPoses = ["face trois quart", "from the side", "random"];
   const [options, setOptions] = useState({
     gender: "woman",
     environment: "studio",
@@ -28,6 +29,8 @@ export default function Home() {
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
+  // Pose descriptions fetched from Studio (for random)
+  const [poseDescs, setPoseDescs] = useState([]); // [{s3_key, description, created_at}]
 
   useEffect(() => {
     return () => {
@@ -43,6 +46,18 @@ export default function Home() {
         if (Array.isArray(parsed)) setHistory(parsed);
       }
     } catch {}
+  }, []);
+
+  // Load pose descriptions from Studio for random selection
+  useEffect(() => {
+    (async () => {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const res = await fetch(`${baseUrl}/pose/descriptions`);
+        const data = await res.json();
+        if (data?.items && Array.isArray(data.items)) setPoseDescs(data.items);
+      } catch {}
+    })();
   }, []);
 
   // Load environment defaults to reflect in UI label
@@ -109,7 +124,7 @@ export default function Home() {
     } catch {}
   }
 
-  function computeEffectivePrompt() {
+  function computeEffectivePrompt(poseOverride, forPreview = true) {
     // Mirror Selfie for Vinted template (frontend preview aligned with backend)
     const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
       ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
@@ -119,7 +134,35 @@ export default function Home() {
     const personDesc = personDefault?.description;
     const usingPersonImage = !!(useModelImage && personDefaultKey);
     const usingPersonDesc = !!(!useModelImage && personDesc);
-    const pose = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses[0] : "";
+    const selectedPose = poseOverride != null ? poseOverride : (Array.isArray(options.poses) && options.poses.length > 0 ? options.poses[0] : "");
+
+    // Build pose lines
+    let poseLine = "";
+    const poseLines = [];
+    if (selectedPose === "face trois quart") {
+      poseLine = "three-quarter view toward the mirror";
+      poseLines.push("Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.");
+    } else if (selectedPose === "from the side") {
+      poseLine = "side profile toward the mirror";
+      poseLines.push("Orientation: side/profile view; ensure torso and garment remain visible.");
+    } else if (selectedPose === "random") {
+      if (!forPreview) {
+        // Pick a concrete random description at generation time
+        const items = Array.isArray(poseDescs) ? poseDescs : [];
+        const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
+        if (pick?.description) {
+          poseLine = "see pose description below";
+          poseLines.push(`Pose description: ${pick.description}`);
+        } else {
+          poseLine = "natural selfie stance";
+        }
+      } else {
+        // Preview: indicate randomness without fixing a specific one
+        poseLine = "random from saved pose descriptions";
+      }
+    } else if (selectedPose) {
+      poseLine = selectedPose;
+    }
 
     const lines = [];
     lines.push("High-level goals");
@@ -150,7 +193,7 @@ export default function Home() {
     lines.push("CONDITIONED CONTROLS");
     lines.push(`- Gender: ${usingPersonImage ? "" : (options.gender || "")}`);
     lines.push(`- Environment: ${envDefaultKey ? "" : (options.environment || "")}`);
-    lines.push(`- Pose: ${pose || ""}`);
+    lines.push(`- Pose: ${poseLine || ""}`);
     lines.push(`- Extra user instructions: "${(options.extra || "").trim().replace(/\n/g, " ")}"`);
     lines.push("");
     lines.push("STYLE & CAMERA DIRECTION");
@@ -174,8 +217,9 @@ export default function Home() {
     lines.push("- Hand pose: holding a black iPhone 16 Pro naturally; fingers look correct; phone and its reflection visible.");
     lines.push("");
     lines.push("POSE RENDERING");
-    lines.push(`- Enforce the requested pose: ${pose || ""}. Make it balanced and anatomically plausible.`);
+    lines.push(`- Enforce the requested pose: ${poseLine || ""}. Make it balanced and anatomically plausible.`);
     lines.push("- Ensure the garment remains fully visible and not occluded by the phone or pose.");
+    for (const ln of poseLines) lines.push(`- ${ln}`);
     lines.push("");
     lines.push("QUALITY CHECK BEFORE OUTPUT");
     lines.push("- Fingers: five per hand; shapes correct.");
@@ -195,7 +239,8 @@ export default function Home() {
   // Keep prompt preview in sync unless user edited it
   useEffect(() => {
     if (!promptDirty) {
-      setPromptInput(computeEffectivePrompt());
+      const firstPose = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses[0] : "";
+      setPromptInput(computeEffectivePrompt(firstPose, true));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -293,8 +338,25 @@ export default function Home() {
         } else if (!useModelImage && personDesc) {
           form.append("model_description_text", personDesc);
         }
-        // Always send the visible prompt as override so backend uses exactly this text
-        const effective = (promptInput && promptInput.trim()) ? promptInput : computeEffectivePrompt();
+        // Build per-pose effective prompt.
+        // If user edited the prompt, use their text but augment with pose info when needed.
+        let effective = "";
+        if (promptDirty) {
+          effective = promptInput.trim();
+          if (pose === "random") {
+            const items = Array.isArray(poseDescs) ? poseDescs : [];
+            const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
+            if (pick?.description) {
+              effective += `\nPose description: ${pick.description}`;
+            }
+          } else if (pose === "face trois quart") {
+            effective += "\n- Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.";
+          } else if (pose === "from the side") {
+            effective += "\n- Orientation: side/profile view; ensure torso and garment remain visible.";
+          }
+        } else {
+          effective = computeEffectivePrompt(pose, false);
+        }
         form.append("prompt_override", effective);
         // Description fields are not sent to backend for generation
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
@@ -306,7 +368,7 @@ export default function Home() {
           reader.onload = () => resolve(reader.result);
           reader.readAsDataURL(blob);
         });
-        return { pose, dataUrl: String(dataUrl) };
+        return { pose, dataUrl: String(dataUrl), effectivePrompt: effective };
       });
 
       const results = await Promise.allSettled(requests);
@@ -326,7 +388,7 @@ export default function Home() {
         id: `${now}-${s.pose}-${Math.random().toString(36).slice(2, 6)}`,
         dataUrl: s.dataUrl,
         createdAt: now,
-        prompt: (promptInput && promptInput.trim()) ? promptInput : computeEffectivePrompt(),
+        prompt: s.effectivePrompt || (promptDirty ? promptInput : computeEffectivePrompt(s.pose, true)),
         options: { ...options, poses: [s.pose], title, desc: descEnabled ? desc : undefined },
       }));
       const next = [...newItems, ...history].slice(0, 12);
