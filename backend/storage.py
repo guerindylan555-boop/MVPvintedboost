@@ -1,7 +1,7 @@
 import os
 import uuid
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Optional
 
 import boto3
 
@@ -33,6 +33,22 @@ def upload_image(png_bytes: bytes, pose: str) -> Tuple[str, str]:
         Key=key,
         Body=png_bytes,
         ContentType="image/png",
+        ACL="private",
+    )
+    return AWS_S3_BUCKET, key
+
+
+def upload_source_image(bytes_data: bytes, mime: Optional[str] = None) -> Tuple[str, str]:
+    """Uploads an original source image (any type) into S3 under env_sources/ and returns (bucket, key)."""
+    if not AWS_S3_BUCKET:
+        raise RuntimeError("AWS_S3_BUCKET not configured")
+    ext = "png" if (mime == "image/png") else "jpg"
+    key = f"env_sources/{datetime.utcnow().year:04d}/{uuid.uuid4().hex}.{ext}"
+    get_s3().put_object(
+        Bucket=AWS_S3_BUCKET,
+        Key=key,
+        Body=bytes_data,
+        ContentType=mime or "application/octet-stream",
         ACL="private",
     )
     return AWS_S3_BUCKET, key

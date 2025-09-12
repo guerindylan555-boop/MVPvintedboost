@@ -44,13 +44,19 @@ export default function StudioPage() {
   }
 
   async function handleGenerate() {
-    if (!prompt.trim()) return;
     try {
       setIsGenerating(true);
-      const form = new FormData();
-      form.append("prompt", prompt.trim());
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/generate`, { method: "POST", body: form });
+      // If user entered a prompt, use /env/generate (instruction + prompt). Else fallback to /env/random.
+      const endpoint = prompt.trim() ? "/env/generate" : "/env/random";
+      let res;
+      if (endpoint === "/env/generate") {
+        const form = new FormData();
+        form.append("prompt", prompt.trim());
+        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+      } else {
+        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST" });
+      }
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -70,7 +76,21 @@ export default function StudioPage() {
   }
 
   function handleBulkUpload() {
-    alert("Admin only feature. Coming soon.");
+    // Upload selected files to backend as environment sources
+    (async () => {
+      try {
+        if (bulkFiles.length === 0) return alert("Choose files first");
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const form = new FormData();
+        for (const f of bulkFiles) form.append("files", f);
+        const res = await fetch(`${baseUrl}/env/sources/upload`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(await res.text());
+        alert("Uploaded sources.");
+      } catch (e) {
+        console.error(e);
+        alert("Bulk upload failed.");
+      }
+    })();
   }
 
   function onPickMale(e) {

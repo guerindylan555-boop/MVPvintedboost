@@ -10,8 +10,8 @@ from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation
-from .storage import upload_image
+from .db import db_session, init_db, Generation, EnvSource
+from .storage import upload_image, upload_source_image
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
@@ -183,6 +183,76 @@ async def edit(
         return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
     except Exception as e:
         logger.exception("Unhandled error on /edit")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- Environment sources and generation ---
+
+@app.post("/env/sources/upload")
+async def upload_env_sources(files: list[UploadFile] = File(...)):
+    try:
+        stored = []
+        for f in files:
+            data = await f.read()
+            bucket, key = upload_source_image(data, mime=f.content_type)
+            async with db_session() as session:
+                rec = EnvSource(s3_key=key)
+                session.add(rec)
+            stored.append({"s3_key": key})
+        return {"ok": True, "count": len(stored), "items": stored}
+    except Exception as e:
+        logger.exception("Failed to upload env sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/env/random")
+async def generate_env_random():
+    """Pick a random stored source and generate with strict instruction."""
+    try:
+        # Fetch random one
+        async with db_session() as session:
+            # simple approach: get first; in real app use ORDER BY RANDOM()
+            res = await session.execute(
+                "SELECT s3_key FROM env_sources ORDER BY created_at DESC LIMIT 1"
+            )
+            row = res.first()
+        if not row:
+            return JSONResponse({"error": "no sources uploaded"}, status_code=400)
+
+        instruction = "randomize the scene and the mirror frame"
+        resp = get_client().models.generate_content(
+            model=MODEL,
+            contents=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=instruction)],
+            ),
+        )
+        for c in getattr(resp, "candidates", []) or []:
+            for p in getattr(c, "content", {}).parts or []:
+                if getattr(p, "inline_data", None):
+                    return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
+        return JSONResponse({"error": "no image from model"}, status_code=502)
+    except Exception as e:
+        logger.exception("env random failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/env/generate")
+async def generate_env(prompt: str = Form("")):
+    try:
+        instruction = "randomize the scene and the mirror frame"
+        full = instruction if not prompt.strip() else f"{instruction}. {prompt.strip()}"
+        resp = get_client().models.generate_content(
+            model=MODEL,
+            contents=types.Content(role="user", parts=[types.Part.from_text(text=full)]),
+        )
+        for c in getattr(resp, "candidates", []) or []:
+            for p in getattr(c, "content", {}).parts or []:
+                if getattr(p, "inline_data", None):
+                    return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
+        return JSONResponse({"error": "no image from model"}, status_code=502)
+    except Exception as e:
+        logger.exception("env generate failed")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
