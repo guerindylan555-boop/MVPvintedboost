@@ -45,6 +45,8 @@ const authOptions = {
   plugins: [nextCookies()],
   // Optional, recommended in production
   secret: process.env.BETTER_AUTH_SECRET,
+  // Ensure Better Auth builds absolute URLs correctly (falls back to headers if missing)
+  baseURL: process.env.BETTER_AUTH_URL,
   // Respect base URL via env (BETTER_AUTH_URL); Better Auth will infer path.
   ...(socialProviders ? { socialProviders } : {}),
   // Customize session payload minimally to add an isAdmin flag
