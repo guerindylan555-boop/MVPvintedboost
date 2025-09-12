@@ -51,6 +51,23 @@ export default function Home() {
     })();
   }, []);
 
+  // Load model defaults (one per gender)
+  const [modelDefaults, setModelDefaults] = useState({}); // { man: {s3_key,name}, woman: {...} }
+  useEffect(() => {
+    (async () => {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const res = await fetch(`${baseUrl}/model/defaults`);
+        const data = await res.json();
+        if (data?.items) {
+          const next = {};
+          for (const it of data.items) next[it.gender] = it;
+          setModelDefaults(next);
+        }
+      } catch {}
+    })();
+  }, []);
+
   // Load saved studio default selection
   useEffect(() => {
     try {
@@ -175,6 +192,10 @@ export default function Home() {
         form.append("title", title || "");
         if (envDefaultKey) {
           form.append("env_default_s3_key", envDefaultKey);
+        }
+        const personDefaultKey = options.gender === "woman" ? modelDefaults?.woman?.s3_key : modelDefaults?.man?.s3_key;
+        if (personDefaultKey) {
+          form.append("model_default_s3_key", personDefaultKey);
         }
         // Description fields are not sent to backend for generation
         const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
@@ -405,7 +426,7 @@ export default function Home() {
                 >
                   <option value="woman">Woman</option>
                   <option value="man">Man</option>
-                  <option value="unisex">Unisex</option>
+                  
                 </select>
               </div>
               {envDefaults.length > 0 ? (
@@ -448,6 +469,18 @@ export default function Home() {
                   </select>
                 </div>
               )}
+              {/* Model defaults selection based on gender */}
+              <div className="col-span-1">
+                <label className="text-xs text-gray-500">Gender</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={options.gender}
+                  onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
+                >
+                  <option value="woman">Woman</option>
+                  <option value="man">Man</option>
+                </select>
+              </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Poses (up to 3)</label>
                 <div className="mt-1 grid grid-cols-2 gap-2">

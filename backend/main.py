@@ -117,6 +117,7 @@ async def edit(
     poses: list[str] = Form(None),
     extra: str = Form(""),
     env_default_s3_key: str | None = Form(None),
+    model_default_s3_key: str | None = Form(None),
 ):
     try:
         if not image or not image.filename:
@@ -133,7 +134,7 @@ async def edit(
         buf.seek(0)
 
         # Validate and normalize options
-        gender = _normalize_choice(gender, ["woman", "man", "unisex"], "woman")
+        gender = _normalize_choice(gender, ["woman", "man"], "woman")
         environment = _normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio")
         # Normalize poses array (multi-select). Accept up to 3 unique values
         allowed_poses = ["standing", "sitting", "lying down", "walking"]
@@ -155,22 +156,31 @@ async def edit(
         if not norm_poses:
             norm_poses = ["standing"]
 
-        # Build prompt differently when an environment reference image is provided
+        # Build prompt considering optional environment/person reference images
         parts: list[types.Part] = []
         env_key_used: str | None = None
-        if env_default_s3_key:
-            # When using a default environment, avoid textual environment description and rely on the image
-            base_lines: list[str] = []
-            base_lines.append("Put this clothing item on a realistic person model.")
+        person_key_used: str | None = None
+        base_lines: list[str] = []
+        base_lines.append("Put this clothing item on a realistic person model.")
+        # Omit gender description if a person reference image is provided
+        if not model_default_s3_key:
             base_lines.append(f"Gender: {gender}.")
-            if norm_poses:
-                base_lines.append("Poses: " + ", ".join(norm_poses) + ".")
-            if extra:
-                base_lines.append(extra)
+        # Use textual environment only if no environment reference is provided
+        if not env_default_s3_key:
+            base_lines.append(f"Environment: {environment}.")
+        if norm_poses:
+            base_lines.append("Poses: " + ", ".join(norm_poses) + ".")
+        if extra:
+            base_lines.append(extra)
+        if env_default_s3_key:
             base_lines.append("Use the provided environment reference image as the full background. Integrate subject realistically, keep lighting and framing consistent with the reference.")
-            base_lines.append("Realistic fit, high-quality fashion photo, natural lighting.")
-            prompt_text = " ".join(base_lines)
-            parts.append(types.Part.from_text(text=prompt_text))
+        if model_default_s3_key:
+            base_lines.append("Use the provided person reference image as the subject; preserve identity and pose while dressing them with the garment.")
+        base_lines.append("Realistic fit, high-quality fashion photo, natural lighting.")
+        prompt_text = " ".join(base_lines)
+        parts.append(types.Part.from_text(text=prompt_text))
+
+        if env_default_s3_key:
             try:
                 env_bytes, env_mime = get_object_bytes(env_default_s3_key)
                 parts.append(types.Part.from_text(text="Environment reference:"))
@@ -178,9 +188,14 @@ async def edit(
                 env_key_used = env_default_s3_key
             except Exception:
                 env_key_used = None
-        else:
-            prompt_text = _build_prompt(gender=gender, environment=environment, poses=norm_poses, extra=extra)
-            parts.append(types.Part.from_text(text=prompt_text))
+        if model_default_s3_key:
+            try:
+                person_bytes, person_mime = get_object_bytes(model_default_s3_key)
+                parts.append(types.Part.from_text(text="Person reference:"))
+                parts.append(types.Part.from_bytes(data=person_bytes, mime_type=person_mime or "image/png"))
+                person_key_used = model_default_s3_key
+            except Exception:
+                person_key_used = None
 
         # Uploaded garment/source image last
         image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
@@ -210,6 +225,7 @@ async def edit(
                                 "poses": norm_poses,
                                 "extra": extra,
                                 "env_default_s3_key": env_key_used,
+                                "model_default_s3_key": person_key_used,
                             },
                             model=MODEL,
                         )
