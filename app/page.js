@@ -10,11 +10,11 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(true);
   // Pose choices for mirror selfie flow
-  const allowedPoses = ["face trois quart", "from the side", "random"];
+  const allowedPoses = ["Face", "three-quarter pose", "from the side", "random"];
   const [options, setOptions] = useState({
     gender: "woman",
     environment: "studio",
-    poses: ["standing"],
+    poses: ["random"],
     extra: "",
   });
   // Toggle to choose whether to send the model default image (true) or
@@ -31,6 +31,7 @@ export default function Home() {
   const [promptDirty, setPromptDirty] = useState(false);
   // Pose descriptions fetched from Studio (for random)
   const [poseDescs, setPoseDescs] = useState([]); // [{s3_key, description, created_at}]
+  const [randomPosePick, setRandomPosePick] = useState(null); // one chosen description at load
 
   useEffect(() => {
     return () => {
@@ -55,7 +56,13 @@ export default function Home() {
         const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
         const res = await fetch(`${baseUrl}/pose/descriptions`);
         const data = await res.json();
-        if (data?.items && Array.isArray(data.items)) setPoseDescs(data.items);
+        if (data?.items && Array.isArray(data.items)) {
+          setPoseDescs(data.items);
+          if (data.items.length > 0) {
+            const pick = data.items[Math.floor(Math.random() * data.items.length)];
+            setRandomPosePick(pick);
+          }
+        }
       } catch {}
     })();
   }, []);
@@ -139,17 +146,23 @@ export default function Home() {
     // Build pose lines
     let poseLine = "";
     const poseLines = [];
-    if (selectedPose === "face trois quart") {
+    if (selectedPose === "Face" || selectedPose === "face") {
+      poseLine = "front-facing mirror view";
+      poseLines.push("Orientation: front-facing; squared shoulders; straight posture; phone centered.");
+      poseLines.push("Pose description: frontal mirror selfie; shoulders squared; phone centered; relaxed posture.");
+    } else if (selectedPose === "three-quarter pose" || selectedPose === "face trois quart") {
       poseLine = "three-quarter view toward the mirror";
       poseLines.push("Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.");
+      poseLines.push("Pose description: three-quarter view; torso angled; weight slightly on one leg.");
     } else if (selectedPose === "from the side") {
       poseLine = "side profile toward the mirror";
       poseLines.push("Orientation: side/profile view; ensure torso and garment remain visible.");
+      poseLines.push("Pose description: profile view; head and torso turned sideways; garment unobstructed.");
     } else if (selectedPose === "random") {
       if (!forPreview) {
         // Pick a concrete random description at generation time
         const items = Array.isArray(poseDescs) ? poseDescs : [];
-        const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
+        const pick = randomPosePick || (items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null);
         if (pick?.description) {
           poseLine = "see pose description below";
           poseLines.push(`Pose description: ${pick.description}`);
@@ -157,8 +170,13 @@ export default function Home() {
           poseLine = "natural selfie stance";
         }
       } else {
-        // Preview: indicate randomness without fixing a specific one
-        poseLine = "random from saved pose descriptions";
+        // Preview: show the pre-picked random pose if available
+        if (randomPosePick?.description) {
+          poseLine = "see pose description below";
+          poseLines.push(`Pose description: ${randomPosePick.description}`);
+        } else {
+          poseLine = "random from saved pose descriptions";
+        }
       }
     } else if (selectedPose) {
       poseLine = selectedPose;
