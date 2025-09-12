@@ -246,22 +246,6 @@ export default function StudioPage() {
         {/* Environment tab */}
         {activeTab === "environment" && (
           <section className="flex flex-col gap-4">
-            {defaults.length > 0 && (
-              <div className="sticky top-0 z-10 -mx-5 px-5 py-2 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-black/10 dark:border-white/15">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Defaults</h3>
-                  <span className="text-[10px] text-gray-500">{defaults.length} saved</span>
-                </div>
-                <div className="mt-2 flex gap-2 overflow-x-auto">
-                  {defaults.map((d) => (
-                    <div key={d.s3_key} className="relative flex-shrink-0 size-16 rounded-md overflow-hidden border border-black/10 dark:border-white/15" title={d.name}>
-                      <img src={d.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(d.s3_key)}`} alt={d.name} className="h-full w-full object-cover" />
-                      <div className="absolute bottom-0 left-0 right-0 text-[9px] bg-black/60 text-white px-1 truncate">{d.name}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             <div>
               <label className="text-xs text-gray-500">Prompt</label>
               <textarea
