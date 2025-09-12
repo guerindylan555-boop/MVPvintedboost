@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
-import { nextCookies } from "better-auth/integrations/next-js";
+import { nextCookies } from "better-auth/next-js";
 
 // Prefer a dedicated URL for Better Auth; fallback to DATABASE_URL.
 // Accept Python-style Postgres URLs by normalizing the scheme for node-postgres.
