@@ -12,6 +12,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from .db import db_session, init_db, Generation, EnvSource
 from .storage import upload_image, upload_source_image, get_object_bytes
+from sqlalchemy import select, func, text
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
@@ -211,9 +212,9 @@ async def generate_env_random():
     try:
         # Fetch random one
         async with db_session() as session:
-            res = await session.execute(
-                "SELECT s3_key FROM env_sources ORDER BY created_at DESC LIMIT 1"
-            )
+            # Using raw SQL with text() to avoid dialect differences
+            stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
+            res = await session.execute(stmt)
             row = res.first()
         if not row:
             return JSONResponse({"error": "no sources uploaded"}, status_code=400)
@@ -229,7 +230,19 @@ async def generate_env_random():
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
                 if getattr(p, "inline_data", None):
-                    return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
+                    png_bytes = p.inline_data.data
+                    # persist result
+                    bucket, key = upload_image(png_bytes, pose="env")
+                    async with db_session() as session:
+                        rec = Generation(
+                            s3_key=key,
+                            pose="env",
+                            prompt=instruction,
+                            options_json={"mode": "random", "source_s3_key": row[0]},
+                            model=MODEL,
+                        )
+                        session.add(rec)
+                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
         logger.exception("env random failed")
@@ -241,11 +254,10 @@ async def generate_env(prompt: str = Form("")):
     try:
         instruction = "randomize the scene and the mirror frame"
         full = instruction if not prompt.strip() else f"{instruction}. {prompt.strip()}"
-        # Use latest uploaded source image for now
+        # Use a random uploaded source image
         async with db_session() as session:
-            res = await session.execute(
-                "SELECT s3_key FROM env_sources ORDER BY created_at DESC LIMIT 1"
-            )
+            stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
+            res = await session.execute(stmt)
             row = res.first()
         if not row:
             return JSONResponse({"error": "no sources uploaded"}, status_code=400)
@@ -258,7 +270,18 @@ async def generate_env(prompt: str = Form("")):
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
                 if getattr(p, "inline_data", None):
-                    return StreamingResponse(BytesIO(p.inline_data.data), media_type="image/png")
+                    png_bytes = p.inline_data.data
+                    bucket, key = upload_image(png_bytes, pose="env")
+                    async with db_session() as session:
+                        rec = Generation(
+                            s3_key=key,
+                            pose="env",
+                            prompt=full,
+                            options_json={"mode": "prompt", "user_prompt": prompt.strip(), "source_s3_key": row[0]},
+                            model=MODEL,
+                        )
+                        session.add(rec)
+                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
         logger.exception("env generate failed")
