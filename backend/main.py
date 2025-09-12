@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
+from google.genai import types
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
@@ -50,7 +51,16 @@ async def health():
 async def generate(prompt: str = Form("i want this clothe on someone")):
     try:
         client = get_client()
-        resp = client.models.generate_content(model=MODEL, contents=[prompt])
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            ),
+            config=types.GenerateContentConfig(
+                response_mime_type="image/png",
+            ),
+        )
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
                 if getattr(p, "inline_data", None):
@@ -79,12 +89,22 @@ async def edit(
         src.convert("RGBA").save(buf, format="PNG")
         buf.seek(0)
 
-        contents = [
-            prompt,
-            {"mime_type": "image/png", "data": buf.getvalue()},
-        ]
+        image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
+        contents = types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(text=prompt),
+                image_part,
+            ],
+        )
         client = get_client()
-        resp = client.models.generate_content(model=MODEL, contents=contents)
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_mime_type="image/png",
+            ),
+        )
         for c in getattr(resp, "candidates", []) or []:
             for p in getattr(c, "content", {}).parts or []:
                 if getattr(p, "inline_data", None):
