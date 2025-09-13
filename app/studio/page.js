@@ -140,7 +140,7 @@ export default function StudioPage() {
   async function refreshModelGenerated() {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/model/generated`);
+      const res = await fetch(`${baseUrl}/model/generated`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
       const data = await res.json();
       if (data?.items) {
         setModelGenerated(data.items);
@@ -643,6 +643,20 @@ export default function StudioPage() {
         {/* Model tab */}
         {activeTab === "model" && (
           <section className="flex flex-col gap-4">
+            {/* Move gender selector on top of prompt */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Model gender</label>
+                <select
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  value={modelGender}
+                  onChange={(e) => setModelGender(e.target.value)}
+                >
+                  <option value="man">Man</option>
+                  <option value="woman">Woman</option>
+                </select>
+              </div>
+            </div>
             <div>
               <label className="text-xs text-gray-500">Prompt</label>
               <textarea
@@ -913,91 +927,82 @@ export default function StudioPage() {
               )}
             </div>
 
-            {/* Two source images (male/female) */}
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              {modelGender === "man" && (
-                <div>
-                  <label className="text-xs text-gray-500">Male source image</label>
-                  <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
-                    <div className="relative w-full aspect-[4/5] bg-black/5">
-                      {malePreview ? (
-                        <img src={malePreview} alt="Male source" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
-                      )}
-                    </div>
-                    <div className="p-2 flex gap-2">
-                      <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
-                        <input type="file" accept="image/*" className="hidden" onChange={onPickMale} />
-                        Choose
-                      </label>
-                      {malePreview && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
-                            setMalePreview(null);
-                            setMaleFile(null);
-                          }}
-                          className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {modelGender === "woman" && (
-                <div>
-                  <label className="text-xs text-gray-500">Female source image</label>
-                  <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
-                    <div className="relative w-full aspect-[4/5] bg-black/5">
-                      {femalePreview ? (
-                        <img src={femalePreview} alt="Female source" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
-                      )}
-                    </div>
-                    <div className="p-2 flex gap-2">
-                      <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
-                        <input type="file" accept="image/*" className="hidden" onChange={onPickFemale} />
-                        Choose
-                      </label>
-                      {femalePreview && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
-                            setFemalePreview(null);
-                            setFemaleFile(null);
-                          }}
-                          className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-                        >
-                          Remove
-                        </button>
-                      )}
+            {/* Two source images (Admin only) */}
+            {isAdmin && (
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                {modelGender === "man" && (
+                  <div>
+                    <label className="text-xs text-gray-500">Male source image</label>
+                    <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
+                      <div className="relative w-full aspect-[4/5] bg-black/5">
+                        {malePreview ? (
+                          <img src={malePreview} alt="Male source" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
+                        )}
+                      </div>
+                      <div className="p-2 flex gap-2">
+                        <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
+                          <input type="file" accept="image/*" className="hidden" onChange={onPickMale} />
+                          Choose
+                        </label>
+                        {malePreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
+                              setMalePreview(null);
+                              setMaleFile(null);
+                            }}
+                            className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Model gender</label>
-                <select
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  value={modelGender}
-                  onChange={(e) => setModelGender(e.target.value)}
-                >
-                  <option value="man">Man</option>
-                  <option value="woman">Woman</option>
-                </select>
+                )}
+                {modelGender === "woman" && (
+                  <div>
+                    <label className="text-xs text-gray-500">Female source image</label>
+                    <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
+                      <div className="relative w-full aspect-[4/5] bg-black/5">
+                        {femalePreview ? (
+                          <img src={femalePreview} alt="Female source" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
+                        )}
+                      </div>
+                      <div className="p-2 flex gap-2">
+                        <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
+                          <input type="file" accept="image/*" className="hidden" onChange={onPickFemale} />
+                          Choose
+                        </label>
+                        {femalePreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
+                              setFemalePreview(null);
+                              setFemaleFile(null);
+                            }}
+                            className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </section>
         )}
 
         {/* Pose tab */}
-        {activeTab === "pose" && (
+        {activeTab === "pose" && isAdmin && (
           <section className="flex flex-col gap-4">
             <div>
               <label className="text-xs text-gray-500">Bulk upload pose images</label>

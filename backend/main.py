@@ -587,6 +587,7 @@ async def model_generate(
     image: UploadFile = File(...),
     gender: str = Form("man"),
     prompt: str = Form(""),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     try:
         if not image or not image.filename:
@@ -641,6 +642,7 @@ async def model_generate(
                                 "mode": "model",
                                 "gender": gender,
                                 "user_prompt": user_prompt,
+                                "user_id": x_user_id,
                             },
                             model=MODEL,
                         )
@@ -864,15 +866,22 @@ async def list_pose_descriptions():
 # --- Model generated listing and defaults management ---
 
 @app.get("/model/generated")
-async def list_model_generated():
+async def list_model_generated(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
         async with db_session() as session:
-            stmt = (
-                select(Generation.s3_key, Generation.created_at, Generation.options_json)
-                .where(Generation.pose.in_(["model-man", "model-woman"]))
-                .order_by(Generation.created_at.desc())
-                .limit(200)
-            )
+            if x_user_id:
+                stmt = (
+                    select(Generation.s3_key, Generation.created_at, Generation.options_json)
+                    .where(Generation.pose.in_(["model-man", "model-woman"]))
+                    .where(text("(options_json->>'user_id') = :uid")).params(uid=x_user_id)
+                    .order_by(Generation.created_at.desc())
+                    .limit(200)
+                )
+            else:
+                stmt = (
+                    select(Generation.s3_key, Generation.created_at, Generation.options_json)
+                    .where(text("1=0"))
+                )
             res = await session.execute(stmt)
             rows = res.all()
             items = []
