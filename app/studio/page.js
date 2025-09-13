@@ -33,11 +33,7 @@ export default function StudioPage() {
   const [malePreview, setMalePreview] = useState(null);
   const [femaleFile, setFemaleFile] = useState(null);
   const [femalePreview, setFemalePreview] = useState(null);
-  // Model sources (admin library)
-  const [modelSourceFiles, setModelSourceFiles] = useState([]);
-  const [modelUploadGender, setModelUploadGender] = useState("man");
-  const [isModelSourcesUploading, setIsModelSourcesUploading] = useState(false);
-  const [modelSources, setModelSources] = useState([]);
+  // Model sources (admin library removed; single source per gender handled via top pickers)
   // Pose tab state
   const [poseFiles, setPoseFiles] = useState([]);
   const [poseSources, setPoseSources] = useState([]); // s3_keys
@@ -177,23 +173,13 @@ export default function StudioPage() {
     } catch {}
   }
 
-  async function refreshModelSources() {
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const url = new URL(`${baseUrl}/model/sources`);
-      if (modelUploadGender) url.searchParams.set("gender", modelUploadGender);
-      const res = await fetch(url.toString());
-      const data = await res.json();
-      if (data?.items) setModelSources(data.items);
-    } catch {}
-  }
+  // refreshModelSources removed
 
   useEffect(() => {
     if (isAdmin) {
       refreshSources();
       refreshPoseSources();
       refreshPoseDescriptions();
-      refreshModelSources();
     }
     // Per-user data
     refreshDefaults();
@@ -201,13 +187,7 @@ export default function StudioPage() {
     refreshModelGenerated();
     refreshModelDefaults();
   }, [isAdmin, userId]);
-
-  useEffect(() => {
-    if (isAdmin) {
-      refreshModelSources();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelUploadGender]);
+  
 
   async function refreshPoseSources() {
     try {
@@ -267,30 +247,7 @@ export default function StudioPage() {
     }
   }
 
-  function handleModelSourceFilesChange(e) {
-    setModelSourceFiles(Array.from(e.target.files || []));
-  }
-
-  async function uploadModelSourceFiles() {
-    try {
-      if (modelSourceFiles.length === 0) return alert("Choose model source images first");
-      setIsModelSourcesUploading(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const form = new FormData();
-      form.append("gender", modelUploadGender);
-      for (const f of modelSourceFiles) form.append("files", f);
-      const res = await fetch(`${baseUrl}/model/sources/upload`, { method: "POST", body: form });
-      if (!res.ok) throw new Error(await res.text());
-      await refreshModelSources();
-      alert("Model sources uploaded.");
-      setModelSourceFiles([]);
-    } catch (e) {
-      console.error(e);
-      alert("Model source upload failed.");
-    } finally {
-      setIsModelSourcesUploading(false);
-    }
-  }
+  // Bulk upload/remove for model sources removed (single source per gender)
 
   function toggleSelect(key) {
     setSelectedKeys((prev) => {
@@ -774,71 +731,7 @@ export default function StudioPage() {
                 )}
               </div>
             )}
-            {/* Admin-only: Bulk upload and list of model sources */}
-            {isAdmin && (
-              <div className="mt-2 grid gap-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Bulk upload model source images</h3>
-                  <span className="text-xs text-gray-500">Admin only</span>
-                </div>
-                <div className="grid grid-cols-2 gap-3 items-end">
-                  <div>
-                    <label className="text-xs text-gray-500">Upload for gender</label>
-                    <select
-                      className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                      value={modelUploadGender}
-                      onChange={(e) => setModelUploadGender(e.target.value)}
-                    >
-                      <option value="man">Man</option>
-                      <option value="woman">Woman</option>
-                    </select>
-                  </div>
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleModelSourceFilesChange}
-                      className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 dark:file:border-white/15 file:px-3 file:py-2 file:bg-transparent file:text-sm"
-                    />
-                  </div>
-                </div>
-                {modelSourceFiles.length > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">{modelSourceFiles.length} file(s) selected</span>
-                    <button
-                      type="button"
-                      onClick={uploadModelSourceFiles}
-                      disabled={isModelSourcesUploading}
-                      className={`h-9 px-3 rounded-md text-xs font-medium ${isModelSourcesUploading ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"}`}
-                    >
-                      {isModelSourcesUploading ? "Uploading…" : "Upload"}
-                    </button>
-                  </div>
-                )}
-                <div className="mt-1">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium">Uploaded model sources ({modelUploadGender})</h4>
-                    <button
-                      type="button"
-                      onClick={refreshModelSources}
-                      className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-                  {modelSources.length === 0 ? (
-                    <p className="text-xs text-gray-500 mt-2">No model sources uploaded for this gender.</p>
-                  ) : (
-                    <ul className="mt-2 text-xs text-gray-500 break-all">
-                      {modelSources.map((s) => (
-                        <li key={s.s3_key}>{s.s3_key}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Admin bulk upload removed; single admin source per gender is managed via the top picker */}
             <div>
               <label className="text-xs text-gray-500">Prompt</label>
               <textarea
