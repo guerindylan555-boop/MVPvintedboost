@@ -352,7 +352,7 @@ export default function StudioPage() {
         </header>
 
         {/* Tabs */}
-        <div className="grid grid-cols-2 rounded-lg border border-black/10 dark:border-white/15 overflow-hidden">
+        <div className={`grid ${isAdmin ? "grid-cols-3" : "grid-cols-2"} rounded-lg border border-black/10 dark:border-white/15 overflow-hidden`}>
           <button
             className={`h-10 text-sm font-medium ${
               activeTab === "environment" ? "bg-foreground text-background" : "bg-transparent"
@@ -369,14 +369,16 @@ export default function StudioPage() {
           >
             Model
           </button>
-          <button
-            className={`h-10 text-sm font-medium ${
-              activeTab === "pose" ? "bg-foreground text-background" : "bg-transparent"
-            }`}
-            onClick={() => setActiveTab("pose")}
-          >
-            Pose
-          </button>
+          {isAdmin && (
+            <button
+              className={`h-10 text-sm font-medium ${
+                activeTab === "pose" ? "bg-foreground text-background" : "bg-transparent"
+              }`}
+              onClick={() => setActiveTab("pose")}
+            >
+              Pose
+            </button>
+          )}
         </div>
 
         {/* Environment tab */}
@@ -558,14 +560,13 @@ export default function StudioPage() {
               )}
             </div>
 
-            {/* Bulk upload (Admin only) */}
-            {/* Bulk upload (Admin only) */}
-            <div className="mt-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium">Bulk upload images</h2>
-                <span className="text-xs text-gray-500">Admin only</span>
-              </div>
-              {isAdmin ? (
+            {/* Admin-only bulk upload and sources (hidden for non-admins) */}
+            {isAdmin && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-medium">Bulk upload images</h2>
+                  <span className="text-xs text-gray-500">Admin only</span>
+                </div>
                 <div className="mt-2 grid gap-2">
                   <input
                     id="bulk"
@@ -592,38 +593,30 @@ export default function StudioPage() {
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="mt-2 text-xs text-gray-500">Sign in as admin to upload sources.</div>
-              )}
-              {/* Sources list */}
-              <div className="mt-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Uploaded sources</h3>
-                  <div className="flex gap-2">
-                    {isAdmin && (
-                      <>
+                {/* Sources list */}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium">Uploaded sources</h3>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={refreshSources}
+                        className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                      >
+                        Refresh
+                      </button>
+                      {sources.length > 0 && (
                         <button
                           type="button"
-                          onClick={refreshSources}
-                          className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                          onClick={deleteAllSources}
+                          className="h-9 px-3 rounded-md bg-red-600 text-white text-xs font-medium"
                         >
-                          Refresh
+                          Delete all
                         </button>
-                        {sources.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={deleteAllSources}
-                            className="h-9 px-3 rounded-md bg-red-600 text-white text-xs font-medium"
-                          >
-                            Delete all
-                          </button>
-                        )}
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-                {isAdmin ? (
-                  sources.length === 0 ? (
+                  {sources.length === 0 ? (
                     <p className="text-xs text-gray-500 mt-2">No sources uploaded.</p>
                   ) : (
                     <ul className="mt-2 text-xs text-gray-500 break-all">
@@ -631,12 +624,10 @@ export default function StudioPage() {
                         <li key={s}>{s}</li>
                       ))}
                     </ul>
-                  )
-                ) : (
-                  <p className="text-xs text-gray-500 mt-2">Sign in as admin to view uploaded sources.</p>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </section>
         )}
 
@@ -657,6 +648,77 @@ export default function StudioPage() {
                 </select>
               </div>
             </div>
+            {/* Admin source image pickers moved up for visibility */}
+            {isAdmin && (
+              <div className="grid grid-cols-2 gap-3">
+                {modelGender === "man" && (
+                  <div>
+                    <label className="text-xs text-gray-500">Male source image</label>
+                    <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
+                      <div className="relative w-full aspect-[4/5] bg-black/5">
+                        {malePreview ? (
+                          <img src={malePreview} alt="Male source" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
+                        )}
+                      </div>
+                      <div className="p-2 flex gap-2">
+                        <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
+                          <input type="file" accept="image/*" className="hidden" onChange={onPickMale} />
+                          Choose
+                        </label>
+                        {malePreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
+                              setMalePreview(null);
+                              setMaleFile(null);
+                            }}
+                            className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {modelGender === "woman" && (
+                  <div>
+                    <label className="text-xs text-gray-500">Female source image</label>
+                    <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
+                      <div className="relative w-full aspect-[4/5] bg-black/5">
+                        {femalePreview ? (
+                          <img src={femalePreview} alt="Female source" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
+                        )}
+                      </div>
+                      <div className="p-2 flex gap-2">
+                        <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
+                          <input type="file" accept="image/*" className="hidden" onChange={onPickFemale} />
+                          Choose
+                        </label>
+                        {femalePreview && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
+                              setFemalePreview(null);
+                              setFemaleFile(null);
+                            }}
+                            className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label className="text-xs text-gray-500">Prompt</label>
               <textarea
@@ -927,77 +989,7 @@ export default function StudioPage() {
               )}
             </div>
 
-            {/* Two source images (Admin only) */}
-            {isAdmin && (
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                {modelGender === "man" && (
-                  <div>
-                    <label className="text-xs text-gray-500">Male source image</label>
-                    <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
-                      <div className="relative w-full aspect-[4/5] bg-black/5">
-                        {malePreview ? (
-                          <img src={malePreview} alt="Male source" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
-                        )}
-                      </div>
-                      <div className="p-2 flex gap-2">
-                        <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
-                          <input type="file" accept="image/*" className="hidden" onChange={onPickMale} />
-                          Choose
-                        </label>
-                        {malePreview && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
-                              setMalePreview(null);
-                              setMaleFile(null);
-                            }}
-                            className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {modelGender === "woman" && (
-                  <div>
-                    <label className="text-xs text-gray-500">Female source image</label>
-                    <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
-                      <div className="relative w-full aspect-[4/5] bg-black/5">
-                        {femalePreview ? (
-                          <img src={femalePreview} alt="Female source" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
-                        )}
-                      </div>
-                      <div className="p-2 flex gap-2">
-                        <label className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px cursor-pointer">
-                          <input type="file" accept="image/*" className="hidden" onChange={onPickFemale} />
-                          Choose
-                        </label>
-                        {femalePreview && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
-                              setFemalePreview(null);
-                              setFemaleFile(null);
-                            }}
-                            className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Admin pickers moved above; removed duplicate block here */}
           </section>
         )}
 
