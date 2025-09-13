@@ -6,6 +6,7 @@ const authClient = createAuthClient();
 
 export default function Home() {
   const { data: session } = authClient.useSession();
+  const isAdmin = Boolean(session?.user?.isAdmin);
   const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
   const fileInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -588,35 +589,37 @@ export default function Home() {
           )}
         </section>
 
-        {/* Prompt preview and editor */}
-        <section>
-          <div className="flex items-center justify-between py-2">
-            <span className="text-sm font-medium">Prompt</span>
-            {promptDirty ? (
-              <button
-                type="button"
-                className="text-xs text-gray-500 hover:underline"
-                onClick={() => {
-                  setPromptDirty(false);
-                  setPromptInput(computeEffectivePrompt());
-                }}
-              >
-                Reset to suggested
-              </button>
-            ) : null}
-          </div>
-          <textarea
-            rows={4}
-            className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
-            placeholder="Exact prompt that will be sent"
-            value={promptInput}
-            onChange={(e) => {
-              setPromptInput(e.target.value);
-              setPromptDirty(true);
-            }}
-          />
-          <p className="mt-1 text-[10px] text-gray-500">This exact text is sent to the model. Changing options updates the suggestion unless you edit it.</p>
-        </section>
+        {/* Prompt preview and editor — admin only */}
+        {isAdmin && (
+          <section>
+            <div className="flex items-center justify-between py-2">
+              <span className="text-sm font-medium">Prompt</span>
+              {promptDirty ? (
+                <button
+                  type="button"
+                  className="text-xs text-gray-500 hover:underline"
+                  onClick={() => {
+                    setPromptDirty(false);
+                    setPromptInput(computeEffectivePrompt());
+                  }}
+                >
+                  Reset to suggested
+                </button>
+              ) : null}
+            </div>
+            <textarea
+              rows={4}
+              className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+              placeholder="Exact prompt that will be sent"
+              value={promptInput}
+              onChange={(e) => {
+                setPromptInput(e.target.value);
+                setPromptDirty(true);
+              }}
+            />
+            <p className="mt-1 text-[10px] text-gray-500">This exact text is sent to the model. Changing options updates the suggestion unless you edit it.</p>
+          </section>
+        )}
 
         {/* Options */}
         <section className="mt-1">
