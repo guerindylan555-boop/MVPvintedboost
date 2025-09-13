@@ -10,8 +10,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/studio") ||
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/favicon") ||
-    pathname.startsWith("/assets") ||
-    pathname === "/"; // allow home for first render, the page will fetch auth as needed
+    pathname.startsWith("/assets");
 
   if (isPublic) return NextResponse.next();
 

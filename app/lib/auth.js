@@ -55,7 +55,14 @@ const authOptions = {
   // Ensure Better Auth builds absolute URLs correctly (falls back to headers if missing)
   baseURL: process.env.BETTER_AUTH_URL,
   // Respect base URL via env (BETTER_AUTH_URL)
-  ...(socialProviders ? { socialProviders } : {}),
+  ...(socialProviders
+    ? {
+        socialProviders: {
+          ...socialProviders,
+          // Allow all users to sign up and sign in via Google
+        },
+      }
+    : {}),
 };
 
 // Initialize Better Auth instance

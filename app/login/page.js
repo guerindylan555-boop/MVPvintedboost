@@ -1,13 +1,13 @@
 "use client";
 import { useCallback } from "react";
 import { createAuthClient } from "better-auth/react";
-
-const { signIn } = createAuthClient();
+const authClient = createAuthClient();
 
 export default function LoginPage() {
   const onGoogle = useCallback(async () => {
-    await signIn.social({ provider: "google", callbackURL: "/studio" });
-  }, [signIn]);
+    const { error } = await authClient.signIn.social({ provider: "google", callbackURL: "/studio" });
+    if (error) alert(error.message || "Sign-in failed");
+  }, []);
 
   return (
     <div className="p-6 max-w-sm mx-auto">
