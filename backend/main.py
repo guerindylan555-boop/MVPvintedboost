@@ -658,9 +658,9 @@ def _normalize_gender(g: str) -> str:
 def build_model_prompt(gender: str, user_prompt: Optional[str]) -> str:
     """Prompt for generating a reusable person model reference.
 
-    - Uses an attached source person image as a seed for variation.
-    - Produces a photorealistic {gender} with neutral clothing and neutral background.
-    - Avoids copying source clothing or background; focuses on identity plausibility.
+    - Uses an attached source person image as the reference.
+    - Produce a photorealistic {gender} with the SAME clothing and the SAME background as the source.
+    - Vary only identity cues (face/identity), not the outfit or environment.
     """
     def q(s: Optional[str]) -> str:
         return (s or "").strip()
@@ -669,21 +669,22 @@ def build_model_prompt(gender: str, user_prompt: Optional[str]) -> str:
     lines.append("TASK")
     lines.append(
         f"Generate a photorealistic {gender} model portrait/full-body for try-on catalogs. "
-        "Use the attached person image purely as a seed for identity variation, not for clothing or background."
+        "Use the attached person image as the reference: keep the SAME clothing and the SAME background; change only the person identity to a different, plausible {gender}."
     )
     lines.append("")
     lines.append("HARD CONSTRAINTS")
-    lines.append("- Natural, friendly expression; neutral makeup.")
+    lines.append("- Natural, friendly expression; neutral makeup (if applicable).")
     lines.append("- Balanced body proportions; realistic hands.")
-    lines.append("- Plain clothing in solid neutrals (e.g., fitted plain tee and jeans); no logos or text.")
+    lines.append("- Clothing: preserve EXACTLY what the source person wears (same garments, colors, materials, prints, logos if present). Do not alter fit or style.")
+    lines.append("- Background/scene: preserve EXACTLY what is in the source (same location, props, lighting, palette, depth of field). Do not replace or restage.")
     lines.append("- No explicit content; keep PG-13.")
     lines.append("")
     lines.append("CAMERA & LIGHT")
-    lines.append("- Simple studio lighting; soft shadows; 3/4 body framing; straight posture.")
-    lines.append("- Background: seamless neutral backdrop (do NOT reproduce the source background).")
+    lines.append("- Preserve the source camera perspective and lighting as part of the unchanged background.")
+    lines.append("- Framing: 3/4 body if plausible from the source; otherwise match source framing.")
     lines.append("")
     lines.append("RANDOMIZATION")
-    lines.append("- Randomize identity and appearance plausibly. Do NOT copy source clothing or background.")
+    lines.append("- Randomize identity ONLY (different person of the same gender). DO NOT change clothing or background.")
     if q(user_prompt):
         lines.append("")
         lines.append("USER WISHES")
@@ -691,7 +692,7 @@ def build_model_prompt(gender: str, user_prompt: Optional[str]) -> str:
         lines.append("Apply only if consistent with realism and constraints above.")
     lines.append("")
     lines.append("NEGATIVE GUIDANCE")
-    lines.append("over-retouched skin, plastic look, extreme stylization, caricature, heavy vignettes, logos, text")
+    lines.append("over-retouched skin, plastic look, extreme stylization, caricature, heavy vignettes, AI artifacts")
     return "\n".join(lines)
 
 
@@ -773,9 +774,9 @@ async def model_generate(
                     # Follow-up: generate a detailed identity description for this image
                     try:
                         describe_prompt = (
-                            "Describe this person precisely for identity reference (plain text, 120-220 words). "
-                            "Focus ONLY on face and identity cues, not clothing or background. Include: gender as perceived; approximate age range; skin tone; face shape; eye color and shape; eyebrow shape and thickness; nose shape; lips shape; facial hair (if any); hair color, length, texture, parting and style; notable features (freckles, moles, scars, dimples); accessories (glasses, earrings). "
-                            "Keep neutral language; avoid judgments; no brand names; no clothing description."
+                            "Describe this person precisely for identity reference (plain text, MINIMUM 500 words). "
+                            "Focus strictly on identity cues, not clothing or background. Include: perceived gender; approximate age range; height impression; build; posture; skin tone with nuance; undertone; face shape; forehead; hairline; hair color; highlights/lowlights; hair length; hair texture; parting; typical styles; eyebrows (shape, thickness, arch); eyes (color, shape, spacing, eyelids); eyelashes; nose (bridge, tip, width); cheeks; lips (shape, fullness, Cupid's bow); chin; jawline; ears; facial hair (if any, density and shape); teeth and smile; notable features (freckles, moles, scars, dimples, birthmarks); accessories (glasses, earrings, piercings). "
+                            "Use neutral, respectful language; avoid judgments; avoid clothing/brand/background mentions; no lists of instructions—write a cohesive, descriptive paragraph or two with at least 500 words."
                         )
                         desc_parts = [
                             types.Part.from_text(text=describe_prompt),
