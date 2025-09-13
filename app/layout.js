@@ -1,8 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { headers, cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { auth } from "@/app/lib/auth";
+// Global auth gating moved to middleware.ts to avoid redirect loops
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,17 +18,6 @@ export const metadata = {
 };
 
 export default async function RootLayout({ children }) {
-  const h = await headers();
-  // Make cookies readable in this request scope
-  try { await cookies(); } catch {}
-  const session = await auth.api.getSession({ headers: h });
-  // Allow unauthenticated access only to /login and /api/* and /studio
-  const url = new URL(h.get("x-url") || "http://localhost/");
-  const path = url.pathname || "/";
-  const isPublic = path === "/login" || path.startsWith("/api/") || path.startsWith("/studio");
-  if (!isPublic && !session?.user) {
-    redirect("/login");
-  }
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
