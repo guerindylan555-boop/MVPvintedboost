@@ -1162,9 +1162,18 @@ async def generate_product_description(
         else:
             instruction = (
                 "You are a helpful assistant that writes high-quality Vinted product listings from a product photo.\n"
-                "Write a concise, buyer-friendly description that includes: brand, item type, size, color, material, style keywords, condition, and any visible unique features.\n"
-                "Include measurements if clearly inferable; otherwise omit. Be honest about visible flaws. Keep it PG-13.\n"
-                "Output plain text only without markdown bullets; use short paragraphs and short lines.\n"
+                "Output format EXACTLY as sections (plain text):\n"
+                "Title: <search-optimized; use brand, item, size, color, material, 1-2 key features; MAX 100 characters>\n\n"
+                "Description:\n"
+                "- Aim for 200–400 words (MIN 50 words; keep total under 3,000 characters).\n"
+                "- Use short paragraphs and hyphen bullets for measurements and unique features.\n"
+                "- Include brand, item type, size, color, material, fit, style keywords, unique features, and any visible flaws (be honest).\n"
+                "- Include measurements ONLY if clearly inferable; otherwise omit.\n\n"
+                "Condition: <one short line; use provided condition if present>\n"
+                "Extras: <one short line like 'Open to offers; bundle discounts' or leave empty>\n\n"
+                "Rules:\n"
+                "- Plain text only; no emojis; no markdown other than hyphen bullets; no price or shipping info.\n"
+                "- Keep PG-13.\n"
             )
             if meta_lines:
                 instruction += "\nKNOWN FIELDS (apply faithfully if present)\n" + "\n".join(meta_lines) + "\n"
