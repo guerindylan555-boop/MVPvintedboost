@@ -405,7 +405,7 @@ export default function StudioPage() {
       form.append("gender", gender);
       if (modelPrompt.trim()) form.append("prompt", modelPrompt.trim());
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
+      const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -827,7 +827,7 @@ export default function StudioPage() {
                     if (file) form.append("image", file);
                     form.append("gender", gender);
                     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-                    const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
+                    const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
                     if (!res.ok) throw new Error(await res.text());
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
