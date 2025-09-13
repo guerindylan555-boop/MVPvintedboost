@@ -135,11 +135,11 @@ def build_mirror_selfie_prompt(
     use_person_image: bool,
     person_description: Optional[str] = None,
 ) -> str:
-    """Builds the canonical 'Mirror Selfie for Vinted' prompt with constraints.
+    """Build the core prompt (image edit) using conditioned controls and strict constraints.
 
-    - Always instructs mirror selfie with a black iPhone 16 Pro and amateur style.
-    - If an environment ref is provided, we avoid prescribing a textual environment.
-    - Optionally includes a short person description when no person image is provided.
+    - If an environment ref is provided, avoid prescribing a textual environment.
+    - Optionally include a short person description when no person image is provided.
+    - Mirror-selfie style retained for consistency with the app UI.
     """
     # Normalize fields and ensure empty strings for missing conditioned controls
     def norm(x: Optional[str]) -> str:
@@ -152,30 +152,30 @@ def build_mirror_selfie_prompt(
 
     lines: list[str] = []
     lines.append("High-level goals")
-    lines.append("- Photorealistic mirror selfie suitable for a Vinted listing.")
-    lines.append("- The person holds a black iPhone 16 Pro; amateur smartphone look.")
-    lines.append("- Garment is the hero: exact shape, color, fabric, prints, logos.")
+    lines.append("- Prioritize faithful garment reproduction (shape, fabric, color, print, logos).")
+    lines.append("- Natural, flattering person and pose; avoid distortions.")
+    lines.append("- Use environment reference if provided; otherwise synthesize the requested environment.")
+    lines.append("- Keep results PG-13 (no nudity; no explicit content).")
     lines.append("")
     lines.append("TASK")
     lines.append(
         "You render a photorealistic mirror selfie of a person wearing the provided garment. "
-        "The person holds a black iPhone 16 Pro. If a person reference is provided, keep hair and overall build consistent (the face may be occluded by the phone). "
-        "If an environment reference is provided, treat it as a mirror scene and match its lighting, camera angle, color palette, and depth of field. Keep an amateur phone-shot look."
+        "If a person reference is provided, keep identity cues and hair/build consistent (the face may be occluded by the phone). "
+        "If an environment reference is provided, match its lighting, camera angle, color palette, and depth of field. Keep an amateur smartphone look."
     )
     lines.append("")
     lines.append("REQUIRED OUTPUT")
-    lines.append("- One 2D PNG photo, vertical smartphone framing (prefer 4:5).")
-    lines.append("- Realistic lighting and skin; garment clearly visible and dominant.")
-    lines.append("- The person must be wearing the uploaded garment; do not omit or replace it.")
+    lines.append("- One 2D PNG photo, realistic lighting and skin.")
+    lines.append("- The garment must be the dominant subject, clearly visible and not occluded.")
     lines.append("")
     lines.append("HARD CONSTRAINTS (must follow)")
-    lines.append("1) Garment fidelity: preserve exact silhouette, color, fabric texture, print scale/alignment, closures, and logos from the garment image.")
-    lines.append("2) Body realism: natural proportions; correct anatomy; no extra fingers; no warped limbs.")
-    lines.append("3) Face realism: plausible expression; no duplicates/melting; preserve identity cues (hair/build) if a person ref is provided.")
+    lines.append("1) Garment fidelity: keep exact silhouette, color, fabric texture, print scale/alignment, closures, and logos from the garment image; avoid moiré.")
+    lines.append("2) Body realism: natural proportions; hands with five distinct fingers; no merges/extra digits; no warped limbs.")
+    lines.append("3) Face realism: plausible expression; no duplicates/melting; preserve identity cues if a person ref is provided.")
     lines.append("4) Clothing fit: believable size and drape; respect gravity and fabric stiffness.")
-    lines.append("5) Clean output: no watermarks, no AI artifacts, no text overlays, no added logos.")
+    lines.append("5) Clean output: no watermarks, no AI artifacts, no text overlays, no added/brand-new logos.")
     lines.append("6) Safety: PG-13; no explicit content.")
-    lines.append("7) Mirror selfie: a black iPhone 16 Pro is held in front of the face in the mirror; ensure the phone occludes the face area consistently (with correct reflection), without obscuring key garment details.")
+    lines.append("7) Mirror selfie: keep a smartphone-in-mirror aesthetic; if the phone occludes the face, do so consistently (with correct reflection) without hiding key garment details.")
     lines.append("8) Garment usage: the person must be wearing the uploaded garment; do not omit or replace it.")
     lines.append("")
     lines.append("CONDITIONED CONTROLS")
@@ -186,36 +186,39 @@ def build_mirror_selfie_prompt(
     lines.append("")
     lines.append("STYLE & CAMERA DIRECTION")
     lines.append("- Smartphone mirror-selfie aesthetic; natural colors; mild grain acceptable.")
-    lines.append("- 3/4 or full-body by default so the garment is fully visible.")
-    lines.append("- Camera look: ~26–35mm equivalent; mild lens distortion; f/2.8–f/5.6; soft bokeh if indoors.")
-    lines.append("- Lighting: match environment reference if given; otherwise soft directional key + gentle fill; subtle rim for separation.")
-    lines.append("- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible naturally.")
+    lines.append("- Shot type: 3/4 body by default unless the pose implies otherwise (ensure garment fully visible).")
+    lines.append("- Camera: 35–70mm equivalent perspective; natural lens distortion; f/2.8–f/5.6; soft bokeh if indoors.")
+    lines.append("- Lighting: match environment reference if given; otherwise soft directional key + gentle fill; mild rim light for separation.")
+    lines.append("- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible when natural.")
     lines.append("")
     lines.append("ENVIRONMENT BEHAVIOR")
-    lines.append("- If an environment reference is provided: treat it as a mirror scene; imitate its framing, palette, light direction, shadows, and DoF; keep any mirror frame consistent.")
-    lines.append("- If not provided: synthesize a clean mirror setting (bedroom/closet/bath) that complements the garment; uncluttered background.")
+    lines.append("- If environment reference is provided: imitate its scene category, palette, light direction, shadows, and DoF; keep any mirror frame consistent.")
+    if use_env_image:
+        pass
+    else:
+        lines.append("- If not provided: synthesize a clean mirror setting that complements the garment; minimal, elegant background; avoid busy textures behind the torso.")
     lines.append("")
     lines.append("PERSON BEHAVIOR")
-    lines.append("- If a person reference is provided: keep hair, skin tone, and general build consistent (face may be partly occluded by phone).")
-    lines.append("- If not provided: synthesize a plausible model matching the gender; friendly neutral expression.")
+    lines.append("- If a person reference is provided: keep face, hair, skin tone, and general build consistent (face may be partly occluded by phone).")
+    lines.append("- If not provided: synthesize a plausible model matching the gender; natural expression.")
     if person_description:
         lines.append("- Use a person that matches this description.")
         lines.append(f"- Person description: {person_description}")
-    lines.append("- Hand pose: holding a black iPhone 16 Pro naturally; fingers look correct; phone and its reflection visible.")
+    lines.append("- Hand pose: holding a smartphone naturally; fingers look correct; phone and reflection visible.")
     lines.append("")
     lines.append("POSE RENDERING")
     lines.append(f"- Enforce the requested pose: {conditioned_pose if conditioned_pose else '""'}. Make it balanced and anatomically plausible.")
-    lines.append("- Ensure the garment remains fully visible and not occluded by the phone or pose.")
+    lines.append("- Ensure the garment remains fully visible and not occluded by the phone or pose; if sitting or lying down, do not let the pose hide key garment areas.")
     lines.append("")
     lines.append("QUALITY CHECK BEFORE OUTPUT")
-    lines.append("- Fingers: five per hand; shapes correct.")
+    lines.append("- Fingers: five per hand; shapes correct; no extra/merged digits.")
     lines.append("- Garment: crisp edges; seams/hemlines visible; prints/logos accurate.")
     lines.append("- Face: no duplicates; no melting; if visible, eyes symmetrical; otherwise occluded by phone.")
     lines.append("- Mirror: phone and reflection consistent; no extra phones; no camera artifacts.")
     lines.append("- Background: clean and coherent; matches env ref if provided.")
     lines.append("")
     lines.append("NEGATIVE GUIDANCE (avoid)")
-    lines.append("blurry, over-saturated, HDR halos, duplicated limbs, extra fingers, warped faces, melted textures, text overlays, watermarks, added/brand-new logos, heavy beauty retouching, studio glamour look, ring-light glare, tripod/DSLR look, explicit content.")
+    lines.append("blurry, over-saturated, HDR halos, duplicated limbs, extra fingers, merged fingers, warped faces, melted textures, text overlays, watermarks, added/brand-new logos, heavy beauty retouching, studio glamour look, ring-light glare, tripod/DSLR look, explicit content, busy background patterns near the torso.")
     lines.append("")
     lines.append("END OF INSTRUCTIONS")
 
@@ -1098,6 +1101,7 @@ async def generate_product_description(
     model_name: str = Form(""),
     size: str = Form(""),
     condition: str = Form(""),
+    prompt_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     """Generate a Vinted-style product description from an uploaded garment image and metadata."""
@@ -1135,14 +1139,18 @@ async def generate_product_description(
         if norm(gender):
             meta_lines.append(f"Gender: {norm(gender)}")
 
-        instruction = (
-            "You are a helpful assistant that writes high-quality Vinted product listings from a product photo.\n"
-            "Write a concise, buyer-friendly description that includes: brand, item type, size, color, material, style keywords, condition, and any visible unique features.\n"
-            "Include measurements if clearly inferable; otherwise omit. Be honest about visible flaws. Keep it PG-13.\n"
-            "Output plain text only without markdown bullets; use short paragraphs and short lines.\n"
-        )
-        if meta_lines:
-            instruction += "\nKNOWN FIELDS (apply faithfully if present)\n" + "\n".join(meta_lines) + "\n"
+        # Prefer explicit prompt_override from the client; else build a default instruction
+        if prompt_override and prompt_override.strip():
+            instruction = prompt_override.strip()
+        else:
+            instruction = (
+                "You are a helpful assistant that writes high-quality Vinted product listings from a product photo.\n"
+                "Write a concise, buyer-friendly description that includes: brand, item type, size, color, material, style keywords, condition, and any visible unique features.\n"
+                "Include measurements if clearly inferable; otherwise omit. Be honest about visible flaws. Keep it PG-13.\n"
+                "Output plain text only without markdown bullets; use short paragraphs and short lines.\n"
+            )
+            if meta_lines:
+                instruction += "\nKNOWN FIELDS (apply faithfully if present)\n" + "\n".join(meta_lines) + "\n"
 
         parts: list[types.Part] = [
             types.Part.from_text(text=instruction),

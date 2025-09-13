@@ -628,13 +628,18 @@ export default function Home() {
               </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Condition</label>
-                <input
-                  type="text"
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  placeholder="e.g., BNWT, worn once, good with minor flaw"
-                  value={productCondition}
-                  onChange={(e) => setProductCondition(e.target.value)}
-                />
+                <div className="mt-1 grid grid-cols-3 gap-2">
+                  {["Brand new", "Very good", "Good"].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setProductCondition(c)}
+                      className={`h-10 rounded-md border text-sm ${productCondition === c ? "border-foreground" : "border-black/10 dark:border-white/15"}`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="col-span-2">
                 <label className="text-xs text-gray-500">Size</label>
