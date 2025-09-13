@@ -41,17 +41,18 @@ Default generation style (Mirror Selfie for Vinted)
   - Delete any generated environment image (removes from S3 and DB, and from defaults if set)
   - List and delete all uploaded sources (S3 + DB) from the UI
 - Model tab:
-  - Provide a male or female source image (UI shows only the picker for the selected gender)
+  - Gender selector placed above Prompt
+  - Source image uploader/viewer is admin-only; non-admins won’t see the pickers
   - Random: uses the selected gender’s source image and the prompt “Randomize this man/woman.”
   - Generate: same, with your additional prompt appended
   - After generation, the resulting image is re‑sent to the model to generate a detailed description of the person (especially the face). The text is stored and shown as an overlay in the grid
-  - Two grids (last 200 each): “Recent generated models — Men” and “— Women”, each with its own single default. You can Set default, Rename default, or Undefault per gender
+  - Two grids (last 200 each, per-user): “Recent generated models — Men” and “— Women”, each with its own single default. You can Set default, Rename default, or Undefault per gender
   - Person source images are uploaded to S3 and tracked in Postgres
   - Main page can send the model default as an image or description only (toggle)
 - Pose tab:
-  - Bulk upload pose images (stored in S3 and tracked in Postgres)
-  - Generate pose‑only descriptions for all uploaded images (one click)
-  - Lists uploaded pose sources and the resulting descriptions
+  - Admin-only UI: bulk upload pose images and generate pose‑only descriptions
+  - Lists uploaded pose sources and the resulting descriptions (admin-only UI)
+  - Saved pose descriptions are used globally by the main page (any user’s random pose can use them)
 
 ## Local development
 
