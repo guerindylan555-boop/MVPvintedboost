@@ -109,6 +109,27 @@ export default function Home() {
     })();
   }, [userId]);
 
+  // Remember last selected options (gender, environment, poses, extra) and restore on load
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("vb_main_options");
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && typeof saved === "object") {
+          setOptions((o) => ({
+            gender: saved.gender || o.gender,
+            environment: saved.environment || o.environment,
+            poses: Array.isArray(saved.poses) && saved.poses.length > 0 ? saved.poses : o.poses,
+            extra: typeof saved.extra === "string" ? saved.extra : o.extra,
+          }));
+        }
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("vb_main_options", JSON.stringify(options)); } catch {}
+  }, [options]);
+
   // Load model defaults (one per gender)
   const [modelDefaults, setModelDefaults] = useState({}); // { man: {s3_key,name}, woman: {...} }
   useEffect(() => {

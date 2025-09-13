@@ -33,6 +33,23 @@ export default function StudioPage() {
   const [malePreview, setMalePreview] = useState(null);
   const [femaleFile, setFemaleFile] = useState(null);
   const [femalePreview, setFemalePreview] = useState(null);
+  // Remember UI state
+  useEffect(() => {
+    try {
+      const tab = localStorage.getItem("vb_studio_active_tab");
+      if (tab && (tab === "environment" || tab === "model" || tab === "pose")) setActiveTab(tab);
+    } catch {}
+    try {
+      const mg = localStorage.getItem("vb_studio_model_gender");
+      if (mg && (mg === "man" || mg === "woman")) setModelGender(mg);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("vb_studio_active_tab", activeTab); } catch {}
+  }, [activeTab]);
+  useEffect(() => {
+    try { localStorage.setItem("vb_studio_model_gender", modelGender); } catch {}
+  }, [modelGender]);
   // Model sources (admin library removed; single source per gender handled via top pickers)
   // Pose tab state
   const [poseFiles, setPoseFiles] = useState([]);
