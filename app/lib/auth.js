@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
 import { nextCookies } from "better-auth/next-js";
+import { customSession } from "better-auth/plugins";
 import { getMigrations } from "better-auth/db";
 import { isAdminEmail } from "@/app/lib/admin";
 
@@ -42,18 +43,19 @@ const socialProviders =
 
 const authOptions = {
   database: pool,
-  plugins: [nextCookies()],
+  plugins: [
+    nextCookies(),
+    customSession(async ({ user, session }) => {
+      const isAdmin = isAdminEmail(user?.email);
+      return { user: { ...user, isAdmin }, session };
+    }),
+  ],
   // Optional, recommended in production
   secret: process.env.BETTER_AUTH_SECRET,
   // Ensure Better Auth builds absolute URLs correctly (falls back to headers if missing)
   baseURL: process.env.BETTER_AUTH_URL,
-  // Respect base URL via env (BETTER_AUTH_URL); Better Auth will infer path.
+  // Respect base URL via env (BETTER_AUTH_URL)
   ...(socialProviders ? { socialProviders } : {}),
-  // Customize session payload minimally to add an isAdmin flag
-  customSession: async ({ user }) => {
-    const isAdmin = isAdminEmail(user?.email);
-    return { user: { ...user, isAdmin } };
-  },
 };
 
 // Initialize Better Auth instance
