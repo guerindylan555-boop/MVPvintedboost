@@ -33,6 +33,9 @@ export default function StudioPage() {
   const [malePreview, setMalePreview] = useState(null);
   const [femaleFile, setFemaleFile] = useState(null);
   const [femalePreview, setFemalePreview] = useState(null);
+  const [malePersisted, setMalePersisted] = useState(null); // {s3_key,url}
+  const [femalePersisted, setFemalePersisted] = useState(null); // {s3_key,url}
+  const [isModelSourceUploading, setIsModelSourceUploading] = useState(false);
   // Remember UI state
   useEffect(() => {
     try {
@@ -190,7 +193,19 @@ export default function StudioPage() {
     } catch {}
   }
 
-  // refreshModelSources removed
+  async function refreshModelSources() {
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      // Man
+      let res = await fetch(`${baseUrl}/model/sources?gender=man`);
+      let data = await res.json();
+      setMalePersisted((data?.items && data.items.length > 0) ? data.items[0] : null);
+      // Woman
+      res = await fetch(`${baseUrl}/model/sources?gender=woman`);
+      data = await res.json();
+      setFemalePersisted((data?.items && data.items.length > 0) ? data.items[0] : null);
+    } catch {}
+  }
 
   useEffect(() => {
     if (isAdmin) {
@@ -203,6 +218,8 @@ export default function StudioPage() {
     refreshGenerated();
     refreshModelGenerated();
     refreshModelDefaults();
+    // Persisted model sources (used by everyone)
+    refreshModelSources();
   }, [isAdmin, userId]);
   
 
@@ -314,6 +331,24 @@ export default function StudioPage() {
     if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
     setMaleFile(f);
     setMalePreview(URL.createObjectURL(f));
+    // Persist immediately so it's available after reload and for all users
+    (async () => {
+      try {
+        setIsModelSourceUploading(true);
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const form = new FormData();
+        form.append("gender", "man");
+        form.append("files", f);
+        const res = await fetch(`${baseUrl}/model/sources/upload`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(await res.text());
+        await refreshModelSources();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to upload male source image");
+      } finally {
+        setIsModelSourceUploading(false);
+      }
+    })();
   }
 
   function onPickFemale(e) {
@@ -322,6 +357,24 @@ export default function StudioPage() {
     if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
     setFemaleFile(f);
     setFemalePreview(URL.createObjectURL(f));
+    // Persist immediately so it's available after reload and for all users
+    (async () => {
+      try {
+        setIsModelSourceUploading(true);
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const form = new FormData();
+        form.append("gender", "woman");
+        form.append("files", f);
+        const res = await fetch(`${baseUrl}/model/sources/upload`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(await res.text());
+        await refreshModelSources();
+      } catch (err) {
+        console.error(err);
+        alert("Failed to upload female source image");
+      } finally {
+        setIsModelSourceUploading(false);
+      }
+    })();
   }
 
   // Ensure only the selected gender's source image is kept
@@ -340,14 +393,15 @@ export default function StudioPage() {
   async function handleModelGenerate() {
     const gender = modelGender;
     const file = gender === "man" ? maleFile : femaleFile;
-    if (!file) {
+    const hasPersisted = gender === "man" ? Boolean(malePersisted) : Boolean(femalePersisted);
+    if (!file && !hasPersisted) {
       alert(`Pick a ${gender} source image first`);
       return;
     }
     try {
       setIsModelGenerating(true);
       const form = new FormData();
-      form.append("image", file);
+      if (file) form.append("image", file);
       form.append("gender", gender);
       if (modelPrompt.trim()) form.append("prompt", modelPrompt.trim());
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -685,8 +739,8 @@ export default function StudioPage() {
                     <label className="text-xs text-gray-500">Male source image</label>
                     <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
                       <div className="relative w-full aspect-[4/5] bg-black/5">
-                        {malePreview ? (
-                          <img src={malePreview} alt="Male source" className="h-full w-full object-cover" />
+                        {(malePreview || malePersisted?.url) ? (
+                          <img src={malePreview || malePersisted?.url} alt="Male source" className="h-full w-full object-cover" />
                         ) : (
                           <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
                         )}
@@ -718,8 +772,8 @@ export default function StudioPage() {
                     <label className="text-xs text-gray-500">Female source image</label>
                     <div className="mt-1 rounded-2xl border border-black/10 dark:border-white/15 overflow-hidden">
                       <div className="relative w-full aspect-[4/5] bg-black/5">
-                        {femalePreview ? (
-                          <img src={femalePreview} alt="Female source" className="h-full w-full object-cover" />
+                        {(femalePreview || femalePersisted?.url) ? (
+                          <img src={femalePreview || femalePersisted?.url} alt="Female source" className="h-full w-full object-cover" />
                         ) : (
                           <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">None</div>
                         )}
@@ -768,8 +822,9 @@ export default function StudioPage() {
                     const form = new FormData();
                     const gender = modelGender;
                     const file = gender === "man" ? maleFile : femaleFile;
-                    if (!file) return alert(`Pick a ${gender} source image first`);
-                    form.append("image", file);
+                    const hasPersisted = gender === "man" ? Boolean(malePersisted) : Boolean(femalePersisted);
+                    if (!file && !hasPersisted) return alert(`Pick a ${gender} source image first`);
+                    if (file) form.append("image", file);
                     form.append("gender", gender);
                     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
                     const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form });
@@ -793,9 +848,11 @@ export default function StudioPage() {
               <button
                 type="button"
                 onClick={handleModelGenerate}
-                disabled={(modelGender === "man" ? !maleFile : !femaleFile) || isModelGenerating}
+                disabled={(
+                  (modelGender === "man" ? (!maleFile && !malePersisted) : (!femaleFile && !femalePersisted))
+                ) || isModelGenerating || isModelSourceUploading}
                 className={`h-10 px-4 rounded-md text-sm font-semibold active:translate-y-px ${
-                  (modelGender === "man" ? !maleFile : !femaleFile) || isModelGenerating
+                  ((modelGender === "man" ? (!maleFile && !malePersisted) : (!femaleFile && !femalePersisted)) || isModelGenerating || isModelSourceUploading)
                     ? "bg-foreground/30 text-background/60 cursor-not-allowed"
                     : "bg-foreground text-background"
                 }`}

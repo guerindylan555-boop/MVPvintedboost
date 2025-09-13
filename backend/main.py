@@ -731,9 +731,9 @@ async def model_generate(
             except Exception:
                 pass
         else:
-            # No image provided -> pick a random admin-uploaded source of this gender
+            # No image provided -> pick the most recently uploaded admin source of this gender
             async with db_session() as session:
-                stmt = text("SELECT s3_key FROM model_sources WHERE gender = :g ORDER BY RANDOM() LIMIT 1")
+                stmt = text("SELECT s3_key FROM model_sources WHERE gender = :g ORDER BY created_at DESC LIMIT 1")
                 res = await session.execute(stmt, {"g": gender})
                 row = res.first()
             if not row:
