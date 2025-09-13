@@ -2,8 +2,12 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
+import { createAuthClient } from "better-auth/react";
 
 export default function StudioPage() {
+  const { useSession } = createAuthClient();
+  const { data: session } = useSession();
+  const isAdmin = Boolean(session?.user?.isAdmin);
   const [activeTab, setActiveTab] = useState("environment"); // environment | model | pose
   // Environment tab state
   const [prompt, setPrompt] = useState("");
@@ -168,14 +172,16 @@ export default function StudioPage() {
   }
 
   useEffect(() => {
-    refreshSources();
+    if (isAdmin) {
+      refreshSources();
+      refreshDefaults();
+      refreshPoseSources();
+      refreshPoseDescriptions();
+    }
     refreshGenerated();
-    refreshDefaults();
     refreshModelGenerated();
     refreshModelDefaults();
-    refreshPoseSources();
-    refreshPoseDescriptions();
-  }, []);
+  }, [isAdmin]);
 
   async function refreshPoseSources() {
     try {
@@ -551,68 +557,81 @@ export default function StudioPage() {
             </div>
 
             {/* Bulk upload (Admin only) */}
+            {/* Bulk upload (Admin only) */}
             <div className="mt-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-medium">Bulk upload images</h2>
                 <span className="text-xs text-gray-500">Admin only</span>
               </div>
-              <div className="mt-2 grid gap-2">
-                <input
-                  id="bulk"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleBulkChange}
-                  className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 dark:file:border-white/15 file:px-3 file:py-2 file:bg-transparent file:text-sm"
-                />
-                {bulkFiles.length > 0 && (
-                  <ul className="text-xs text-gray-500 list-disc ml-4">
-                    {bulkFiles.map((f) => (
-                      <li key={f.name}>{f.name} ({Math.round(f.size / 1024)} KB)</li>
-                    ))}
-                  </ul>
-                )}
-                <div>
-                  <button
-                    type="button"
-                    onClick={handleBulkUpload}
-                    className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-                  >
-                    Upload (disabled)
-                  </button>
+              {isAdmin ? (
+                <div className="mt-2 grid gap-2">
+                  <input
+                    id="bulk"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleBulkChange}
+                    className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 dark:file:border-white/15 file:px-3 file:py-2 file:bg-transparent file:text-sm"
+                  />
+                  {bulkFiles.length > 0 && (
+                    <ul className="text-xs text-gray-500 list-disc ml-4">
+                      {bulkFiles.map((f) => (
+                        <li key={f.name}>{f.name} ({Math.round(f.size / 1024)} KB)</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleBulkUpload}
+                      className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
+                    >
+                      Upload
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="mt-2 text-xs text-gray-500">Sign in as admin to upload sources.</div>
+              )}
               {/* Sources list */}
               <div className="mt-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium">Uploaded sources</h3>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={refreshSources}
-                      className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
-                    >
-                      Refresh
-                    </button>
-                    {sources.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={deleteAllSources}
-                        className="h-9 px-3 rounded-md bg-red-600 text-white text-xs font-medium"
-                      >
-                        Delete all
-                      </button>
+                    {isAdmin && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={refreshSources}
+                          className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-xs font-medium"
+                        >
+                          Refresh
+                        </button>
+                        {sources.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={deleteAllSources}
+                            className="h-9 px-3 rounded-md bg-red-600 text-white text-xs font-medium"
+                          >
+                            Delete all
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
-                {sources.length === 0 ? (
-                  <p className="text-xs text-gray-500 mt-2">No sources uploaded.</p>
+                {isAdmin ? (
+                  sources.length === 0 ? (
+                    <p className="text-xs text-gray-500 mt-2">No sources uploaded.</p>
+                  ) : (
+                    <ul className="mt-2 text-xs text-gray-500 break-all">
+                      {sources.map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  )
                 ) : (
-                  <ul className="mt-2 text-xs text-gray-500 break-all">
-                    {sources.map((s) => (
-                      <li key={s}>{s}</li>
-                    ))}
-                  </ul>
+                  <p className="text-xs text-gray-500 mt-2">Sign in as admin to view uploaded sources.</p>
                 )}
               </div>
             </div>
