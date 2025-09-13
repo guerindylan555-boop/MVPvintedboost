@@ -7,6 +7,7 @@ const authClient = createAuthClient();
 
 export default function StudioPage() {
   const { data: session } = authClient.useSession();
+  const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
   const isAdmin = Boolean(session?.user?.isAdmin);
   const [activeTab, setActiveTab] = useState("environment"); // environment | model | pose
   // Environment tab state
@@ -60,9 +61,9 @@ export default function StudioPage() {
       if (endpoint === "/env/generate") {
         const form = new FormData();
         form.append("prompt", prompt.trim());
-        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form });
+        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
       } else {
-        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST" });
+        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", headers: userId ? { "X-User-Id": String(userId) } : {} });
       }
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
@@ -81,7 +82,7 @@ export default function StudioPage() {
     try {
       setIsGenerating(true);
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/env/random`, { method: "POST" });
+      const res = await fetch(`${baseUrl}/env/random`, { method: "POST", headers: userId ? { "X-User-Id": String(userId) } : {} });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -130,7 +131,7 @@ export default function StudioPage() {
   async function refreshGenerated() {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/env/generated`);
+      const res = await fetch(`${baseUrl}/env/generated`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
       const data = await res.json();
       if (data?.items) setGenerated(data.items);
     } catch {}
@@ -152,7 +153,7 @@ export default function StudioPage() {
   async function refreshDefaults() {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/env/defaults`);
+      const res = await fetch(`${baseUrl}/env/defaults`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
       const data = await res.json();
       if (data?.items) setDefaults(data.items);
     } catch {}
@@ -174,14 +175,15 @@ export default function StudioPage() {
   useEffect(() => {
     if (isAdmin) {
       refreshSources();
-      refreshDefaults();
       refreshPoseSources();
       refreshPoseDescriptions();
     }
+    // Per-user data
+    refreshDefaults();
     refreshGenerated();
     refreshModelGenerated();
     refreshModelDefaults();
-  }, [isAdmin]);
+  }, [isAdmin, userId]);
 
   async function refreshPoseSources() {
     try {
@@ -256,7 +258,7 @@ export default function StudioPage() {
       const form = new FormData();
       for (const k of selectedKeys) form.append("s3_keys", k);
       for (const k of selectedKeys) form.append("names", defaultNames[k] || "Untitled");
-      const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", body: form });
+      const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", headers: userId ? { "X-User-Id": String(userId) } : {}, body: form });
       if (!res.ok) throw new Error(await res.text());
       // Refresh and clear selection for clarity
       await refreshDefaults();
@@ -461,7 +463,7 @@ export default function StudioPage() {
                                       const form = new FormData();
                                       form.append("s3_key", g.s3_key);
                                       form.append("name", newName);
-                                      const res = await fetch(`${baseUrl}/env/defaults`, { method: "PATCH", body: form });
+                                      const res = await fetch(`${baseUrl}/env/defaults`, { method: "PATCH", headers: userId ? { "X-User-Id": String(userId) } : {}, body: form });
                                       if (!res.ok) throw new Error(await res.text());
                                       await refreshDefaults();
                                     } catch (e) {
@@ -478,7 +480,7 @@ export default function StudioPage() {
                                     if (!confirm("Remove from defaults?")) return;
                                     try {
                                       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-                                      const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE" });
+                                      const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE", headers: userId ? { "X-User-Id": String(userId) } : {} });
                                       if (!res.ok) throw new Error(await res.text());
                                       await refreshDefaults();
                                     } catch (e) {

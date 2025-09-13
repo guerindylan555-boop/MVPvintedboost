@@ -86,6 +86,17 @@ class PoseDescription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
+# Per-user environment defaults (new table). We keep the legacy global
+# table `env_defaults` for backward compatibility but stop using it.
+class EnvDefaultUser(Base):
+    __tablename__ = "env_defaults_user"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
 _engine: AsyncEngine | None = None
 _SessionFactory: sessionmaker | None = None
 

@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createAuthClient } from "better-auth/react";
+const authClient = createAuthClient();
 
 export default function Home() {
+  const { data: session } = authClient.useSession();
+  const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
   const fileInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -72,12 +76,12 @@ export default function Home() {
     (async () => {
       try {
         const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-        const res = await fetch(`${baseUrl}/env/defaults`);
+        const res = await fetch(`${baseUrl}/env/defaults`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
         const data = await res.json();
         if (data?.items) setEnvDefaults(data.items);
       } catch {}
     })();
-  }, []);
+  }, [userId]);
 
   // Load model defaults (one per gender)
   const [modelDefaults, setModelDefaults] = useState({}); // { man: {s3_key,name}, woman: {...} }
@@ -377,7 +381,7 @@ export default function Home() {
         }
         form.append("prompt_override", effective);
         // Description fields are not sent to backend for generation
-        const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form });
+        const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
         if (!res.ok) throw new Error(await res.text());
         const blob = await res.blob();
         const dataUrl = await new Promise((resolve, reject) => {

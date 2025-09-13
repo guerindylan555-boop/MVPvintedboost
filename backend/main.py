@@ -3,14 +3,26 @@ from io import BytesIO
 from typing import Optional
 
 import logging
-from fastapi import FastAPI, UploadFile, Form, File
+from fastapi import FastAPI, UploadFile, Form, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from PIL import Image
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from .db import db_session, init_db, Generation, EnvSource, EnvDefault, ModelDefault, ModelSource, ModelDescription, PoseSource, PoseDescription
+from .db import (
+    db_session,
+    init_db,
+    Generation,
+    EnvSource,
+    EnvDefault,
+    EnvDefaultUser,
+    ModelDefault,
+    ModelSource,
+    ModelDescription,
+    PoseSource,
+    PoseDescription,
+)
 from .storage import (
     upload_image,
     upload_source_image,
@@ -219,6 +231,7 @@ async def edit(
     model_default_s3_key: str | None = Form(None),
     model_description_text: str | None = Form(None),
     prompt_override: str | None = Form(None),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     try:
         if not image or not image.filename:
@@ -328,6 +341,7 @@ async def edit(
                                 "env_default_s3_key": env_key_used,
                                 "model_default_s3_key": person_key_used,
                                 "model_description_text": (model_description_text if not person_key_used else None),
+                                "user_id": x_user_id,
                             },
                             model=MODEL,
                         )
@@ -395,7 +409,7 @@ async def delete_env_sources():
 
 
 @app.post("/env/random")
-async def generate_env_random():
+async def generate_env_random(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     """Pick a random stored source and generate with strict instruction."""
     try:
         # Fetch random one
@@ -426,7 +440,11 @@ async def generate_env_random():
                             s3_key=key,
                             pose="env",
                             prompt=instruction,
-                            options_json={"mode": "random", "source_s3_key": row[0]},
+                            options_json={
+                                "mode": "random",
+                                "source_s3_key": row[0],
+                                "user_id": x_user_id,
+                            },
                             model=MODEL,
                         )
                         session.add(rec)
@@ -438,7 +456,7 @@ async def generate_env_random():
 
 
 @app.post("/env/generate")
-async def generate_env(prompt: str = Form("")):
+async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
         instruction = "randomize the scene and the mirror frame"
         full = instruction if not prompt.strip() else f"{instruction}. {prompt.strip()}"
@@ -465,7 +483,12 @@ async def generate_env(prompt: str = Form("")):
                             s3_key=key,
                             pose="env",
                             prompt=full,
-                            options_json={"mode": "prompt", "user_prompt": prompt.strip(), "source_s3_key": row[0]},
+                            options_json={
+                                "mode": "prompt",
+                                "user_prompt": prompt.strip(),
+                                "source_s3_key": row[0],
+                                "user_id": x_user_id,
+                            },
                             model=MODEL,
                         )
                         session.add(rec)
@@ -477,15 +500,20 @@ async def generate_env(prompt: str = Form("")):
 
 
 @app.get("/env/generated")
-async def list_generated():
+async def list_generated(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
         async with db_session() as session:
-            stmt = (
-                select(Generation.s3_key, Generation.created_at)
-                .where(Generation.pose == "env")
-                .order_by(Generation.created_at.desc())
-                .limit(200)
-            )
+            if x_user_id:
+                stmt = (
+                    select(Generation.s3_key, Generation.created_at)
+                    .where(Generation.pose == "env")
+                    .where(text("(options_json->>'user_id') = :uid")).params(uid=x_user_id)
+                    .order_by(Generation.created_at.desc())
+                    .limit(200)
+                )
+            else:
+                # No user id provided: return empty list to avoid cross-user leakage
+                stmt = select(Generation.s3_key, Generation.created_at).where(text("1=0"))
             res = await session.execute(stmt)
             rows = res.all()
             items = []
@@ -520,12 +548,19 @@ async def get_generated_image(s3_key: str):
 # --- Defaults (select up to 5, name them) ---
 
 @app.get("/env/defaults")
-async def list_defaults():
+async def list_defaults(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
         async with db_session() as session:
-            stmt = select(EnvDefault.s3_key, EnvDefault.name).order_by(EnvDefault.created_at.desc())
-            res = await session.execute(stmt)
-            rows = res.all()
+            if not x_user_id:
+                rows = []
+            else:
+                stmt = (
+                    select(EnvDefaultUser.s3_key, EnvDefaultUser.name)
+                    .where(EnvDefaultUser.user_id == x_user_id)
+                    .order_by(EnvDefaultUser.created_at.desc())
+                )
+                res = await session.execute(stmt)
+                rows = res.all()
             items = []
             for row in rows:
                 key, name = row
@@ -645,17 +680,20 @@ async def model_generate(
 async def set_defaults(
     s3_keys: list[str] = Form(...),
     names: list[str] = Form(...),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
         if len(s3_keys) != len(names):
             return JSONResponse({"error": "mismatched arrays"}, status_code=400)
         if len(s3_keys) > 5:
             return JSONResponse({"error": "max 5 defaults"}, status_code=400)
         # Overwrite all defaults
         async with db_session() as session:
-            await session.execute(text("DELETE FROM env_defaults"))
+            await session.execute(text("DELETE FROM env_defaults_user WHERE user_id = :uid"), {"uid": x_user_id})
             for key, name in zip(s3_keys, names):
-                session.add(EnvDefault(s3_key=key, name=name.strip() or "Untitled"))
+                session.add(EnvDefaultUser(user_id=x_user_id, s3_key=key, name=name.strip() or "Untitled"))
         return {"ok": True}
     except Exception as e:
         logger.exception("Failed to set defaults")
@@ -667,7 +705,8 @@ async def unset_default(s3_key: str):
     """Remove a single default by s3_key, keeping others intact."""
     try:
         async with db_session() as session:
-            await session.execute(text("DELETE FROM env_defaults WHERE s3_key = :k"), {"k": s3_key})
+            # Remove from any user's defaults
+            await session.execute(text("DELETE FROM env_defaults_user WHERE s3_key = :k"), {"k": s3_key})
         return {"ok": True}
     except Exception as e:
         logger.exception("Failed to unset default")
@@ -675,14 +714,16 @@ async def unset_default(s3_key: str):
 
 
 @app.patch("/env/defaults")
-async def rename_default(s3_key: str = Form(...), name: str = Form(...)):
+async def rename_default(s3_key: str = Form(...), name: str = Form(...), x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     """Rename a single default by s3_key."""
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
         name = (name or "").strip() or "Untitled"
         async with db_session() as session:
             await session.execute(
-                text("UPDATE env_defaults SET name = :n WHERE s3_key = :k"),
-                {"n": name, "k": s3_key},
+                text("UPDATE env_defaults_user SET name = :n WHERE user_id = :uid AND s3_key = :k"),
+                {"n": name, "uid": x_user_id, "k": s3_key},
             )
         return {"ok": True}
     except Exception as e:
@@ -701,7 +742,7 @@ async def delete_generated(s3_key: str):
         # Delete from DB (generations + possibly defaults)
         async with db_session() as session:
             await session.execute(text("DELETE FROM generations WHERE s3_key = :k"), {"k": s3_key})
-            await session.execute(text("DELETE FROM env_defaults WHERE s3_key = :k"), {"k": s3_key})
+            await session.execute(text("DELETE FROM env_defaults_user WHERE s3_key = :k"), {"k": s3_key})
         return {"ok": True}
     except Exception as e:
         logger.exception("Failed to delete generated image")

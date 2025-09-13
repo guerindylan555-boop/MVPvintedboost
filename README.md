@@ -36,8 +36,8 @@ Default generation style (Mirror Selfie for Vinted)
   - Bulk upload environment source images (stored in S3 and tracked in Postgres)
   - Random: picks a random uploaded source and generates with strict instruction “randomize the scene and the mirror frame”
   - Generate: same instruction, plus user prompt appended
-  - Recent generated environments grid (last 200), images loaded via S3 presigned URLs for speed
-  - Defaults management inside the grid: select up to 5 generated images, name/rename, mark as default, and Undefault; defaults are highlighted and are not selectable
+  - Recent generated environments grid (last 200, per-user), images loaded via S3 presigned URLs for speed
+  - Defaults management inside the grid (per-user): select up to 5 generated images, name/rename, mark as default, and Undefault; defaults are highlighted and are not selectable
   - Delete any generated environment image (removes from S3 and DB, and from defaults if set)
   - List and delete all uploaded sources (S3 + DB) from the UI
 - Model tab:
@@ -94,12 +94,12 @@ npm run dev:full
   - `GET /env/sources`: list uploaded sources; `DELETE /env/sources`: delete all (S3 + DB)
   - `POST /env/random`: pick random source and generate with strict instruction
   - `POST /env/generate`: same instruction + user prompt
-  - `GET /env/generated`: list recent environment generations (includes presigned `url`)
+- `GET /env/generated`: list recent environment generations for the current user (requires header `X-User-Id`; includes presigned `url`)
   - `GET /env/image?s3_key=...`: stream any stored image from S3
-  - `GET /env/defaults`: list env defaults (includes presigned `url`)
-  - `POST /env/defaults`: set up to 5 named defaults (overwrites)
-  - `PATCH /env/defaults`: rename a default by `s3_key`
-  - `DELETE /env/defaults`: unset a default by `s3_key`
+- `GET /env/defaults`: list env defaults for the current user (requires header `X-User-Id`; includes presigned `url`)
+- `POST /env/defaults`: set up to 5 named defaults (per-user overwrite; requires `X-User-Id`)
+- `PATCH /env/defaults`: rename a default by `s3_key` (requires `X-User-Id`)
+- `DELETE /env/defaults`: unset a default by `s3_key`
   - `DELETE /env/generated`: delete a generated env image (also unsets default if used)
   - `POST /model/generate`: person model generation; accepts a person source image and optional user prompt; returns PNG; saves result; also auto‑generates and stores a textual person description for the image
   - `GET /model/generated`: list recent model generations (includes `gender`, presigned `url`, and `description`)
@@ -190,6 +190,12 @@ AWS_S3_BUCKET=<bucket-name>
   - Model: `GET/POST/PATCH/DELETE /api/admin/model/defaults`
   - Pose: `GET /api/admin/pose/sources`, `POST /api/admin/pose/describe`, `GET /api/admin/pose/descriptions`
 
+#### Access control & visibility
+- Global auth gating is implemented in `middleware.ts` (cookie‑based), not in `layout.js`, to avoid redirect loops behind proxies.
+- Public routes: `/login`, `/api/*`, `/studio`, Next assets (`/_next/*`, `favicon*`, `/assets/*`). All other pages (including `/`) require a session and will redirect to `/login`.
+- Studio admin‑only UI: bulk upload controls and the raw sources list are only visible to admins (`user.isAdmin === true`).
+- Random generation uses admin‑uploaded sources for everyone; non‑admins benefit without seeing the sources or having any edit/delete access.
+
 ### Frontend environment variables (including auth)
 ```env
 # Backend base URL for the app UI
@@ -228,6 +234,7 @@ ADMIN_BEARER_TOKEN=<shared-with-backend>
 ### Notes on migrations & routing
 - Better Auth runs its DB migrations lazily on the first `/api/auth/*` request to avoid extra work during normal page renders.
 - Only one catch‑all auth route is used: `[[...all]]` (optional). Do not create a sibling `[...all]` at the same path, or Next.js will throw a route conflict.
+ - Global access control is enforced by `middleware.ts`. If you need to expose additional public paths, add them to the middleware allowlist.
 
 ### Frontend environment variables
 ```env
@@ -314,6 +321,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Auth 404 at `/api/auth/...`: ensure the path is `app/api/auth/[[...all]]/route.js` (optional catch‑all) and that `better-auth/next-js` is used, not `better-auth/integrations/next-js`.
 - Auth 500 at `/api/auth/...`: verify DB env vars are present on the frontend service and the DB host is resolvable from the container; also set `BETTER_AUTH_URL`.
 - Google redirects back to `/login`: confirm cookies are set (HTTPS, correct domain), your email is allowlisted, and Google Console redirect URI matches exactly.
+- Redirect loop on `/login`: ensure global gating happens via `middleware.ts` (cookie presence) and not inside `layout.js`; verify `/login` is listed as a public path in the middleware allowlist.
 
 ## Roadmap
 - Persist request IDs and latency; expose `/history` endpoint using DB

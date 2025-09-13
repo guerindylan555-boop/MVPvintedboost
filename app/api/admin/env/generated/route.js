@@ -10,7 +10,7 @@ export async function DELETE(request) {
   const qs = url.searchParams.toString();
   const res = await fetch(`${apiBase}/env/generated${qs ? `?${qs}` : ""}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${adminBearer}` },
+    headers: { Authorization: `Bearer ${adminBearer}`, "X-User-Id": String(session.user.id || session.user.email) },
   });
   return new Response(await res.text(), { status: res.status, headers: res.headers });
 }
