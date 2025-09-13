@@ -1000,6 +1000,52 @@ async def delete_model_generated(s3_key: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# --- Model sources (admin UI helper) ---
+
+@app.post("/model/sources/upload")
+async def upload_model_sources(gender: str = Form(...), files: list[UploadFile] = File(...)):
+    """Upload one or more person source images for a given gender.
+
+    Stored in S3 under model_sources/<gender>/ and tracked in the DB.
+    """
+    try:
+        gender = _normalize_gender(gender)
+        stored: list[dict] = []
+        for f in files:
+            data = await f.read()
+            _, key = upload_model_source_image(data, gender=gender, mime=f.content_type)
+            async with db_session() as session:
+                session.add(ModelSource(gender=gender, s3_key=key))
+            stored.append({"gender": gender, "s3_key": key})
+        return {"ok": True, "count": len(stored), "items": stored}
+    except Exception as e:
+        logger.exception("Failed to upload model sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/model/sources")
+async def list_model_sources(gender: str | None = None):
+    """List uploaded person source images. Optionally filter by gender."""
+    try:
+        async with db_session() as session:
+            stmt = select(ModelSource.gender, ModelSource.s3_key).order_by(ModelSource.created_at.desc())
+            if gender:
+                stmt = stmt.where(ModelSource.gender == _normalize_gender(gender))
+            res = await session.execute(stmt)
+            rows = res.all()
+            items = []
+            for g, key in rows:
+                try:
+                    url = generate_presigned_get_url(key)
+                except Exception:
+                    url = None
+                items.append({"gender": g, "s3_key": key, "url": url})
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list model sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
 
