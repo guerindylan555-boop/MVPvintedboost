@@ -93,7 +93,11 @@ async def generate(prompt: str = Form("i want this clothe on someone")):
             ),
         )
         for c in getattr(resp, "candidates", []) or []:
-            for p in getattr(c, "content", {}).parts or []:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not parts:
+                continue
+            for p in parts:
                 if getattr(p, "inline_data", None):
                     img_bytes = BytesIO(p.inline_data.data)
                     return StreamingResponse(img_bytes, media_type="image/png")
@@ -327,7 +331,11 @@ async def edit(
             contents=contents,
         )
         for c in getattr(resp, "candidates", []) or []:
-            for p in getattr(c, "content", {}).parts or []:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not parts:
+                continue
+            for p in parts:
                 if getattr(p, "inline_data", None):
                     png_bytes = p.inline_data.data
                     # Upload to S3
@@ -479,7 +487,11 @@ async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(de
             contents=types.Content(role="user", parts=[types.Part.from_text(text=full), image_part]),
         )
         for c in getattr(resp, "candidates", []) or []:
-            for p in getattr(c, "content", {}).parts or []:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not parts:
+                continue
+            for p in parts:
                 if getattr(p, "inline_data", None):
                     png_bytes = p.inline_data.data
                     bucket, key = upload_image(png_bytes, pose="env")
@@ -634,7 +646,11 @@ async def model_generate(
             contents=types.Content(role="user", parts=parts),
         )
         for c in getattr(resp, "candidates", []) or []:
-            for p in getattr(c, "content", {}).parts or []:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not parts:
+                continue
+            for p in parts:
                 if getattr(p, "inline_data", None):
                     png_bytes = p.inline_data.data
                     bucket, key = upload_image(png_bytes, pose=f"model-{gender}")
@@ -662,9 +678,10 @@ async def model_generate(
                         )
                         description_text = None
                         for dc in getattr(desc_resp, "candidates", []) or []:
-                            # attempt to extract text
-                            if getattr(dc, "content", None) and getattr(dc.content, "parts", None):
-                                for part in dc.content.parts:
+                            content = getattr(dc, "content", None)
+                            parts = getattr(content, "parts", None) if content is not None else None
+                            if parts:
+                                for part in parts:
                                     if getattr(part, "text", None):
                                         description_text = part.text
                                         break
@@ -1158,13 +1175,15 @@ async def generate_product_description(
         ]
         client = get_client()
         resp = client.models.generate_content(
-            model="gemini-2.5-flash-image",  # fast text+image for descriptions
+            model=MODEL,  # reuse same model for text from image
             contents=types.Content(role="user", parts=parts),
         )
         description_text = None
         for c in getattr(resp, "candidates", []) or []:
-            if getattr(c, "content", None) and getattr(c.content, "parts", None):
-                for p in c.content.parts:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if parts:
+                for p in parts:
                     if getattr(p, "text", None):
                         description_text = p.text
                         break
