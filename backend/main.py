@@ -157,13 +157,12 @@ def build_env_prompt(user_prompt: Optional[str] = None) -> str:
     lines.append("")
     lines.append("SCENE CONSISTENCY (interior vs exterior)")
     lines.append(
-        "- Infer the scene category from the source reflection: if it shows an interior (e.g., bedroom, bathroom, living room, studio), recreate a fresh interior of the same type. "
-        "If it shows an exterior (e.g., street, garden, beach, patio), recreate a fresh exterior. Do not switch interior ↔ exterior."
+        "- Deduce the scene category and subtype solely from the attached source reflection. Recreate a fresh variant of the SAME subtype (e.g., bedroom → bedroom), or if ambiguous, keep it plausibly neutral while preserving interior vs exterior. Do NOT switch interior ↔ exterior and do NOT invent a different subtype."
     )
     lines.append("")
     lines.append("MIRROR FRAME BEHAVIOR")
     lines.append(
-        "- Randomize the mirror frame style (material, color, ornamentation) to make it feel new, but keep the mirror's opening size and aspect ratio identical, and keep its position within the image the same."
+        "- Randomize the mirror frame style (material, color, ornamentation) while keeping the mirror's opening size and aspect ratio IDENTICAL and its on-image position UNCHANGED. Do not scale, stretch, move, or tilt the opening."
     )
     lines.append("")
     lines.append("RANDOMIZATION")
@@ -656,47 +655,93 @@ def _normalize_gender(g: str) -> str:
     return g if g in ("man", "woman") else "man"
 
 
+def build_model_prompt(gender: str, user_prompt: Optional[str]) -> str:
+    """Prompt for generating a reusable person model reference.
+
+    - Uses an attached source person image as a seed for variation.
+    - Produces a photorealistic {gender} with neutral clothing and neutral background.
+    - Avoids copying source clothing or background; focuses on identity plausibility.
+    """
+    def q(s: Optional[str]) -> str:
+        return (s or "").strip()
+
+    lines: list[str] = []
+    lines.append("TASK")
+    lines.append(
+        f"Generate a photorealistic {gender} model portrait/full-body for try-on catalogs. "
+        "Use the attached person image purely as a seed for identity variation, not for clothing or background."
+    )
+    lines.append("")
+    lines.append("HARD CONSTRAINTS")
+    lines.append("- Natural, friendly expression; neutral makeup.")
+    lines.append("- Balanced body proportions; realistic hands.")
+    lines.append("- Plain clothing in solid neutrals (e.g., fitted plain tee and jeans); no logos or text.")
+    lines.append("- No explicit content; keep PG-13.")
+    lines.append("")
+    lines.append("CAMERA & LIGHT")
+    lines.append("- Simple studio lighting; soft shadows; 3/4 body framing; straight posture.")
+    lines.append("- Background: seamless neutral backdrop (do NOT reproduce the source background).")
+    lines.append("")
+    lines.append("RANDOMIZATION")
+    lines.append("- Randomize identity and appearance plausibly. Do NOT copy source clothing or background.")
+    if q(user_prompt):
+        lines.append("")
+        lines.append("USER WISHES")
+        lines.append(f"\"{q(user_prompt)}\"")
+        lines.append("Apply only if consistent with realism and constraints above.")
+    lines.append("")
+    lines.append("NEGATIVE GUIDANCE")
+    lines.append("over-retouched skin, plastic look, extreme stylization, caricature, heavy vignettes, logos, text")
+    return "\n".join(lines)
+
+
 @app.post("/model/generate")
 async def model_generate(
-    image: UploadFile = File(...),
+    image: UploadFile | None = File(None),
     gender: str = Form("man"),
     prompt: str = Form(""),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     try:
-        if not image or not image.filename:
-            return JSONResponse({"error": "image file required"}, status_code=400)
-        # Read and normalize uploaded image to PNG bytes
-        raw_bytes = await image.read()
-        if len(raw_bytes) > 10 * 1024 * 1024:
-            return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
-        src = Image.open(BytesIO(raw_bytes))
-        buf = BytesIO()
-        src.convert("RGBA").save(buf, format="PNG")
-        buf.seek(0)
-
         gender = _normalize_gender(gender)
         user_prompt = (prompt or "").strip()
 
         # Build instruction
-        lines: list[str] = []
-        lines.append(f"Randomize this {gender}.")
-        if user_prompt:
-            lines.append(user_prompt)
-        lines.append("High quality fashion photo, natural lighting, realistic skin and fabric.")
-        text_part = types.Part.from_text(text=" ".join(lines))
+        instruction = build_model_prompt(gender, user_prompt if user_prompt else None)
+        parts: list[types.Part] = [types.Part.from_text(text=instruction)]
 
-        parts: list[types.Part] = [text_part]
-
-        # Person source image (also store source in S3 and DB)
-        parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
-        try:
-            _, src_key = upload_model_source_image(buf.getvalue(), gender=gender, mime="image/png")
+        # Resolve person source image
+        src_png_bytes: Optional[bytes] = None
+        if image and getattr(image, "filename", None):
+            # Read and normalize uploaded image to PNG bytes
+            raw_bytes = await image.read()
+            if len(raw_bytes) > 10 * 1024 * 1024:
+                return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
+            src = Image.open(BytesIO(raw_bytes))
+            buf = BytesIO()
+            src.convert("RGBA").save(buf, format="PNG")
+            buf.seek(0)
+            src_png_bytes = buf.getvalue()
+            # Persist uploaded source for admin library
+            try:
+                _, src_key = upload_model_source_image(src_png_bytes, gender=gender, mime="image/png")
+                async with db_session() as session:
+                    session.add(ModelSource(gender=gender, s3_key=src_key))
+            except Exception:
+                pass
+        else:
+            # No image provided -> pick a random admin-uploaded source of this gender
             async with db_session() as session:
-                session.add(ModelSource(gender=gender, s3_key=src_key))
-        except Exception:
-            # Non-fatal if source upload fails; continue generation
-            pass
+                stmt = text("SELECT s3_key FROM model_sources WHERE gender = :g ORDER BY RANDOM() LIMIT 1")
+                res = await session.execute(stmt, {"g": gender})
+                row = res.first()
+            if not row:
+                return JSONResponse({"error": f"no model sources uploaded for gender '{gender}'"}, status_code=400)
+            src_bytes, src_mime = get_object_bytes(row[0])
+            src_png_bytes = src_bytes  # assume stored as PNG; mime guards below
+
+        # Attach source as input
+        parts.append(types.Part.from_bytes(data=src_png_bytes, mime_type="image/png"))
 
         resp = get_client().models.generate_content(
             model=MODEL,
@@ -704,10 +749,10 @@ async def model_generate(
         )
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
-            parts = getattr(content, "parts", None) if content is not None else None
-            if not parts:
+            cparts = getattr(content, "parts", None) if content is not None else None
+            if not cparts:
                 continue
-            for p in parts:
+            for p in cparts:
                 if getattr(p, "inline_data", None):
                     png_bytes = p.inline_data.data
                     bucket, key = upload_image(png_bytes, pose=f"model-{gender}")
@@ -715,7 +760,7 @@ async def model_generate(
                         rec = Generation(
                             s3_key=key,
                             pose=f"model-{gender}",
-                            prompt=" ".join(lines),
+                            prompt=instruction,
                             options_json={
                                 "mode": "model",
                                 "gender": gender,
@@ -725,20 +770,27 @@ async def model_generate(
                             model=MODEL,
                         )
                         session.add(rec)
-                    # Run a follow-up description generation on the produced image
+                    # Follow-up: generate a detailed identity description for this image
                     try:
-                        describe_prompt = "descibe this person in the most detail way possible espacialy the face not the clothe output max token"
-                        desc_parts = [types.Part.from_text(text=describe_prompt), types.Part.from_bytes(data=png_bytes, mime_type="image/png")]
+                        describe_prompt = (
+                            "Describe this person precisely for identity reference (plain text, 120-220 words). "
+                            "Focus ONLY on face and identity cues, not clothing or background. Include: gender as perceived; approximate age range; skin tone; face shape; eye color and shape; eyebrow shape and thickness; nose shape; lips shape; facial hair (if any); hair color, length, texture, parting and style; notable features (freckles, moles, scars, dimples); accessories (glasses, earrings). "
+                            "Keep neutral language; avoid judgments; no brand names; no clothing description."
+                        )
+                        desc_parts = [
+                            types.Part.from_text(text=describe_prompt),
+                            types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
+                        ]
                         desc_resp = get_client().models.generate_content(
                             model=MODEL,
                             contents=types.Content(role="user", parts=desc_parts),
                         )
                         description_text = None
                         for dc in getattr(desc_resp, "candidates", []) or []:
-                            content = getattr(dc, "content", None)
-                            parts = getattr(content, "parts", None) if content is not None else None
-                            if parts:
-                                for part in parts:
+                            dcontent = getattr(dc, "content", None)
+                            dparts = getattr(dcontent, "parts", None) if dcontent is not None else None
+                            if dparts:
+                                for part in dparts:
                                     if getattr(part, "text", None):
                                         description_text = part.text
                                         break
@@ -748,7 +800,6 @@ async def model_generate(
                             async with db_session() as session:
                                 session.add(ModelDescription(s3_key=key, description=description_text))
                     except Exception:
-                        # Non-fatal if description generation fails
                         pass
                     return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
         return JSONResponse({"error": "no image from model"}, status_code=502)
