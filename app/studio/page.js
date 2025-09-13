@@ -3,10 +3,10 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
 import { createAuthClient } from "better-auth/react";
+const authClient = createAuthClient();
 
 export default function StudioPage() {
-  const { useSession } = createAuthClient();
-  const { data: session } = useSession();
+  const { data: session } = authClient.useSession();
   const isAdmin = Boolean(session?.user?.isAdmin);
   const [activeTab, setActiveTab] = useState("environment"); // environment | model | pose
   // Environment tab state

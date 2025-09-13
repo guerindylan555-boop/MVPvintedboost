@@ -7,6 +7,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
 - Backend: FastAPI (Python), Google Gen AI SDK (`google-genai`), Pillow, async SQLAlchemy
 - Storage: AWS S3 (boto3) for generated PNGs
 - Database: Postgres (async SQLAlchemy)
+- Auth: Better Auth (cookie sessions) with Google OAuth, Postgres adapter
 - Deployment: Dokploy with Dockerfiles for frontend and backend
 
 ### Features
@@ -176,6 +177,58 @@ AWS_S3_BUCKET=<bucket-name>
   - When multiple poses are selected, fires parallel requests (one per pose)
   - History persists generated images in localStorage (max 12)
 
+### Authentication (Better Auth + Google)
+- Better Auth is mounted at `app/api/auth/[[...all]]/route.js` using the Next.js integration; a base route `app/api/auth/route.js` returns a simple JSON for health checks.
+- Server auth instance lives in `app/lib/auth.js` and uses a Postgres `pg` Pool. It normalizes Python‑style URLs like `postgresql+psycopg2://...` to `postgres://...` automatically.
+- Google provider is auto‑enabled when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+- Sessions are cookie‑based. A small `customSession` plugin adds `user.isAdmin` based on an email/domain allowlist.
+- Studio/admin gating:
+  - `app/studio/layout.js` performs a server‑side `auth.api.getSession()` check and redirects to `/login` if the user is not an admin.
+  - `app/login/page.js` starts Google sign‑in using the Better Auth client (`signIn.social`).
+- Admin BFF (server proxy) routes under `app/api/admin/*` enforce the session and forward to FastAPI with `Authorization: Bearer <ADMIN_BEARER_TOKEN>`:
+  - Env: `GET/POST/PATCH/DELETE /api/admin/env/defaults`, `GET/DELETE /api/admin/env/generated`, `GET/DELETE /api/admin/env/sources`, `POST /api/admin/env/sources/upload`
+  - Model: `GET/POST/PATCH/DELETE /api/admin/model/defaults`
+  - Pose: `GET /api/admin/pose/sources`, `POST /api/admin/pose/describe`, `GET /api/admin/pose/descriptions`
+
+### Frontend environment variables (including auth)
+```env
+# Backend base URL for the app UI
+NEXT_PUBLIC_API_BASE_URL=https://api.<your-domain>
+
+# Better Auth core
+BETTER_AUTH_URL=https://<your-frontend-domain>         # e.g., https://ab-digital.store
+BETTER_AUTH_SECRET=<random-long-string>
+BETTER_AUTH_DATABASE_URL=postgres://user:pass@host:5432/db
+# Python-style URLs are accepted too and auto-normalized:
+# BETTER_AUTH_DATABASE_URL=postgresql+psycopg2://user:pass@host:5432/db
+
+# Google OAuth (Web application in Google Cloud Console)
+GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=xxxxxxxxxxxx
+
+# Admin gating (allowlist) and server-to-server auth to FastAPI
+ADMIN_ALLOWED_EMAILS=you@your.co,teammate@org.com        # optional
+ADMIN_ALLOWED_DOMAIN=your.co                             # optional
+ADMIN_BEARER_TOKEN=<shared-with-backend>
+```
+
+### Google OAuth configuration (Console)
+- Authorized JavaScript origins:
+  - Dev: `http://localhost:3000`
+  - Prod: `https://<your-frontend-domain>`
+- Authorized redirect URIs:
+  - Dev: `http://localhost:3000/api/auth/callback/google`
+  - Prod: `https://<your-frontend-domain>/api/auth/callback/google`
+
+### Useful auth endpoints for verification
+- `GET /api/auth` → health JSON
+- `GET /api/auth/get-session` → current session JSON (null until login)
+- `POST /api/auth/sign-in/social` with form body `{ provider: "google", callbackURL: "/studio" }` → starts Google flow (the Login page uses this via Better Auth client)
+
+### Notes on migrations & routing
+- Better Auth runs its DB migrations lazily on the first `/api/auth/*` request to avoid extra work during normal page renders.
+- Only one catch‑all auth route is used: `[[...all]]` (optional). Do not create a sibling `[...all]` at the same path, or Next.js will throw a route conflict.
+
 ### Frontend environment variables
 ```env
 NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<your-domain>
@@ -199,7 +252,14 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 ### Dokploy: Frontend app
 - Provider: GitHub; Build Type: Dockerfile (root `Dockerfile`)
 - Domain: `<your-domain>`; Container Port: 3000; HTTPS: On
-- Environment: `NEXT_PUBLIC_API_BASE_URL=https://api.<your-domain>`
+- Environment:
+  - `NEXT_PUBLIC_API_BASE_URL=https://api.<your-domain>`
+  - `BETTER_AUTH_URL=https://<your-frontend-domain>`
+  - `BETTER_AUTH_SECRET=<random-long-string>`
+  - `BETTER_AUTH_DATABASE_URL=postgres://user:pass@internal-host:5432/db`
+  - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+  - `ADMIN_BEARER_TOKEN`
+  - `ADMIN_ALLOWED_EMAILS` and/or `ADMIN_ALLOWED_DOMAIN`
 
 ### Postgres on Dokploy (simple)
 - App: image `postgres:16-alpine`
@@ -251,6 +311,9 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - 400 with pydantic `extra_forbidden`: ensure we use typed `Content`/`Part` (already done)
 - 500/502: check backend logs. If model returns no image, try simpler prompt or different options
 - CORS: set `CORS_ALLOW_ORIGINS` to your frontend origin exactly (no trailing slash)
+- Auth 404 at `/api/auth/...`: ensure the path is `app/api/auth/[[...all]]/route.js` (optional catch‑all) and that `better-auth/next-js` is used, not `better-auth/integrations/next-js`.
+- Auth 500 at `/api/auth/...`: verify DB env vars are present on the frontend service and the DB host is resolvable from the container; also set `BETTER_AUTH_URL`.
+- Google redirects back to `/login`: confirm cookies are set (HTTPS, correct domain), your email is allowlisted, and Google Console redirect URI matches exactly.
 
 ## Roadmap
 - Persist request IDs and latency; expose `/history` endpoint using DB
