@@ -30,6 +30,7 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
+  const [productCondition, setProductCondition] = useState("");
   const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
@@ -440,6 +441,28 @@ export default function Home() {
       }));
       const next = [...newItems, ...history].slice(0, 12);
       persistHistory(next);
+
+      // If description generation is enabled, call backend to produce a Vinted-style description
+      if (descEnabled) {
+        try {
+          const form = new FormData();
+          form.append("image", selectedFile);
+          form.append("gender", options.gender);
+          if (desc.brand) form.append("brand", desc.brand);
+          if (desc.productModel) form.append("model_name", desc.productModel);
+          if (desc.size) form.append("size", desc.size);
+          if (productCondition) form.append("condition", productCondition);
+          const dres = await fetch(`${baseUrl}/describe`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+          if (dres.ok) {
+            const dj = await dres.json();
+            if (dj?.description) {
+              alert("Generated product description:\n\n" + dj.description);
+            }
+          }
+        } catch (e) {
+          // non-fatal
+        }
+      }
     } catch (err) {
       console.error(err);
       alert("Generation failed. Check backend logs and API key.");
@@ -592,6 +615,16 @@ export default function Home() {
                   placeholder="e.g., Air Max 90, Oversized Hoodie"
                   value={desc.productModel}
                   onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Condition</label>
+                <input
+                  type="text"
+                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                  placeholder="e.g., BNWT, worn once, good with minor flaw"
+                  value={productCondition}
+                  onChange={(e) => setProductCondition(e.target.value)}
                 />
               </div>
               <div className="col-span-2">

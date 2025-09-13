@@ -86,6 +86,20 @@ class PoseDescription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
+class ProductDescription(Base):
+    __tablename__ = "product_descriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=True, index=True)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    gender: Mapped[str] = mapped_column(String(16), nullable=True)
+    brand: Mapped[str] = mapped_column(String(128), nullable=True)
+    model: Mapped[str] = mapped_column(String(256), nullable=True)
+    size: Mapped[str] = mapped_column(String(64), nullable=True)
+    condition: Mapped[str] = mapped_column(String(256), nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
 # Per-user environment defaults (new table). We keep the legacy global
 # table `env_defaults` for backward compatibility but stop using it.
 class EnvDefaultUser(Base):

@@ -22,6 +22,7 @@ from .db import (
     ModelDescription,
     PoseSource,
     PoseDescription,
+    ProductDescription,
 )
 from .storage import (
     upload_image,
@@ -31,6 +32,7 @@ from .storage import (
     get_object_bytes,
     delete_objects,
     generate_presigned_get_url,
+    upload_product_source_image,
 )
 from sqlalchemy import select, func, text
 
@@ -1083,6 +1085,104 @@ async def list_model_sources(gender: str | None = None):
         return {"ok": True, "items": items}
     except Exception as e:
         logger.exception("Failed to list model sources")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- Product description generation (Vinted-style) ---
+
+@app.post("/describe")
+async def generate_product_description(
+    image: UploadFile = File(...),
+    gender: str = Form(""),
+    brand: str = Form(""),
+    model_name: str = Form(""),
+    size: str = Form(""),
+    condition: str = Form(""),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    """Generate a Vinted-style product description from an uploaded garment image and metadata."""
+    try:
+        if not image or not image.filename:
+            return JSONResponse({"error": "image file required"}, status_code=400)
+        # Normalize image
+        raw_bytes = await image.read()
+        if len(raw_bytes) > 10 * 1024 * 1024:
+            return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
+        src = Image.open(BytesIO(raw_bytes))
+        buf = BytesIO()
+        src.convert("RGBA").save(buf, format="PNG")
+        buf.seek(0)
+
+        # Optional: persist original garment source for traceability
+        try:
+            _, src_key = upload_product_source_image(buf.getvalue(), mime="image/png")
+        except Exception:
+            src_key = None
+
+        # Build instruction (Gemini 2.5 Flash Image)
+        def norm(s: Optional[str]) -> str:
+            return (s or "").strip()
+
+        meta_lines = []
+        if norm(brand):
+            meta_lines.append(f"Brand: {norm(brand)}")
+        if norm(model_name):
+            meta_lines.append(f"Model: {norm(model_name)}")
+        if norm(size):
+            meta_lines.append(f"Size: {norm(size)}")
+        if norm(condition):
+            meta_lines.append(f"Condition: {norm(condition)}")
+        if norm(gender):
+            meta_lines.append(f"Gender: {norm(gender)}")
+
+        instruction = (
+            "You are a helpful assistant that writes high-quality Vinted product listings from a product photo.\n"
+            "Write a concise, buyer-friendly description that includes: brand, item type, size, color, material, style keywords, condition, and any visible unique features.\n"
+            "Include measurements if clearly inferable; otherwise omit. Be honest about visible flaws. Keep it PG-13.\n"
+            "Output plain text only without markdown bullets; use short paragraphs and short lines.\n"
+        )
+        if meta_lines:
+            instruction += "\nKNOWN FIELDS (apply faithfully if present)\n" + "\n".join(meta_lines) + "\n"
+
+        parts: list[types.Part] = [
+            types.Part.from_text(text=instruction),
+            types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"),
+        ]
+        client = get_client()
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash-image",  # fast text+image for descriptions
+            contents=types.Content(role="user", parts=parts),
+        )
+        description_text = None
+        for c in getattr(resp, "candidates", []) or []:
+            if getattr(c, "content", None) and getattr(c.content, "parts", None):
+                for p in c.content.parts:
+                    if getattr(p, "text", None):
+                        description_text = p.text
+                        break
+            if description_text:
+                break
+        if not description_text:
+            return JSONResponse({"error": "no description from model"}, status_code=502)
+
+        # Persist description
+        async with db_session() as session:
+            session.add(
+                ProductDescription(
+                    user_id=x_user_id,
+                    s3_key=src_key or "",
+                    gender=_normalize_gender(gender) if gender else None,
+                    brand=norm(brand) or None,
+                    model=norm(model_name) or None,
+                    size=norm(size) or None,
+                    condition=norm(condition) or None,
+                    description=description_text.strip(),
+                )
+            )
+
+        return {"ok": True, "description": description_text}
+    except Exception as e:
+        logger.exception("description generation failed")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
