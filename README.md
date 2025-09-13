@@ -24,7 +24,9 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - the selected environment default image (optional)
   - the selected gender model default image (optional)
   Backend builds one prompt and includes all references for the model
-- History gallery (localStorage) of generated images with quick preview
+- History gallery of generated images with quick preview
+  - Server-backed: `/history` returns the last 200 garment edits for the current user (requires `X-User-Id`)
+  - Falls back to per-browser localStorage when not signed in
 
 Default generation style (Mirror Selfie for Vinted)
 - Photorealistic mirror selfie, amateur smartphone look
@@ -41,7 +43,7 @@ Default generation style (Mirror Selfie for Vinted)
   - Delete any generated environment image (removes from S3 and DB, and from defaults if set)
   - List and delete all uploaded sources (S3 + DB) from the UI
 - Model tab:
-  - Gender selector placed above Prompt
+  - Gender selector replaced with two-button toggle (Man/Woman) and content filtered by selection
   - Source image uploader/viewer is admin-only; non-admins won’t see the pickers
   - Random: uses the selected gender’s source image and the prompt “Randomize this man/woman.”
   - Generate: same, with your additional prompt appended
@@ -98,6 +100,7 @@ npm run dev:full
 - `GET /env/generated`: list recent environment generations for the current user (requires header `X-User-Id`; includes presigned `url`)
   - `GET /env/image?s3_key=...`: stream any stored image from S3
 - `GET /env/defaults`: list env defaults for the current user (requires header `X-User-Id`; includes presigned `url`)
+  - `GET /history`: list last 200 generated garment edits for current user (excludes env/model tools)
 - `POST /env/defaults`: set up to 5 named defaults (per-user overwrite; requires `X-User-Id`)
 - `PATCH /env/defaults`: rename a default by `s3_key` (requires `X-User-Id`)
 - `DELETE /env/defaults`: unset a default by `s3_key`
@@ -108,6 +111,7 @@ npm run dev:full
   - `POST /model/defaults`: set default for a gender (overwrites)
   - `PATCH /model/defaults`: rename default for a gender
   - `DELETE /model/defaults`: unset default for a gender
+  - `POST /describe`: generate a Vinted-style product description from an uploaded garment image and metadata (`gender`, `brand`, `model_name`, `size`, `condition`). Uses the same Gemini model as image generation; returns `{ ok, description }` and stores it in DB.
 - `backend/db.py`: async SQLAlchemy setup, `Generation` model, `init_db()` at startup
   - `EnvSource`, `EnvDefault`, `ModelDefault`, `ModelSource`, `ModelDescription`, `PoseSource`, `PoseDescription` models
 - `backend/storage.py`: S3 client and upload helpers
@@ -116,7 +120,7 @@ npm run dev:full
 - `upload_pose_source_image(...)` for persisting pose sources
 
 ### Model and SDK
-- Model: `gemini-2.5-flash-image-preview` (aka Nano Banana)
+- Model: `gemini-2.5-flash-image-preview` (aka Nano Banana) for both image generation and text-from-image descriptions
 - SDK: `google-genai`
 - We assemble `types.Content(role="user", parts=[text, image])` using:
   - `types.Part.from_text(text=prompt)`
@@ -125,7 +129,8 @@ npm run dev:full
 
 ### Prompting strategy
 - The frontend sends structured fields (gender, environment, poses[], extra) and may include environment/person reference images
-- The backend builds a deterministic "Mirror Selfie for Vinted" prompt, or uses a `prompt_override` from the UI when provided
+- The backend builds a deterministic "Mirror Selfie for Vinted" prompt for image edits
+- Description prompts are built server-side from the uploaded image and provided metadata (gender, brand, model, size, condition)
 - Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 3)
 
 Prompt rules (Mirror Selfie for Vinted)
@@ -151,6 +156,7 @@ Prompt rules (Mirror Selfie for Vinted)
 - Model person sources stored under `model_sources/<gender>/` and tracked in `model_sources`
 - Model defaults stored in `model_defaults` (one per gender)
 - Model person descriptions stored in `model_descriptions` and linked by `s3_key`
+  - Product listing descriptions stored in `product_descriptions` with: `user_id`, `s3_key` (source image), `gender`, `brand`, `model`, `size`, `condition`, `description`
 
 ### Backend environment variables
 Required (Dokploy → Backend → Environment):
@@ -176,7 +182,9 @@ AWS_S3_BUCKET=<bucket-name>
   - Sends `multipart/form-data` to `/edit` with fields: `image`, `gender` (woman|man), `environment`, repeated `poses`, and `extra`
   - When available, also sends `env_default_s3_key` (selected Studio environment default) and `model_default_s3_key` (selected gender’s model default)
   - When multiple poses are selected, fires parallel requests (one per pose)
-  - History persists generated images in localStorage (max 12)
+  - History is fetched from `/history` when signed in (falls back to localStorage; max 12 shown)
+  - Description generation toggle: when enabled, sends the uploaded garment image and metadata to `/describe` in parallel with `/edit`
+  - Condition selector uses three buttons: Brand new / Very good / Good
 
 ### Authentication (Better Auth + Google)
 - Better Auth is mounted at `app/api/auth/[[...all]]/route.js` using the Next.js integration; a base route `app/api/auth/route.js` returns a simple JSON for health checks.
@@ -194,7 +202,7 @@ AWS_S3_BUCKET=<bucket-name>
 #### Access control & visibility
 - Global auth gating is implemented in `middleware.ts` (cookie‑based), not in `layout.js`, to avoid redirect loops behind proxies.
 - Public routes: `/login`, `/api/*`, `/studio`, Next assets (`/_next/*`, `favicon*`, `/assets/*`). All other pages (including `/`) require a session and will redirect to `/login`.
-- Studio admin‑only UI: bulk upload controls and the raw sources list are only visible to admins (`user.isAdmin === true`).
+- Studio admin‑only UI: bulk upload controls and the raw sources list are only visible to admins (`user.isAdmin === true`). Non-admins do not see the Pose tab.
 - Random generation uses admin‑uploaded sources for everyone; non‑admins benefit without seeing the sources or having any edit/delete access.
 
 ### Frontend environment variables (including auth)
