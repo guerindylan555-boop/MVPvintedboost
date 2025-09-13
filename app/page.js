@@ -45,14 +45,38 @@ export default function Home() {
   }, [previewUrl]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("vb_history");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setHistory(parsed);
-      }
-    } catch {}
-  }, []);
+    (async () => {
+      // Load server-side history if logged in; else fallback to localStorage
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      try {
+        if (userId) {
+          const res = await fetch(`${baseUrl}/history`, { headers: { "X-User-Id": String(userId) } });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data?.items)) {
+              const serverItems = data.items.map((it) => ({
+                id: it.s3_key,
+                dataUrl: it.url || "",
+                createdAt: Date.parse(it.created_at) || Date.now(),
+                prompt: it.prompt || "",
+                options: { poses: [it.pose] },
+              }));
+              setHistory(serverItems);
+              return;
+            }
+          }
+        }
+      } catch {}
+      // Fallback: localStorage
+      try {
+        const raw = localStorage.getItem("vb_history");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) setHistory(parsed);
+        }
+      } catch {}
+    })();
+  }, [userId]);
 
   // Load pose descriptions from Studio for random selection
   useEffect(() => {
@@ -405,7 +429,7 @@ export default function Home() {
       }
       setPreviewUrl(first.dataUrl);
 
-      // Save all in history (cap 12)
+      // Save all in history (cap 12). Prefer server-backed entries if available.
       const now = Date.now();
       const newItems = successes.map((s) => ({
         id: `${now}-${s.pose}-${Math.random().toString(36).slice(2, 6)}`,

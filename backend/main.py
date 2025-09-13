@@ -909,6 +909,46 @@ async def list_model_generated(x_user_id: str | None = Header(default=None, alia
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/history")
+async def list_user_history(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
+    """List recent garment edit generations for the current user (excludes env/model tools).
+
+    These are images created via POST /edit. Results include presigned URLs.
+    """
+    try:
+        async with db_session() as session:
+            if not x_user_id:
+                # Do not leak cross-user data; require a user id
+                rows = []
+            else:
+                stmt = (
+                    select(Generation.s3_key, Generation.created_at, Generation.pose, Generation.prompt)
+                    .where(text("(options_json->>'user_id') = :uid")).params(uid=x_user_id)
+                    .where(~Generation.pose.in_(["env"]))
+                    .where(~Generation.pose.like("model-%"))
+                    .order_by(Generation.created_at.desc())
+                    .limit(200)
+                )
+                res = await session.execute(stmt)
+                rows = res.all()
+            items = []
+            for key, created, pose, prompt in rows:
+                try:
+                    url = generate_presigned_get_url(key)
+                except Exception:
+                    url = None
+                items.append({
+                    "s3_key": key,
+                    "created_at": created.isoformat(),
+                    "pose": pose,
+                    "prompt": prompt,
+                    "url": url,
+                })
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.exception("Failed to list user history")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.get("/model/defaults")
 async def list_model_defaults():
     try:
