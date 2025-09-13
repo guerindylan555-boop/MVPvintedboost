@@ -465,7 +465,7 @@ export default function StudioPage() {
               <label className="text-xs text-gray-500">Prompt</label>
               <textarea
                 rows={3}
-                placeholder="Describe the environment to generate (e.g., lush garden at sunrise with mist)"
+                placeholder="Describe the environment (leave empty for Random). For example: lush garden at sunrise with mist"
                 className="mt-1 w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -787,7 +787,7 @@ export default function StudioPage() {
               <label className="text-xs text-gray-500">Prompt</label>
               <textarea
                 rows={3}
-                placeholder={`Describe the ${modelGender === "woman" ? "female" : "male"} model scene (e.g., full-body portrait, casual pose)`}
+                placeholder={`Describe the ${modelGender === "woman" ? "female" : "male"} model scene (leave empty for Random). For example: full-body portrait, casual pose`}
                 className="mt-1 w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
                 value={modelPrompt}
                 onChange={(e) => setModelPrompt(e.target.value)}
