@@ -952,9 +952,10 @@ async def generate_pose_descriptions():
             try:
                 img_bytes, mime = get_object_bytes(key)
                 instruction = (
-                    "Analyze this image and output only a concise pose description of the person. "
-                    "Do not describe clothing, identity, background, or environment. "
-                    "Mention body orientation, weight distribution, limb positions, and hand placements succinctly."
+                    "Analyze this image and output ONE detailed paragraph that describes ONLY the person's body pose in a mirror-selfie context. "
+                    "Explicitly state that the subject is taking a mirror selfie with a smartphone, which hand holds the phone, where the phone sits relative to the face/torso, and how much of the face is occluded by it. "
+                    "Include: overall orientation toward the mirror/camera, stance (feet placement and weight distribution), torso rotation and tilt, shoulder alignment, head orientation/tilt, elbows and wrists angles, the non-phone hand visibility/gesture, leg bends, posture, and approximate distance to the mirror if inferable. "
+                    "Do NOT describe clothing, identity, background, brand names, age, or ethnicity. Use neutral anatomical language. Output plain text only."
                 )
                 parts = [types.Part.from_text(text=instruction), types.Part.from_bytes(data=img_bytes, mime_type=mime or "image/png")]
                 resp = client.models.generate_content(model=MODEL, contents=types.Content(role="user", parts=parts))
