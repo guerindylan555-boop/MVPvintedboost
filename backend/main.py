@@ -129,6 +129,63 @@ def _build_prompt(*, gender: str, environment: str, poses: list[str], extra: str
     return " ".join(pieces)
 
 
+def build_env_prompt(user_prompt: Optional[str] = None) -> str:
+    """Build the Studio Environment generation instruction.
+
+    Goals
+    - Always a mirror scene. Use the attached source image as the scene seed.
+    - Produce a new, photorealistic environment that is coherent with the source reflection.
+    - Randomize tastefully while keeping the mirror's size/placement consistent.
+    """
+    def q(s: Optional[str]) -> str:
+        return (s or "").strip()
+
+    lines: list[str] = []
+    lines.append("TASK")
+    lines.append(
+        "Generate a new photorealistic mirror environment image for future garment try-ons. "
+        "All scenes are mirror reflections. Use the attached image as a seed reference."
+    )
+    lines.append("")
+    lines.append("HARD CONSTRAINTS")
+    lines.append("- No people; no text; no logos or brand marks.")
+    lines.append("- Useful as a backdrop: good, even lighting; natural shadows; mild depth of field.")
+    lines.append("- Keep an empty, clean mid-ground area in the mirror where a person could plausibly stand.")
+    lines.append(
+        "- Mirror coherence: preserve the mirror opening size, aspect ratio, and on-image placement; keep the camera viewpoint and reflection geometry plausible."
+    )
+    lines.append("")
+    lines.append("SCENE CONSISTENCY (interior vs exterior)")
+    lines.append(
+        "- Infer the scene category from the source reflection: if it shows an interior (e.g., bedroom, bathroom, living room, studio), recreate a fresh interior of the same type. "
+        "If it shows an exterior (e.g., street, garden, beach, patio), recreate a fresh exterior. Do not switch interior ↔ exterior."
+    )
+    lines.append("")
+    lines.append("MIRROR FRAME BEHAVIOR")
+    lines.append(
+        "- Randomize the mirror frame style (material, color, ornamentation) to make it feel new, but keep the mirror's opening size and aspect ratio identical, and keep its position within the image the same."
+    )
+    lines.append("")
+    lines.append("RANDOMIZATION")
+    lines.append("- Vary room subtype, color palette, materials, and tasteful props.")
+    lines.append("- Keep background clutter low; avoid busy textures near the mid torso area.")
+    lines.append("- Maintain photorealism; avoid stylization.")
+    lines.append("")
+    if q(user_prompt):
+        lines.append("USER WISHES")
+        lines.append(f"\"{q(user_prompt)}\"")
+        lines.append(
+            "Apply ONLY if consistent with photorealism, cleanliness, mirror-reflection setup, and usability as a try-on backdrop. "
+            "Do not change the scene category (interior vs exterior) and do not change the mirror size/placement."
+        )
+        lines.append("")
+    lines.append("NEGATIVE GUIDANCE")
+    lines.append(
+        "cluttered, illegible text, signage, extreme wide-angle distortion, heavy motion blur, horror/abandoned spaces, AI artifacts"
+    )
+    return "\n".join(lines)
+
+
 def build_mirror_selfie_prompt(
     *,
     gender: str,
@@ -434,7 +491,8 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
         if not row:
             return JSONResponse({"error": "no sources uploaded"}, status_code=400)
 
-        instruction = "randomize the scene and the mirror frame"
+        # Build deterministic instruction to ensure mirror reflection coherence and tasteful randomization
+        instruction = build_env_prompt()
         # Load source image bytes from S3 and include as input
         src_bytes, mime = get_object_bytes(row[0])
         image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
@@ -471,8 +529,7 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
 @app.post("/env/generate")
 async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
-        instruction = "randomize the scene and the mirror frame"
-        full = instruction if not prompt.strip() else f"{instruction}. {prompt.strip()}"
+        full = build_env_prompt(prompt)
         # Use a random uploaded source image
         async with db_session() as session:
             stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
