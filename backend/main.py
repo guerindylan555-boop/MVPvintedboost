@@ -500,7 +500,11 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
             contents=types.Content(role="user", parts=[types.Part.from_text(text=instruction), image_part]),
         )
         for c in getattr(resp, "candidates", []) or []:
-            for p in getattr(c, "content", {}).parts or []:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not parts:
+                continue
+            for p in parts:
                 if getattr(p, "inline_data", None):
                     png_bytes = p.inline_data.data
                     # persist result
