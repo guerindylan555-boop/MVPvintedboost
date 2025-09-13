@@ -7,6 +7,14 @@ from fastapi import FastAPI, UploadFile, Form, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from PIL import Image
+# Enable HEIC/HEIF support if available (for iPhone photos)
+try:  # optional dependency
+    from pillow_heif import register_heif_opener  # type: ignore
+
+    register_heif_opener()
+except Exception:
+    # If pillow-heif is not installed, HEIC uploads will fail to decode
+    pass
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -307,9 +315,18 @@ async def edit(
             return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
 
         # Decode and normalize to PNG bytes
-        src = Image.open(BytesIO(raw_bytes))
+        try:
+            src = Image.open(BytesIO(raw_bytes))
+        except Exception:
+            return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
         buf = BytesIO()
-        src.convert("RGBA").save(buf, format="PNG")
+        try:
+            src.convert("RGBA").save(buf, format="PNG")
+        finally:
+            try:
+                src.close()
+            except Exception:
+                pass
         buf.seek(0)
 
         # Validate and normalize options
@@ -1243,9 +1260,18 @@ async def generate_product_description(
         raw_bytes = await image.read()
         if len(raw_bytes) > 10 * 1024 * 1024:
             return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
-        src = Image.open(BytesIO(raw_bytes))
+        try:
+            src = Image.open(BytesIO(raw_bytes))
+        except Exception:
+            return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
         buf = BytesIO()
-        src.convert("RGBA").save(buf, format="PNG")
+        try:
+            src.convert("RGBA").save(buf, format="PNG")
+        finally:
+            try:
+                src.close()
+            except Exception:
+                pass
         buf.seek(0)
 
         # Optional: persist original garment source for traceability
