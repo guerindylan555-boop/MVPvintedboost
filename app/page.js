@@ -367,6 +367,25 @@ export default function Home() {
         ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
         : undefined;
 
+      // If description generation is enabled, start description request in parallel now
+      let descPromise = null;
+      if (descEnabled) {
+        const dform = new FormData();
+        dform.append("image", selectedFile);
+        dform.append("gender", options.gender);
+        if (desc.brand) dform.append("brand", desc.brand);
+        if (desc.productModel) dform.append("model_name", desc.productModel);
+        if (desc.size) dform.append("size", desc.size);
+        if (productCondition) dform.append("condition", productCondition);
+        descPromise = fetch(`${baseUrl}/describe`, {
+          method: "POST",
+          body: dform,
+          headers: userId ? { "X-User-Id": String(userId) } : {},
+        })
+          .then(async (r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+      }
+
       const requests = poses.map(async (pose) => {
         const form = new FormData();
         form.append("image", selectedFile);
@@ -442,27 +461,17 @@ export default function Home() {
       const next = [...newItems, ...history].slice(0, 12);
       persistHistory(next);
 
-      // If description generation is enabled, call backend to produce a Vinted-style description
-      if (descEnabled) {
+      // Finish description request if it was started (ran in parallel)
+      if (descPromise) {
         try {
-          const form = new FormData();
-          form.append("image", selectedFile);
-          form.append("gender", options.gender);
-          if (desc.brand) form.append("brand", desc.brand);
-          if (desc.productModel) form.append("model_name", desc.productModel);
-          if (desc.size) form.append("size", desc.size);
-          if (productCondition) form.append("condition", productCondition);
-          const dres = await fetch(`${baseUrl}/describe`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
-          if (dres.ok) {
-            const dj = await dres.json();
-            if (dj?.description) {
-              alert("Generated product description:\n\n" + dj.description);
-            }
+          const dj = await descPromise;
+          if (dj?.description) {
+            alert("Generated product description:\n\n" + dj.description);
           }
-        } catch (e) {
-          // non-fatal
-        }
+        } catch {}
       }
+
+      // Description request already sent earlier in parallel when enabled.
     } catch (err) {
       console.error(err);
       alert("Generation failed. Check backend logs and API key.");
