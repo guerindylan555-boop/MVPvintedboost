@@ -422,7 +422,7 @@ export default function StudioPage() {
 
   return (
     <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
-      <main className="flex-1 p-5 max-w-2xl w-full mx-auto flex flex-col gap-5">
+      <main className="flex-1 p-5 pb-24 max-w-2xl w-full mx-auto flex flex-col gap-5">
         <header className="pt-2">
           <h1 className="text-xl font-semibold tracking-tight">Studio</h1>
           <p className="text-sm text-gray-500 mt-1">Generate environment or human model scenes.</p>
@@ -471,27 +471,7 @@ export default function StudioPage() {
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleRandomGenerate}
-                className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-              >
-                Random
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={!prompt.trim() || isGenerating}
-                className={`h-10 px-4 rounded-md text-sm font-semibold active:translate-y-px ${
-                  !prompt.trim() || isGenerating
-                    ? "bg-foreground/30 text-background/60 cursor-not-allowed"
-                    : "bg-foreground text-background"
-                }`}
-              >
-                {isGenerating ? "Generating…" : "Generate"}
-              </button>
-            </div>
+            {/* Single adaptive action button moved to sticky footer */}
 
             <div className="w-full rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5">
               <div className="relative w-full aspect-video bg-black/5 flex items-center justify-center">
@@ -813,53 +793,7 @@ export default function StudioPage() {
                 onChange={(e) => setModelPrompt(e.target.value)}
               />
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    setIsModelGenerating(true);
-                    const form = new FormData();
-                    const gender = modelGender;
-                    const file = gender === "man" ? maleFile : femaleFile;
-                    const hasPersisted = gender === "man" ? Boolean(malePersisted) : Boolean(femalePersisted);
-                    if (!file && !hasPersisted) return alert(`Pick a ${gender} source image first`);
-                    if (file) form.append("image", file);
-                    form.append("gender", gender);
-                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-                    const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
-                    if (!res.ok) throw new Error(await res.text());
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
-                    if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
-                    setModelPreviewUrl(url);
-                    await refreshModelGenerated();
-                  } catch (e) {
-                    console.error(e);
-                    alert("Model randomization failed");
-                  } finally {
-                    setIsModelGenerating(false);
-                  }
-                }}
-                className="h-10 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-              >
-                Random
-              </button>
-              <button
-                type="button"
-                onClick={handleModelGenerate}
-                disabled={(
-                  (modelGender === "man" ? (!maleFile && !malePersisted) : (!femaleFile && !femalePersisted))
-                ) || isModelGenerating || isModelSourceUploading}
-                className={`h-10 px-4 rounded-md text-sm font-semibold active:translate-y-px ${
-                  ((modelGender === "man" ? (!maleFile && !malePersisted) : (!femaleFile && !femalePersisted)) || isModelGenerating || isModelSourceUploading)
-                    ? "bg-foreground/30 text-background/60 cursor-not-allowed"
-                    : "bg-foreground text-background"
-                }`}
-              >
-                {isModelGenerating ? "Generating…" : "Generate"}
-              </button>
-            </div>
+            {/* Single adaptive action button moved to sticky footer */}
 
             <div className="w-full rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5">
               <div className="relative w-full aspect-video bg-black/5 flex items-center justify-center">
@@ -1064,6 +998,44 @@ export default function StudioPage() {
           </section>
         )}
       </main>
+
+      {/* Sticky footer action for Environment tab */}
+      {activeTab === "environment" && (
+        <div className="fixed inset-x-0 bottom-0 bg-background/80 backdrop-blur border-t border-black/10 dark:border-white/15">
+          <div className="max-w-2xl mx-auto p-4">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className={`w-full h-12 rounded-xl text-sm font-semibold active:translate-y-px ${
+                isGenerating ? "bg-foreground/30 text-background/60 cursor-not-allowed" : "bg-foreground text-background"
+              }`}
+            >
+              {isGenerating ? "Generating…" : (prompt.trim() ? "Generate" : "Random")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky footer action for Model tab */}
+      {activeTab === "model" && (
+        <div className="fixed inset-x-0 bottom-0 bg-background/80 backdrop-blur border-t border-black/10 dark:border-white/15">
+          <div className="max-w-2xl mx-auto p-4">
+            <button
+              type="button"
+              onClick={handleModelGenerate}
+              disabled={((modelGender === "man" ? (!maleFile && !malePersisted) : (!femaleFile && !femalePersisted)) || isModelGenerating || isModelSourceUploading)}
+              className={`w-full h-12 rounded-xl text-sm font-semibold active:translate-y-px ${
+                ((modelGender === "man" ? (!maleFile && !malePersisted) : (!femaleFile && !femalePersisted)) || isModelGenerating || isModelSourceUploading)
+                  ? "bg-foreground/30 text-background/60 cursor-not-allowed"
+                  : "bg-foreground text-background"
+              }`}
+            >
+              {isModelGenerating ? "Generating…" : (modelPrompt.trim() ? "Generate" : "Random")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

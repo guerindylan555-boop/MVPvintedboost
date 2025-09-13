@@ -49,6 +49,7 @@ Default generation style (Mirror Selfie for Vinted)
   - Generate: same, with your additional prompt appended
   - After generation, the resulting image is re‑sent to the model to generate a detailed description of the person (especially the face). The text is stored and shown as an overlay in the grid
   - Two grids (last 200 each, per-user): “Recent generated models — Men” and “— Women”, each with its own single default. You can Set default, Rename default, or Undefault per gender
+  - Per-user storage: the frontend includes `X-User-Id` when calling `POST /model/generate` so the backend attributes generations to the current user (required for them to appear in the grids)
   - Person source images are uploaded to S3 and tracked in Postgres
   - Main page can send the model default as an image or description only (toggle)
 - Pose tab:
@@ -307,9 +308,11 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Content-Type: `multipart/form-data`
 - Fields: `image` (file), `gender` (man|woman), `prompt` (optional)
 - Response: `image/png` stream
+- Headers: `X-User-Id` (optional but recommended) — when provided, the backend stores the generation under this user id so it appears in per-user listings
 - Notes: Automatically generates and stores a person description linked to the image
 
 ### GET /model/generated
+- Headers: `X-User-Id` (required) — results are filtered to the current user; when missing, the backend returns an empty list to avoid cross-user leakage
 - Response: `{ ok: true, items: [{ s3_key, created_at, gender, url, description }] }`
 
 ### Model defaults
@@ -326,6 +329,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - 401/403: invalid/missing `GOOGLE_API_KEY`
 - 400 with pydantic `extra_forbidden`: ensure we use typed `Content`/`Part` (already done)
 - 500/502: check backend logs. If model returns no image, try simpler prompt or different options
+- Model preview shows but not in Studio grid: ensure the frontend sends `X-User-Id` in `POST /model/generate` and uses the same header when fetching `GET /model/generated`. Without it, the backend stores `user_id = null` and the per-user grid (which filters by `X-User-Id`) will not show the item.
 - CORS: set `CORS_ALLOW_ORIGINS` to your frontend origin exactly (no trailing slash)
 - Auth 404 at `/api/auth/...`: ensure the path is `app/api/auth/[[...all]]/route.js` (optional catch‑all) and that `better-auth/next-js` is used, not `better-auth/integrations/next-js`.
 - Auth 500 at `/api/auth/...`: verify DB env vars are present on the frontend service and the DB host is resolvable from the container; also set `BETTER_AUTH_URL`.
@@ -337,3 +341,9 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Return JSON with presigned S3 URLs for images (optional new endpoint)
 - Add Alembic migrations instead of `create_all`
 - Basic auth for admin endpoints
+
+## Changelog
+
+- 2025-09-13
+  - Fix: Hardened `/env/random` response parsing to avoid `NoneType.parts` when a candidate has no content. Now safely skips empty candidates and returns 502 “no image from model” instead of a 500 crash.
+  - Change: Frontend Studio now sends `X-User-Id` with `POST /model/generate` (both Generate and Random). This ensures model generations are attributed to the current user and appear in “Recent generated models”. API docs updated to reflect `X-User-Id` usage for both POST/GET model endpoints.
