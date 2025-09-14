@@ -79,6 +79,57 @@ def get_client() -> genai.Client:
     return _client
 
 
+def _normalize_to_png_limited(raw_bytes: bytes, *, max_px: int = 2048) -> bytes:
+    """Decode bytes with PIL, optionally downscale to keep within max_px on longer side,
+    and re-encode as PNG. Returns PNG bytes.
+    """
+    src = Image.open(BytesIO(raw_bytes))
+    try:
+        src = src.convert("RGBA")
+        w, h = src.size
+        if max(w, h) > max_px:
+            # Preserve aspect ratio; downscale in-place
+            scale = max_px / float(max(w, h))
+            new_size = (int(w * scale), int(h * scale))
+            src = src.resize(new_size, Image.LANCZOS)
+        out = BytesIO()
+        src.save(out, format="PNG")
+        out.seek(0)
+        return out.getvalue()
+    finally:
+        try:
+            src.close()
+        except Exception:
+            pass
+
+
+async def _genai_generate_with_retries(parts: list[types.Part], *, attempts: int = 2):
+    """Call GenAI with short retries for transient 5xx/429 errors.
+
+    Returns the raw response object.
+    """
+    last_exc: Exception | None = None
+    for i in range(max(1, attempts)):
+        try:
+            return await asyncio.to_thread(
+                get_client().models.generate_content,
+                model=MODEL,
+                contents=types.Content(role="user", parts=parts),
+            )
+        except genai_errors.APIError as e:
+            last_exc = e
+            # Retry on server/internal or quota/too-many-requests
+            code = getattr(e, "code", None)
+            msg = (getattr(e, "message", "") or "").lower()
+            if code in (500, 502, 503) or "internal" in msg or code == 429:
+                await asyncio.sleep(0.6 + 0.4 * i)
+                continue
+            raise
+    # After attempts exhausted, re-raise last
+    assert last_exc is not None
+    raise last_exc
+
+
 @app.get("/health")
 async def health():
     return {"ok": True, "model": MODEL}
@@ -311,25 +362,14 @@ async def edit(
     try:
         if not image or not image.filename:
             return JSONResponse({"error": "image file required"}, status_code=400)
-        # Read uploaded image bytes first for size checks
+        # Read uploaded image bytes, normalize to PNG and downscale if needed
         raw_bytes = await image.read()
-        if len(raw_bytes) > 10 * 1024 * 1024:  # 10MB inline safety
-            return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
-
-        # Decode and normalize to PNG bytes
+        if len(raw_bytes) > 20 * 1024 * 1024:
+            return JSONResponse({"error": "image too large (max ~20MB)"}, status_code=413)
         try:
-            src = Image.open(BytesIO(raw_bytes))
+            png_bytes = _normalize_to_png_limited(raw_bytes, max_px=2048)
         except Exception:
             return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
-        buf = BytesIO()
-        try:
-            src.convert("RGBA").save(buf, format="PNG")
-        finally:
-            try:
-                src.close()
-            except Exception:
-                pass
-        buf.seek(0)
 
         # Validate and normalize options
         gender = _normalize_choice(gender, ["woman", "man"], "woman")
@@ -396,16 +436,10 @@ async def edit(
                 person_key_used = None
 
         # Uploaded garment/source image last
-        image_part = types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png")
+        image_part = types.Part.from_bytes(data=png_bytes, mime_type="image/png")
         parts.append(image_part)
 
-        contents = types.Content(role="user", parts=parts)
-        client = get_client()
-        resp = await asyncio.to_thread(
-            client.models.generate_content,
-            model=MODEL,
-            contents=contents,
-        )
+        resp = await _genai_generate_with_retries(parts, attempts=2)
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
             parts = getattr(content, "parts", None) if content is not None else None
@@ -442,7 +476,7 @@ async def edit(
         except Exception:
             cand_count = -1
         logger.warning(
-            "edit_json: no image from model (candidates=%s, prompt_len=%s, use_env=%s, use_person=%s)",
+            "edit: no image from model (candidates=%s, prompt_len=%s, use_env=%s, use_person=%s)",
             cand_count,
             len(prompt_text or ""),
             bool(env_default_s3_key),
@@ -1365,22 +1399,12 @@ async def edit_json(
         src_png: bytes | None = None
         if image and image.filename:
             raw_bytes = await image.read()
-            if len(raw_bytes) > 10 * 1024 * 1024:
-                return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
+            if len(raw_bytes) > 20 * 1024 * 1024:
+                return JSONResponse({"error": "image too large (max ~20MB)"}, status_code=413)
             try:
-                src = Image.open(BytesIO(raw_bytes))
+                src_png = _normalize_to_png_limited(raw_bytes, max_px=2048)
             except Exception:
                 return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
-            buf = BytesIO()
-            try:
-                src.convert("RGBA").save(buf, format="PNG")
-            finally:
-                try:
-                    src.close()
-                except Exception:
-                    pass
-            buf.seek(0)
-            src_png = buf.getvalue()
         elif listing_id and x_user_id:
             # Fetch listing and ensure ownership, then load its stored source image from S3
             async with db_session() as session:
@@ -1393,12 +1417,8 @@ async def edit_json(
                 return JSONResponse({"error": "not found"}, status_code=404)
             try:
                 src_bytes, src_mime = get_object_bytes(row[1])
-                # Normalize to PNG for consistency
-                src_img = Image.open(BytesIO(src_bytes))
-                out = BytesIO()
-                src_img.convert("RGBA").save(out, format="PNG")
-                out.seek(0)
-                src_png = out.getvalue()
+                # Normalize to PNG and downscale for consistency and stability
+                src_png = _normalize_to_png_limited(src_bytes, max_px=2048)
             except Exception as e:
                 return JSONResponse({"error": f"failed to load source image from listing: {e}"}, status_code=500)
         else:
@@ -1453,11 +1473,7 @@ async def edit_json(
                 person_key_used = None
         parts.append(types.Part.from_bytes(data=src_png, mime_type="image/png"))
 
-        resp = await asyncio.to_thread(
-            get_client().models.generate_content,
-            model=MODEL,
-            contents=types.Content(role="user", parts=parts),
-        )
+        resp = await _genai_generate_with_retries(parts, attempts=2)
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
             cparts = getattr(content, "parts", None) if content is not None else None
