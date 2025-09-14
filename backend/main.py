@@ -310,9 +310,10 @@ def build_mirror_selfie_prompt(
     lines.append("CONDITIONED CONTROLS")
     # Show person label instead of gender; omit value when a person image is attached
     lines.append(f"- Person: {conditioned_gender if (conditioned_gender and not use_person_image) else '""'}")
-    lines.append(f"- Environment: {conditioned_env if conditioned_env else '""'}")
+    # Rename Environment to Scene; omit value when an env image is attached (conditioned_env is empty in that case)
+    lines.append(f"- Scene: {conditioned_env if conditioned_env else '""'}")
     lines.append(f"- Pose: {conditioned_pose if conditioned_pose else '""'}")
-    lines.append(f"- Extra user instructions: \"{conditioned_extra.replace('\\n', ' ')}\"")
+    lines.append(f"- Notes: \"{conditioned_extra.replace('\\n', ' ')}\"")
     lines.append("")
     lines.append("STYLE & CAMERA DIRECTION")
     lines.append("- Smartphone mirror-selfie aesthetic; natural colors; mild grain acceptable.")
@@ -379,7 +380,7 @@ def build_sequential_step1_prompt(*, use_person_image: bool, person_description:
     if q(pose):
         lines.append(f"- Respect the current pose: {q(pose)}; keep the garment fully visible.")
     if q(extra):
-        lines.append(f"- Extra: {q(extra).replace('\n',' ')}")
+        lines.append(f"- Notes: {q(extra).replace('\n',' ')}")
     if (not use_person_image) and q(person_description):
         lines.append("")
         lines.append("PERSON DESCRIPTION (use this identity)")
@@ -411,9 +412,9 @@ def build_sequential_step2_prompt(*, environment: str, pose: str, extra: str, us
     if q(pose):
         lines.append(f"- Enforce pose: {q(pose)}; garment remains unobstructed.")
     if q(extra):
-        lines.append(f"- Extra: {q(extra).replace('\n',' ')}")
+        lines.append(f"- Notes: {q(extra).replace('\n',' ')}")
     if not use_env_image and q(environment):
-        lines.append(f"- Environment: {q(environment)}")
+        lines.append(f"- Scene: {q(environment)}")
     lines.append("- Photorealism; PG-13; no text/watermarks or added logos.")
     lines.append("")
     lines.append("OUTPUT")
@@ -2082,9 +2083,39 @@ async def generate_product_description(
                         {"d": description_text.strip(), "id": listing_id},
                     )
 
-        return {"ok": True, "description": description_text}
+    return {"ok": True, "description": description_text}
     except Exception as e:
         logger.exception("description generation failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# --- Prompt preview (server-authoritative for front-end preview) ---
+
+@app.post("/prompt/mirror-selfie/preview")
+async def preview_mirror_selfie_prompt(
+    gender: str = Form("woman"),
+    environment: str = Form("studio"),
+    pose: str = Form(""),
+    extra: str = Form(""),
+    env_default_s3_key: str | None = Form(None),
+    model_default_s3_key: str | None = Form(None),
+    model_description_text: str | None = Form(None),
+):
+    try:
+        use_env_image = bool(env_default_s3_key)
+        use_person_image = bool(model_default_s3_key)
+        prompt_text = build_mirror_selfie_prompt(
+            gender=gender,
+            environment=environment,
+            pose=pose,
+            extra=extra,
+            use_env_image=use_env_image,
+            use_person_image=use_person_image,
+            person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+        )
+        return {"ok": True, "prompt": prompt_text}
+    except Exception as e:
+        logger.exception("prompt preview failed")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
