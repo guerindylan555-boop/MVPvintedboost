@@ -322,7 +322,7 @@ def build_mirror_selfie_prompt(
     lines.append("- Lighting: match environment reference if given; otherwise soft directional key + gentle fill; mild rim light for separation.")
     lines.append("- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible when natural.")
     lines.append("")
-    lines.append("ENVIRONMENT BEHAVIOR")
+    lines.append("SCENE BEHAVIOR")
     if use_env_image:
         lines.append("- Use the attached environment reference as a mirror scene; imitate its scene category, palette, light direction, shadows, and depth of field; keep any mirror frame consistent.")
     else:

@@ -132,7 +132,7 @@ export function buildMirrorSelfiePreview({
     "- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible naturally."
   );
   lines.push("");
-  lines.push("ENVIRONMENT BEHAVIOR");
+  lines.push("SCENE BEHAVIOR");
   if (envDefaultKey) {
     lines.push(
       "- Use the attached environment reference as a mirror scene; imitate its framing, palette, light direction, shadows, and DoF; keep any mirror frame consistent."
@@ -190,4 +190,3 @@ export function buildMirrorSelfiePreview({
 
   return lines.join("\n");
 }
-
