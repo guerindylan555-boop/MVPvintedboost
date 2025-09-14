@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Drawer } from "vaul";
 import { Toaster, toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
+import { Camera } from "lucide-react";
 const authClient = createAuthClient();
 
 export default function Home() {
@@ -42,6 +43,7 @@ export default function Home() {
   // Pose descriptions fetched from Studio (for random)
   const [poseDescs, setPoseDescs] = useState([]); // [{s3_key, description, created_at}]
   const [randomPosePick, setRandomPosePick] = useState(null); // one chosen description at load
+  const plannedImagesCount = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses.length : 1;
 
   useEffect(() => {
     return () => {
@@ -369,6 +371,17 @@ export default function Home() {
     fileInputRef.current?.click();
   }
 
+  function handleUseSample() {
+    // Tiny 1x1 PNG so backend accepts it
+    const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+    const byteChars = atob(b64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "image/png" });
+    const file = new File([blob], "sample.png", { type: "image/png" });
+    setImageFile(file);
+  }
+
   async function handleGenerate() {
     if (!selectedFile) return;
     try {
@@ -512,25 +525,13 @@ export default function Home() {
             >
               <div className="flex flex-col items-center gap-2">
                 <div className="size-12 rounded-full border border-dashed border-current/30 flex items-center justify-center text-gray-500">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    className="size-6"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.5"
-                      d="M3 15.75V18a3 3 0 003 3h12a3 3 0 003-3v-2.25M7.5 9 12 4.5 16.5 9M12 4.5V15"
-                    />
-                  </svg>
+                  <Camera className="size-6" />
                 </div>
-                <div className="text-sm">
-                  <span className="font-medium">Tap to upload</span> or drop an image
-                </div>
+                <div className="text-sm"><span className="font-medium">Tap to upload</span> or drop an image</div>
                 <div className="text-xs text-gray-500">PNG, JPG, HEIC up to ~10MB</div>
+                <div className="mt-2">
+                  <button type="button" onClick={handleUseSample} className="text-xs underline underline-offset-4">Use sample image</button>
+                </div>
               </div>
             </button>
           ) : (
@@ -542,6 +543,9 @@ export default function Home() {
                   alt="Selected garment preview"
                   className="h-full w-full object-cover"
                 />
+                <div className="absolute top-2 right-2 text-[11px] px-2 py-1 rounded-md bg-background/80 border border-black/10 dark:border-white/15">
+                  {plannedImagesCount} image{plannedImagesCount > 1 ? "s" : ""}
+                </div>
               </div>
               <div className="p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
