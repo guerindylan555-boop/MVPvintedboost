@@ -17,6 +17,7 @@ export default function ListingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [settingCover, setSettingCover] = useState(false);
+  const [genDescLoading, setGenDescLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -52,6 +53,23 @@ export default function ListingPage() {
       }
     } catch {}
     setSettingCover(false);
+  }
+
+  async function generateDescription() {
+    if (!id || !userId) return;
+    setGenDescLoading(true);
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    try {
+      const form = new FormData();
+      const res = await fetch(`${baseUrl}/listing/${id}/describe`, { method: "POST", body: form, headers: { "X-User-Id": String(userId) } });
+      if (!res.ok) throw new Error(await res.text());
+      const r = await fetch(`${baseUrl}/listing/${id}`, { headers: { "X-User-Id": String(userId) } });
+      if (r.ok) setListing(await r.json());
+    } catch (e) {
+      // eslint-disable-next-line no-alert
+      alert("Failed to generate description");
+    }
+    setGenDescLoading(false);
   }
 
   if (!id) return <div className="p-5">Invalid listing id</div>;
@@ -110,6 +128,9 @@ export default function ListingPage() {
                         <div className="w-full h-full bg-black/10 dark:bg-white/10" />
                       )}
                     </a>
+                    {isCover && (
+                      <div className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15">Cover</div>
+                    )}
                     <div className="absolute top-1 left-1 flex items-center gap-1">
                       <button
                         type="button"
@@ -130,7 +151,25 @@ export default function ListingPage() {
 
         {/* Description */}
         <section>
-          <h2 className="text-sm font-medium">Description</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">Description</h2>
+            <div className="flex items-center gap-2">
+              {listing.description_text && (
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  onClick={async () => { try { await navigator.clipboard.writeText(listing.description_text); } catch {} }}
+                >
+                  Copy
+                </button>
+              )}
+              {!listing.description_text && (
+                <button type="button" className="text-xs underline" onClick={generateDescription} disabled={genDescLoading}>
+                  {genDescLoading ? "Generating…" : "Generate description"}
+                </button>
+              )}
+            </div>
+          </div>
           {listing.description_text ? (
             <pre className="mt-2 whitespace-pre-wrap text-sm border border-black/10 dark:border-white/15 rounded-md p-3 bg-black/5 dark:bg-white/5">{listing.description_text}</pre>
           ) : (

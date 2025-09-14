@@ -871,26 +871,37 @@ export default function Home() {
               ))}
             </div>
           ) : (!listings || listings.length === 0) ? (
-            <p className="text-xs text-gray-500 mt-2">No generations yet.</p>
+            <p className="text-xs text-gray-500 mt-2">No listings yet. Visit <a className="underline" href="/studio">Studio</a> to set defaults and then generate your first listing.</p>
           ) : (
             <div className="mt-2 grid grid-cols-3 gap-2">
-              {listings.map((l) => (
-                <Link
-                  key={l.id}
-                  className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square"
-                  href={`/listing/${l.id}`}
-                  title={new Date(l.created_at).toLocaleString()}
-                >
-                  {l.cover_url ? (
-                    <Image src={l.cover_url} alt="Listing cover" fill sizes="(max-width: 768px) 33vw, 200px" className="object-cover" />
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">No image yet</div>
-                  )}
-                  {typeof l.images_count === 'number' && l.images_count > 0 && (
-                    <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15">{l.images_count} images</div>
-                  )}
-                </Link>
-              ))}
+              {listings.map((l) => {
+                const when = new Date(l.created_at);
+                const settings = l.settings || {};
+                return (
+                  <Link
+                    key={l.id}
+                    className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square"
+                    href={`/listing/${l.id}`}
+                    title={when.toLocaleString()}
+                    prefetch
+                  >
+                    {l.cover_url ? (
+                      <Image src={l.cover_url} alt="Listing cover" fill sizes="(max-width: 768px) 33vw, 200px" className="object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">No image yet</div>
+                    )}
+                    <div className="absolute top-1 left-1 flex items-center gap-1">
+                      {typeof l.images_count === 'number' && l.images_count > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15">{l.images_count} images</span>
+                      )}
+                    </div>
+                    <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between px-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{when.toLocaleDateString()}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{settings.gender || ''} {settings.environment || ''}</span>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
           <div className="mt-4">
