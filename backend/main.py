@@ -1347,7 +1347,7 @@ async def set_listing_cover(lid: str, s3_key: str = Form(...), x_user_id: str | 
 
 @app.post("/edit/json")
 async def edit_json(
-    image: UploadFile = File(...),
+    image: UploadFile | None = File(None),
     gender: str = Form("woman"),
     environment: str = Form("studio"),
     poses: list[str] = Form(None),
@@ -1361,24 +1361,48 @@ async def edit_json(
 ):
     """Same as /edit but returns JSON and optionally attaches to a listing."""
     try:
-        if not image or not image.filename:
-            return JSONResponse({"error": "image file required"}, status_code=400)
-        raw_bytes = await image.read()
-        if len(raw_bytes) > 10 * 1024 * 1024:
-            return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
-        try:
-            src = Image.open(BytesIO(raw_bytes))
-        except Exception:
-            return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
-        buf = BytesIO()
-        try:
-            src.convert("RGBA").save(buf, format="PNG")
-        finally:
+        # Load source image bytes either from uploaded file or from listing source
+        src_png: bytes | None = None
+        if image and image.filename:
+            raw_bytes = await image.read()
+            if len(raw_bytes) > 10 * 1024 * 1024:
+                return JSONResponse({"error": "image too large (max ~10MB)"}, status_code=413)
             try:
-                src.close()
+                src = Image.open(BytesIO(raw_bytes))
             except Exception:
-                pass
-        buf.seek(0)
+                return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
+            buf = BytesIO()
+            try:
+                src.convert("RGBA").save(buf, format="PNG")
+            finally:
+                try:
+                    src.close()
+                except Exception:
+                    pass
+            buf.seek(0)
+            src_png = buf.getvalue()
+        elif listing_id and x_user_id:
+            # Fetch listing and ensure ownership, then load its stored source image from S3
+            async with db_session() as session:
+                owns = await session.execute(
+                    text("SELECT user_id, source_s3_key FROM listings WHERE id = :id"),
+                    {"id": listing_id},
+                )
+                row = owns.first()
+            if not row or row[0] != x_user_id:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            try:
+                src_bytes, src_mime = get_object_bytes(row[1])
+                # Normalize to PNG for consistency
+                src_img = Image.open(BytesIO(src_bytes))
+                out = BytesIO()
+                src_img.convert("RGBA").save(out, format="PNG")
+                out.seek(0)
+                src_png = out.getvalue()
+            except Exception as e:
+                return JSONResponse({"error": f"failed to load source image from listing: {e}"}, status_code=500)
+        else:
+            return JSONResponse({"error": "image file or listing_id required"}, status_code=400)
 
         # Normalize some fields
         gender = _normalize_choice(gender, ["woman", "man"], "woman")
@@ -1427,7 +1451,7 @@ async def edit_json(
                 person_key_used = model_default_s3_key
             except Exception:
                 person_key_used = None
-        parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
+        parts.append(types.Part.from_bytes(data=src_png, mime_type="image/png"))
 
         resp = await asyncio.to_thread(
             get_client().models.generate_content,

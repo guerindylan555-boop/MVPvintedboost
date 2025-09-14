@@ -200,12 +200,8 @@ export default function ListingPage() {
     setRegenError((e) => ({ ...e, [pose]: undefined }));
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
     try {
-      // Fetch the stored source image and send to /edit/json
-      const blob = await fetch(listing.source_url, { cache: "no-store" }).then((r) => r.blob());
-      const file = new File([blob], "source.png", { type: blob.type || "image/png" });
       const form = new FormData();
       const s = listing.settings || {};
-      form.append("image", file);
       if (s.gender) form.append("gender", s.gender);
       if (s.environment) form.append("environment", s.environment);
       form.append("poses", pose);
