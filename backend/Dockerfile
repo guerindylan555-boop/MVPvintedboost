@@ -24,4 +24,6 @@ ENV GENAI_MODEL="gemini-2.5-flash-image-preview"
 ENV CORS_ALLOW_ORIGINS="*"
 
 # Run the app
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Allow overriding worker count via env
+ENV UVICORN_WORKERS=2
+CMD ["/bin/sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}"]

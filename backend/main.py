@@ -45,6 +45,7 @@ from .storage import (
     upload_product_source_image,
 )
 from sqlalchemy import select, func, text
+import asyncio
 import uuid
 
 # Config
@@ -96,12 +97,10 @@ async def on_startup():
 async def generate(prompt: str = Form("i want this clothe on someone")):
     try:
         client = get_client()
-        resp = client.models.generate_content(
+        resp = await asyncio.to_thread(
+            client.models.generate_content,
             model=MODEL,
-            contents=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=prompt)],
-            ),
+            contents=types.Content(role="user", parts=[types.Part.from_text(text=prompt)]),
         )
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
@@ -402,7 +401,8 @@ async def edit(
 
         contents = types.Content(role="user", parts=parts)
         client = get_client()
-        resp = client.models.generate_content(
+        resp = await asyncio.to_thread(
+            client.models.generate_content,
             model=MODEL,
             contents=contents,
         )
@@ -526,7 +526,8 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
         # Load source image bytes from S3 and include as input
         src_bytes, mime = get_object_bytes(row[0])
         image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
-        resp = get_client().models.generate_content(
+        resp = await asyncio.to_thread(
+            get_client().models.generate_content,
             model=MODEL,
             contents=types.Content(role="user", parts=[types.Part.from_text(text=instruction), image_part]),
         )
@@ -573,7 +574,8 @@ async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(de
             return JSONResponse({"error": "no sources uploaded"}, status_code=400)
         src_bytes, mime = get_object_bytes(row[0])
         image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
-        resp = get_client().models.generate_content(
+        resp = await asyncio.to_thread(
+            get_client().models.generate_content,
             model=MODEL,
             contents=types.Content(role="user", parts=[types.Part.from_text(text=full), image_part]),
         )
@@ -779,7 +781,8 @@ async def model_generate(
         # Attach source as input
         parts.append(types.Part.from_bytes(data=src_png_bytes, mime_type="image/png"))
 
-        resp = get_client().models.generate_content(
+        resp = await asyncio.to_thread(
+            get_client().models.generate_content,
             model=MODEL,
             contents=types.Content(role="user", parts=parts),
         )
@@ -1426,7 +1429,11 @@ async def edit_json(
                 person_key_used = None
         parts.append(types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"))
 
-        resp = get_client().models.generate_content(model=MODEL, contents=types.Content(role="user", parts=parts))
+        resp = await asyncio.to_thread(
+            get_client().models.generate_content,
+            model=MODEL,
+            contents=types.Content(role="user", parts=parts),
+        )
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
             cparts = getattr(content, "parts", None) if content is not None else None
@@ -1721,8 +1728,9 @@ async def generate_product_description(
             types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"),
         ]
         client = get_client()
-        resp = client.models.generate_content(
-            model=MODEL,  # reuse same model for text from image
+        resp = await asyncio.to_thread(
+            client.models.generate_content,
+            model=MODEL,
             contents=types.Content(role="user", parts=parts),
         )
         description_text = None
@@ -1846,7 +1854,11 @@ async def describe_from_listing(
             types.Part.from_bytes(data=src_bytes, mime_type=mime or "image/png"),
         ]
         client = get_client()
-        resp = client.models.generate_content(model=MODEL, contents=types.Content(role="user", parts=parts))
+        resp = await asyncio.to_thread(
+            client.models.generate_content,
+            model=MODEL,
+            contents=types.Content(role="user", parts=parts),
+        )
         description_text = None
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
