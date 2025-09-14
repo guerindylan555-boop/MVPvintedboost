@@ -17,6 +17,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - environment: studio/street/bed/beach/indoor (when Studio defaults exist, shows their names instead)
   - poses: select up to 4 (Face, three-quarter pose, from the side, random). Random uses a saved pose description from Studio; one is pre-picked on page load for the prompt preview and appended at generation time as “Pose description: …”
   - extra: free text instructions
+  - flow: classic (one pass) / sequential (two-step) / both (A/B)
 - model reference toggle: choose the gender default as image, or send its description only
 - Prompt preview/editor: live view of the exact prompt; optionally override before generating
 - Generate button (sticky). Sends:
@@ -24,6 +25,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - the selected environment default image (optional)
   - the selected gender model default image (optional)
   Backend builds one prompt and includes all references for the model
+  - Sequential flow: performs two calls — 1) put garment on the person, then 2) place that person into the environment. When “Both” is selected, results include the classic image and a “(seq)” variant per pose for comparison.
 - Listings flow (auth required): each generation session becomes a "Listing" bundling the source garment image, settings, generated images, and optional description
   - Create listing via `POST /listing` with the garment image and settings
   - Add images by calling `POST /edit/json` per selected pose with `listing_id`
@@ -306,6 +308,12 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Content-Type: `multipart/form-data`
 - Same fields as `/edit` plus optional `listing_id`
 - Response: `{ ok, s3_key, url, pose, prompt, listing_id }`
+
+### POST /edit/sequential/json
+- Content-Type: `multipart/form-data`
+- Same fields as `/edit/json` except `prompt_override` is ignored (the server builds concise step prompts internally)
+- Two-pass: (1) garment + person reference → person-with-garment; (2) person-with-garment + environment reference → final image
+- Response: `{ ok, s3_key, url, pose, prompt, listing_id }` (pose stored with a ` (seq)` suffix for A/B in listings)
 
 ### POST /generate
 - Content-Type: `application/x-www-form-urlencoded`

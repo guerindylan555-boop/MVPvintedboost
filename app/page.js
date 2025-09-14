@@ -38,11 +38,15 @@ export default function Home() {
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
   const [showAdvancedPrompt, setShowAdvancedPrompt] = useState(false);
+  // Generation flow: 'classic' | 'sequential' | 'both'
+  const [flowMode, setFlowMode] = useState('classic');
   const [poseStatus, setPoseStatus] = useState({}); // { [pose]: 'pending'|'running'|'done'|'error' }
   const [poseErrors, setPoseErrors] = useState({}); // { [pose]: string }
   const [lastListingId, setLastListingId] = useState(null);
   const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
   const [listingsLoading, setListingsLoading] = useState(true);
+  // Mobile keyboard inset (to keep inputs visible inside the bottom sheet)
+  const [keyboardInset, setKeyboardInset] = useState(0);
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
@@ -72,6 +76,40 @@ export default function Home() {
       setListingsLoading(false);
     })();
   }, [userId]);
+
+  // Track mobile keyboard and adjust bottom padding for the drawer
+  useEffect(() => {
+    function updateInset() {
+      try {
+        const vv = window.visualViewport;
+        if (!vv) {
+          setKeyboardInset(0);
+          return;
+        }
+        const heightDiff = window.innerHeight - vv.height; // keyboard + browser chrome
+        const inset = heightDiff > 120 ? Math.min(heightDiff, 420) : 0; // clamp to a sane range
+        setKeyboardInset(inset);
+      } catch {
+        setKeyboardInset(0);
+      }
+    }
+    updateInset();
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', updateInset);
+      vv.addEventListener('scroll', updateInset);
+    }
+    window.addEventListener('orientationchange', updateInset);
+    return () => {
+      try {
+        if (vv) {
+          vv.removeEventListener('resize', updateInset);
+          vv.removeEventListener('scroll', updateInset);
+        }
+        window.removeEventListener('orientationchange', updateInset);
+      } catch {}
+    };
+  }, []);
 
   // Load pose descriptions from Studio for random selection
   useEffect(() => {
@@ -125,6 +163,17 @@ export default function Home() {
   useEffect(() => {
     try { localStorage.setItem("vb_main_options", JSON.stringify(options)); } catch {}
   }, [options]);
+
+  // Load/save generation flow mode
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('vb_flow_mode');
+      if (saved === 'classic' || saved === 'sequential' || saved === 'both') setFlowMode(saved);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem('vb_flow_mode', flowMode); } catch {}
+  }, [flowMode]);
 
   // Load model defaults (one per gender)
   const [modelDefaults, setModelDefaults] = useState({}); // { man: {s3_key,name}, woman: {...} }
@@ -426,63 +475,66 @@ export default function Home() {
       if (!listingId) throw new Error("No listing id");
       setLastListingId(listingId);
 
-      // 2) Fire parallel /edit/json per pose with listing_id
+      // 2) Fire parallel generation per pose (classic/sequential/both)
+      const endpointsForFlow = flowMode === 'both' ? ['/edit/json', '/edit/sequential/json'] : (flowMode === 'sequential' ? ['/edit/sequential/json'] : ['/edit/json']);
       let done = 0;
-      toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
-      // initialize pose statuses
-      const initialStatus = {};
-      for (const p of poses) initialStatus[p] = 'running';
-      setPoseStatus(initialStatus);
-      setPoseErrors({});
-      const genRequests = poses.map(async (pose) => {
-        const form = new FormData();
-        form.append("image", selectedFile);
-        form.append("gender", options.gender);
-        form.append("environment", options.environment);
-        form.append("poses", pose);
-        form.append("extra", options.extra || "");
-        if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
-        if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
-        else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
-        let effective = "";
-        if (promptDirty) {
-          effective = promptInput.trim();
-          if (pose === "random") {
-            const items = Array.isArray(poseDescs) ? poseDescs : [];
-            const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
-            if (pick?.description) effective += `\nPose description: ${pick.description}`;
-          } else if (pose === "face trois quart") {
-            effective += "\n- Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.";
-          } else if (pose === "from the side") {
-            effective += "\n- Orientation: side/profile view; ensure torso and garment remain visible.";
-          }
-        } else {
-          effective = computeEffectivePrompt(pose, false);
-        }
-        form.append("prompt_override", effective);
-        form.append("listing_id", listingId);
-        const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          throw new Error(txt || `Pose ${pose} failed`);
-        }
-        const out = await res.json();
-        done += 1;
-        toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
-        setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
-        return out;
-      });
+      const total = poses.length * endpointsForFlow.length;
+      toast.loading(`Generating images ${done}/${total}…`, { id: toastId });
+      const initialStatus = {}; for (const p of poses) initialStatus[p] = 'running';
+      setPoseStatus(initialStatus); setPoseErrors({});
 
-      const genResults = await Promise.allSettled(genRequests);
-      const ok = genResults.some((r) => r.status === "fulfilled");
-      // capture any failures
-      genResults.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          const pose = poses[idx];
-          setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
-          setPoseErrors((e) => ({ ...e, [pose]: r.reason?.message || 'Failed' }));
+      const reqs = [];
+      for (const pose of poses) {
+        for (const ep of endpointsForFlow) {
+          const form = new FormData();
+          form.append("image", selectedFile);
+          form.append("gender", options.gender);
+          form.append("environment", options.environment);
+          form.append("poses", pose);
+          form.append("extra", options.extra || "");
+          if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
+          if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
+          else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
+          // Only send prompt_override to classic endpoint
+          if (ep === '/edit/json') {
+            let effective = '';
+            if (promptDirty) {
+              effective = promptInput.trim();
+              if (pose === "random") {
+                const items = Array.isArray(poseDescs) ? poseDescs : [];
+                const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
+                if (pick?.description) effective += `\nPose description: ${pick.description}`;
+              } else if (pose === "face trois quart") {
+                effective += "\n- Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.";
+              } else if (pose === "from the side") {
+                effective += "\n- Orientation: side/profile view; ensure torso and garment remain visible.";
+              }
+            } else {
+              effective = computeEffectivePrompt(pose, false);
+            }
+            form.append("prompt_override", effective);
+          }
+          form.append("listing_id", listingId);
+          const pReq = (async () => {
+            const res = await fetch(`${baseUrl}${ep}`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+            if (!res.ok) {
+              const txt = await res.text().catch(() => "");
+              throw new Error(txt || `Pose ${pose} failed`);
+            }
+            done += 1;
+            toast.loading(`Generating images ${done}/${total}…`, { id: toastId });
+            setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
+            return res.json().catch(() => ({}));
+          })().catch((err) => {
+            setPoseStatus((s) => ({ ...s, [pose]: (flowMode === 'both' && endpointsForFlow.length > 1) ? (s[pose] || 'running') : 'error' }));
+            setPoseErrors((e) => ({ ...e, [pose]: err?.message || 'Failed' }));
+          });
+          reqs.push(pReq);
         }
-      });
+      }
+
+      const genResults = await Promise.allSettled(reqs);
+      const ok = genResults.some((r) => r.status === "fulfilled");
       if (!ok) throw new Error("All generations failed");
 
       // 3) Optionally generate description attached to listing
@@ -656,8 +708,8 @@ export default function Home() {
             <Drawer.Portal>
               <Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
               <Drawer.Content
-                className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background max-h-[85dvh] overflow-y-auto"
-                style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+                className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background max-h-[85dvh] overflow-y-auto overscroll-contain"
+                style={{ paddingBottom: `calc(env(safe-area-inset-bottom) + ${Math.round(keyboardInset)}px)` }}
               >
                 <div className="mx-auto max-w-md p-4">
                   <div className="h-1 w-8 bg-black/20 dark:bg-white/20 rounded-full mx-auto mb-3" />
@@ -698,6 +750,22 @@ export default function Home() {
                       {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
                         <p className="mt-1 text-[10px] text-amber-600">No default description; falls back to gender hint.</p>
                       )}
+                    </div>
+                    <div className="col-span-1">
+                      <label className="text-xs text-gray-500">Generation flow</label>
+                      <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
+                        {['classic','sequential','both'].map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setFlowMode(m)}
+                            className={`text-[11px] ${flowMode === m ? 'bg-foreground text-background' : 'text-foreground'}`}
+                            title={m}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <div className="col-span-2">
                       <label className="text-xs text-gray-500">Environment</label>

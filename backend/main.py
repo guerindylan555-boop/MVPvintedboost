@@ -246,6 +246,54 @@ def build_env_prompt(user_prompt: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
+# --- Sequential (two-pass) flow prompts ---
+def build_seq_step1_prompt(*, gender: str | None, pose: str | None, extra: str | None) -> str:
+    """Step 1: add garment to person reference without changing the person."""
+    g = (gender or "").strip()
+    p = (pose or "").strip()
+    x = (extra or "").strip()
+    lines: list[str] = []
+    lines.append("TASK")
+    lines.append("Add the attached garment to the attached person. Do not change the person.")
+    if g:
+        lines.append(f"- Gender: {g}.")
+    if p:
+        lines.append(f"- Pose: {p} (keep unchanged).")
+    if x:
+        lines.append(f"- Extra: {x}")
+    lines.append("")
+    lines.append("HARD CONSTRAINTS")
+    lines.append("- Do not change identity, hair, body, or pose of the person.")
+    lines.append("- Do not change the garment's color, fabric, texture, prints, logos, closures.")
+    lines.append("- Fit must be believable; keep realism; no text/watermarks.")
+    lines.append("- Do not alter or stylize the background.")
+    return "\n".join(lines)
+
+
+def build_seq_step2_prompt(*, environment: str | None, pose: str | None, extra: str | None) -> str:
+    """Step 2: place person-with-garment into the mirror scene as a selfie."""
+    e = (environment or "").strip()
+    p = (pose or "").strip()
+    x = (extra or "").strip()
+    lines: list[str] = []
+    lines.append("TASK")
+    lines.append(
+        "Insert the attached person (already wearing the garment) into the attached mirror scene. "
+        "Do not change the person or the clothing."
+    )
+    if e:
+        lines.append(f"- Environment: {e} (match lighting, angle, palette, DoF).")
+    if p:
+        lines.append(f"- Pose: {p} (keep garment fully visible).")
+    if x:
+        lines.append(f"- Extra: {x}")
+    lines.append("")
+    lines.append("STYLE")
+    lines.append("- Mirror selfie with a black iPhone 16 Pro; hand and reflection consistent; PG-13.")
+    lines.append("- Keep photorealism; no text/watermarks; no new logos.")
+    return "\n".join(lines)
+
+
 def build_mirror_selfie_prompt(
     *,
     gender: str,
@@ -1544,6 +1592,176 @@ async def edit_json(
         return JSONResponse({"error": str(e)}, status_code=500)
     except Exception as e:
         logger.exception("Failed to list user history")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/edit/sequential/json")
+async def edit_sequential_json(
+    image: UploadFile | None = File(None),
+    gender: str = Form("woman"),
+    environment: str = Form("studio"),
+    poses: list[str] = Form(None),
+    extra: str = Form(""),
+    env_default_s3_key: str | None = Form(None),
+    model_default_s3_key: str | None = Form(None),
+    model_description_text: str | None = Form(None),
+    listing_id: str | None = Form(None),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    """Two-pass generation: (1) garment→person, then (2) person→scene.
+
+    Returns JSON with final image and attaches to listing when provided.
+    """
+    try:
+        # Source garment image
+        src_png: bytes | None = None
+        if image and image.filename:
+            raw_bytes = await image.read()
+            if len(raw_bytes) > 20 * 1024 * 1024:
+                return JSONResponse({"error": "image too large (max ~20MB)"}, status_code=413)
+            try:
+                src_png = _normalize_to_png_limited(raw_bytes, max_px=2048)
+            except Exception:
+                return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
+        elif listing_id and x_user_id:
+            async with db_session() as session:
+                owns = await session.execute(
+                    text("SELECT user_id, source_s3_key FROM listings WHERE id = :id"),
+                    {"id": listing_id},
+                )
+                row = owns.first()
+            if not row or row[0] != x_user_id:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            try:
+                src_bytes, _ = get_object_bytes(row[1])
+                src_png = _normalize_to_png_limited(src_bytes, max_px=2048)
+            except Exception as e:
+                return JSONResponse({"error": f"failed to load source image from listing: {e}"}, status_code=500)
+        else:
+            return JSONResponse({"error": "image file or listing_id required"}, status_code=400)
+
+        # Normalize inputs
+        gender = _normalize_choice(gender, ["woman", "man"], "woman")
+        environment = _normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio")
+        if not poses:
+            poses = []
+        if not isinstance(poses, list):
+            poses = [poses]
+        pose_str = (poses[0] if poses else "") or ""
+        extra = (extra or "").strip()
+        if len(extra) > 200:
+            extra = extra[:200]
+
+        # Step 1: garment on person
+        step1_text = build_seq_step1_prompt(gender=gender, pose=pose_str, extra=extra)
+        parts1: list[types.Part] = [types.Part.from_text(text=step1_text)]
+        person_key_used: str | None = None
+        if model_default_s3_key:
+            try:
+                person_bytes, person_mime = get_object_bytes(model_default_s3_key)
+                parts1.append(types.Part.from_text(text="Person reference:"))
+                parts1.append(types.Part.from_bytes(data=person_bytes, mime_type=person_mime or "image/png"))
+                person_key_used = model_default_s3_key
+            except Exception:
+                person_key_used = None
+        elif model_description_text:
+            parts1.append(types.Part.from_text(text=f"Person description: {model_description_text}"))
+        parts1.append(types.Part.from_bytes(data=src_png, mime_type="image/png"))
+
+        resp1 = await _genai_generate_with_retries(parts1, attempts=2)
+        step1_png: bytes | None = None
+        for c in getattr(resp1, "candidates", []) or []:
+            content = getattr(c, "content", None)
+            cparts = getattr(content, "parts", None) if content is not None else None
+            if not cparts:
+                continue
+            for p in cparts:
+                if getattr(p, "inline_data", None):
+                    step1_png = p.inline_data.data
+                    break
+            if step1_png:
+                break
+        if not step1_png:
+            return JSONResponse({"error": "no image from model (step 1)"}, status_code=502)
+
+        # Step 2: place into environment
+        step2_text = build_seq_step2_prompt(environment=environment, pose=pose_str, extra=extra)
+        parts2: list[types.Part] = [types.Part.from_text(text=step2_text)]
+        env_key_used: str | None = None
+        if env_default_s3_key:
+            try:
+                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
+                parts2.append(types.Part.from_text(text="Environment reference:"))
+                parts2.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
+                env_key_used = env_default_s3_key
+            except Exception:
+                env_key_used = None
+        parts2.append(types.Part.from_text(text="Person with garment:"))
+        parts2.append(types.Part.from_bytes(data=step1_png, mime_type="image/png"))
+
+        resp2 = await _genai_generate_with_retries(parts2, attempts=2)
+        final_png: bytes | None = None
+        for c in getattr(resp2, "candidates", []) or []:
+            content = getattr(c, "content", None)
+            cparts = getattr(content, "parts", None) if content is not None else None
+            if not cparts:
+                continue
+            for p in cparts:
+                if getattr(p, "inline_data", None):
+                    final_png = p.inline_data.data
+                    break
+            if final_png:
+                break
+        if not final_png:
+            return JSONResponse({"error": "no image from model (step 2)"}, status_code=502)
+
+        pose_to_store = (pose_str or "pose") + " (seq)"
+        _, key = upload_image(final_png, pose=pose_to_store)
+        async with db_session() as session:
+            session.add(
+                Generation(
+                    s3_key=key,
+                    pose=pose_to_store,
+                    prompt=step2_text,
+                    options_json={
+                        "flow": "sequential",
+                        "gender": gender,
+                        "environment": environment,
+                        "poses": poses,
+                        "extra": extra,
+                        "env_default_s3_key": env_key_used,
+                        "model_default_s3_key": person_key_used,
+                        "user_id": x_user_id,
+                        "prompt_step1": step1_text,
+                        "prompt_step2": step2_text,
+                    },
+                    model=MODEL,
+                )
+            )
+            if listing_id and x_user_id:
+                owns = await session.execute(
+                    text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
+                    {"id": listing_id, "uid": x_user_id},
+                )
+                if owns.first():
+                    session.add(
+                        ListingImage(
+                            listing_id=listing_id,
+                            s3_key=key,
+                            pose=pose_to_store,
+                            prompt=step2_text,
+                        )
+                    )
+        try:
+            url = generate_presigned_get_url(key)
+        except Exception:
+            url = None
+        return {"ok": True, "s3_key": key, "url": url, "pose": pose_to_store, "prompt": step2_text, "listing_id": listing_id}
+    except genai_errors.APIError as e:
+        logger.exception("GenAI API error on /edit/sequential/json")
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    except Exception as e:
+        logger.exception("Unhandled error on /edit/sequential/json")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/model/defaults")
