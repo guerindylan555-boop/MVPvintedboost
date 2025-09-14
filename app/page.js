@@ -62,6 +62,22 @@ export default function Home() {
     };
   }, [previewUrl]);
 
+  // Prevent background scroll when the sheet is open (mobile Safari stability)
+  useEffect(() => {
+    try {
+      const root = document.documentElement;
+      const prev = root.style.overflow;
+      if (sheetOpen) {
+        root.style.overflow = 'hidden';
+      } else {
+        root.style.overflow = prev || '';
+      }
+      return () => {
+        root.style.overflow = prev || '';
+      };
+    } catch {}
+  }, [sheetOpen]);
+
   useEffect(() => {
     (async () => {
       if (!userId) return;
