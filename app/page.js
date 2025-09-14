@@ -19,6 +19,7 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetContentRef = useRef(null);
   // Pose choices for mirror selfie flow
   const allowedPoses = ["Face", "three-quarter pose", "from the side", "random"];
   const [options, setOptions] = useState({
@@ -709,7 +710,12 @@ export default function Home() {
               <Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
               <Drawer.Content
                 className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background max-h-[85dvh] overflow-y-auto overscroll-contain"
-                style={{ paddingBottom: `calc(env(safe-area-inset-bottom) + ${Math.round(keyboardInset)}px)` }}
+                ref={sheetContentRef}
+                style={{
+                  paddingBottom: `calc(env(safe-area-inset-bottom) + ${Math.round(keyboardInset)}px)`,
+                  maxHeight: `min(100dvh, calc(85dvh + ${Math.round(keyboardInset)}px))`,
+                  WebkitOverflowScrolling: 'touch',
+                }}
               >
                 <div className="mx-auto max-w-md p-4">
                   <div className="h-1 w-8 bg-black/20 dark:bg-white/20 rounded-full mx-auto mb-3" />
@@ -844,7 +850,20 @@ export default function Home() {
                         value={options.extra}
                         onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
                         onFocus={(e) => {
-                          try { e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+                          try {
+                            e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                            // Nudge after keyboard settles
+                            setTimeout(() => {
+                              try { e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+                              const sc = sheetContentRef?.current;
+                              if (sc) {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const scRect = sc.getBoundingClientRect();
+                                const delta = rect.bottom - scRect.bottom + 12;
+                                if (delta > 0) sc.scrollTop += delta;
+                              }
+                            }, 250);
+                          } catch {}
                         }}
                       />
                     </div>
