@@ -437,6 +437,17 @@ async def edit(
                         session.add(rec)
                     # Stream bytes back for current UI
                     return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+        try:
+            cand_count = len(getattr(resp, "candidates", []) or [])
+        except Exception:
+            cand_count = -1
+        logger.warning(
+            "edit_json: no image from model (candidates=%s, prompt_len=%s, use_env=%s, use_person=%s)",
+            cand_count,
+            len(prompt_text or ""),
+            bool(env_default_s3_key),
+            bool(model_default_s3_key),
+        )
         return JSONResponse({"error": "no edited image from model"}, status_code=502)
     except genai_errors.APIError as e:
         logger.exception("GenAI API error on /edit")
