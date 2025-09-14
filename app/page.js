@@ -612,7 +612,7 @@ export default function Home() {
   }
 
   return (
-    <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
+    <div className="font-sans min-h-[100dvh] bg-background text-foreground flex flex-col">
       <Toaster position="top-center" />
       <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
         {/* Upload first */}
