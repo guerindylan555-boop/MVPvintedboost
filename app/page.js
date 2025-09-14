@@ -643,7 +643,7 @@ export default function Home() {
 
         {/* Quick actions */}
         <section className="flex items-center justify-between">
-          <Drawer.Root open={sheetOpen} onOpenChange={setSheetOpen}>
+          <Drawer.Root open={sheetOpen} onOpenChange={setSheetOpen} shouldScaleBackground={false}>
             <Drawer.Trigger asChild>
               <button
                 type="button"
@@ -654,8 +654,11 @@ export default function Home() {
               </button>
             </Drawer.Trigger>
             <Drawer.Portal>
-              <Drawer.Overlay className="fixed inset-0 bg-black/40" />
-              <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background">
+              <Drawer.Overlay className="fixed inset-0 z-40 bg-black/40" />
+              <Drawer.Content
+                className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background max-h-[85dvh] overflow-y-auto"
+                style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+              >
                 <div className="mx-auto max-w-md p-4">
                   <div className="h-1 w-8 bg-black/20 dark:bg-white/20 rounded-full mx-auto mb-3" />
                   <div className="flex items-center justify-between mb-2">
@@ -772,6 +775,9 @@ export default function Home() {
                         className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
                         value={options.extra}
                         onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
+                        onFocus={(e) => {
+                          try { e.currentTarget.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+                        }}
                       />
                     </div>
                     {/* Description controls inside sheet */}
