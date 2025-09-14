@@ -346,6 +346,57 @@ def build_mirror_selfie_prompt(
     return "\n".join(lines)
 
 
+def build_sequential_step1_prompt(*, use_person_image: bool, person_description: Optional[str], pose: str, extra: str) -> str:
+    """Step 1: Wear garment on person (no environment changes)."""
+    def q(s: Optional[str]) -> str:
+        return (s or "").strip()
+    lines: list[str] = []
+    lines.append("TASK")
+    lines.append("Combine the attached garment with the attached person: put the garment on the person.")
+    lines.append("")
+    lines.append("HARD CONSTRAINTS")
+    lines.append("- Do not change the person's identity, body, hair, or pose.")
+    lines.append("- Do not change or stylize the garment; preserve exact color, fabric, texture, print scale/alignment, logos, closures; ensure believable fit.")
+    lines.append("- Do not alter or stylize the background; no added props or phones.")
+    if q(pose):
+        lines.append(f"- Respect the current pose: {q(pose)}; keep the garment fully visible.")
+    if q(extra):
+        lines.append(f"- Extra: {q(extra).replace('\n',' ')}")
+    if (not use_person_image) and q(person_description):
+        lines.append("")
+        lines.append("PERSON DESCRIPTION (use this identity)")
+        lines.append(q(person_description))
+    lines.append("")
+    lines.append("OUTPUT")
+    lines.append("- One photorealistic PNG of the person now wearing the garment; neutral background unaffected; PG-13; no text/watermarks.")
+    return "\n".join(lines)
+
+
+def build_sequential_step2_prompt(*, environment: str, pose: str, extra: str, use_env_image: bool) -> str:
+    """Step 2: Place person-with-garment into mirror scene."""
+    def q(s: Optional[str]) -> str:
+        return (s or "").strip()
+    lines: list[str] = []
+    lines.append("TASK")
+    lines.append("Insert the person from the attached person image into the attached mirror-scene environment (if provided).")
+    lines.append("")
+    lines.append("CONSTRAINTS")
+    lines.append("- Do not change the person or clothing at all; keep exact colors, textures, prints, and fit from the person image.")
+    lines.append("- Match environment lighting, camera angle, palette, shadows, and depth of field; mirror-coherent geometry.")
+    lines.append("- Mirror Selfie style: black iPhone 16 Pro occluding the face but not the garment; realistic hands; no extra phones.")
+    if q(pose):
+        lines.append(f"- Enforce pose: {q(pose)}; garment remains unobstructed.")
+    if q(extra):
+        lines.append(f"- Extra: {q(extra).replace('\n',' ')}")
+    if not use_env_image and q(environment):
+        lines.append(f"- Environment: {q(environment)}")
+    lines.append("- Photorealism; PG-13; no text/watermarks or added logos.")
+    lines.append("")
+    lines.append("OUTPUT")
+    lines.append("- One photorealistic PNG mirror selfie.")
+    return "\n".join(lines)
+
+
 @app.post("/edit")
 async def edit(
     image: UploadFile = File(...),
@@ -397,7 +448,6 @@ async def edit(
         # Build prompt (Mirror Selfie template) considering optional environment/person references
         parts: list[types.Part] = []
         env_key_used: str | None = None
-        person_key_used: str | None = None
 
         use_env_image = bool(env_default_s3_key)
         use_person_image = bool(model_default_s3_key)
@@ -1544,6 +1594,201 @@ async def edit_json(
         return JSONResponse({"error": str(e)}, status_code=500)
     except Exception as e:
         logger.exception("Failed to list user history")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/edit/sequential/json")
+async def edit_sequential_json(
+    image: UploadFile | None = File(None),
+    gender: str = Form("woman"),
+    environment: str = Form("studio"),
+    poses: list[str] = Form(None),
+    extra: str = Form(""),
+    env_default_s3_key: str | None = Form(None),
+    model_default_s3_key: str | None = Form(None),
+    model_description_text: str | None = Form(None),
+    prompt_override_step1: str | None = Form(None),
+    prompt_override_step2: str | None = Form(None),
+    listing_id: str | None = Form(None),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    """Two-pass generation: (1) put garment on person; (2) place into scene.
+
+    Mirrors /edit/json inputs for drop-in replacement. Persists only final image.
+    """
+    try:
+        # Load source (garment) image
+        src_png: bytes | None = None
+        if image and image.filename:
+            raw_bytes = await image.read()
+            if len(raw_bytes) > 20 * 1024 * 1024:
+                return JSONResponse({"error": "image too large (max ~20MB)"}, status_code=413)
+            try:
+                src_png = _normalize_to_png_limited(raw_bytes, max_px=2048)
+            except Exception:
+                return JSONResponse({"error": "invalid or unsupported image format"}, status_code=400)
+        elif listing_id and x_user_id:
+            async with db_session() as session:
+                owns = await session.execute(
+                    text("SELECT user_id, source_s3_key FROM listings WHERE id = :id"),
+                    {"id": listing_id},
+                )
+                row = owns.first()
+            if not row or row[0] != x_user_id:
+                return JSONResponse({"error": "not found"}, status_code=404)
+            try:
+                src_bytes, _ = get_object_bytes(row[1])
+                src_png = _normalize_to_png_limited(src_bytes, max_px=2048)
+            except Exception as e:
+                return JSONResponse({"error": f"failed to load source image from listing: {e}"}, status_code=500)
+        else:
+            return JSONResponse({"error": "image file or listing_id required"}, status_code=400)
+
+        # Normalize inputs
+        if not poses:
+            poses = []
+        if not isinstance(poses, list):
+            poses = [poses]
+        pose_str = (poses[0] if poses else "") or ""
+        extra = (extra or "").strip()
+        if len(extra) > 200:
+            extra = extra[:200]
+        use_env_image = bool(env_default_s3_key)
+        use_person_image = bool(model_default_s3_key)
+
+        # Step 1 prompt
+        if prompt_override_step1 and prompt_override_step1.strip():
+            step1_prompt = prompt_override_step1.strip()
+        else:
+            step1_prompt = build_sequential_step1_prompt(
+                use_person_image=use_person_image,
+                person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                pose=pose_str,
+                extra=extra,
+            )
+        parts1: list[types.Part] = [types.Part.from_text(text=step1_prompt)]
+        person_key_used: str | None = None
+        if model_default_s3_key:
+            try:
+                person_bytes, person_mime = get_object_bytes(model_default_s3_key)
+                parts1.append(types.Part.from_text(text="Person reference:"))
+                parts1.append(types.Part.from_bytes(data=person_bytes, mime_type=person_mime or "image/png"))
+                person_key_used = model_default_s3_key
+            except Exception:
+                person_key_used = None
+        elif model_description_text:
+            parts1.append(types.Part.from_text(text=f"Person description: {model_description_text}"))
+            person_key_used = None
+        # Garment last
+        parts1.append(types.Part.from_bytes(data=src_png, mime_type="image/png"))
+
+        # Call step 1
+        resp1 = await _genai_generate_with_retries(parts1, attempts=2)
+        step1_png: bytes | None = None
+        for c in getattr(resp1, "candidates", []) or []:
+            content = getattr(c, "content", None)
+            prts = getattr(content, "parts", None) if content is not None else None
+            if not prts:
+                continue
+            for p in prts:
+                if getattr(p, "inline_data", None):
+                    step1_png = p.inline_data.data
+                    break
+            if step1_png:
+                break
+        if not step1_png:
+            return JSONResponse({"error": "no image from model (step1)"}, status_code=502)
+
+        # Step 2 prompt
+        if prompt_override_step2 and prompt_override_step2.strip():
+            step2_prompt = prompt_override_step2.strip()
+        else:
+            step2_prompt = build_sequential_step2_prompt(
+                environment=_normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio"),
+                pose=pose_str,
+                extra=extra,
+                use_env_image=use_env_image,
+            )
+        parts2: list[types.Part] = [types.Part.from_text(text=step2_prompt)]
+        env_key_used: str | None = None
+        person_key_used: str | None = None
+        if env_default_s3_key:
+            try:
+                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
+                parts2.append(types.Part.from_text(text="Environment reference:"))
+                parts2.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
+                env_key_used = env_default_s3_key
+            except Exception:
+                env_key_used = None
+        # Person reference is the step-1 result
+        parts2.append(types.Part.from_text(text="Person reference:"))
+        parts2.append(types.Part.from_bytes(data=step1_png, mime_type="image/png"))
+
+        resp2 = await _genai_generate_with_retries(parts2, attempts=2)
+        for c in getattr(resp2, "candidates", []) or []:
+            content = getattr(c, "content", None)
+            prts = getattr(content, "parts", None) if content is not None else None
+            if not prts:
+                continue
+            for p in prts:
+                if getattr(p, "inline_data", None):
+                    final_png = p.inline_data.data
+                    # Persist final
+                    # A/B: suffix pose with (seq) so UI can distinguish without schema changes
+                    pose_final = (pose_str or "pose").strip() or "pose"
+                    pose_final = f"{pose_final} (seq)"
+                    bucket, key = upload_image(final_png, pose=pose_final)
+                    async with db_session() as session:
+                        session.add(
+                            Generation(
+                                s3_key=key,
+                                pose=pose_final,
+                                prompt=step2_prompt,
+                                options_json={
+                                    "flow": "sequential",
+                                    "prompt_step1": step1_prompt,
+                                    "prompt_step2": step2_prompt,
+                                    "gender": gender,
+                                    "environment": environment,
+                                    "poses": poses,
+                                    "extra": extra,
+                                    "env_default_s3_key": env_key_used,
+                                    "model_default_s3_key": person_key_used,
+                                    "model_description_text": (model_description_text if not person_key_used else None),
+                                    "user_id": x_user_id,
+                                },
+                                model=MODEL,
+                            )
+                        )
+                        if listing_id and x_user_id:
+                            owns = await session.execute(
+                                text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
+                                {"id": listing_id, "uid": x_user_id},
+                            )
+                            if owns.first():
+                                session.add(
+                                    ListingImage(
+                                        listing_id=listing_id,
+                                        s3_key=key,
+                                        pose=pose_final,
+                                        prompt=step2_prompt,
+                                    )
+                                )
+                                await session.execute(
+                                    text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                                    {"k": key, "id": listing_id},
+                                )
+                    try:
+                        url = generate_presigned_get_url(key)
+                    except Exception:
+                        url = None
+                    return {"ok": True, "s3_key": key, "url": url, "pose": pose_final, "prompt": step2_prompt, "listing_id": listing_id}
+        return JSONResponse({"error": "no image from model (step2)"}, status_code=502)
+    except genai_errors.APIError as e:
+        logger.exception("GenAI API error on /edit/sequential/json")
+        return JSONResponse({"error": e.message, "code": e.code}, status_code=502)
+    except Exception as e:
+        logger.exception("Unhandled error on /edit/sequential/json")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/model/defaults")

@@ -43,6 +43,8 @@ export default function Home() {
   const [lastListingId, setLastListingId] = useState(null);
   const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
   const [listingsLoading, setListingsLoading] = useState(true);
+  // Flow mode: classic | sequential | both
+  const [flowMode, setFlowMode] = useState("classic");
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
@@ -90,6 +92,16 @@ export default function Home() {
       } catch {}
     })();
   }, []);
+  // Load/persist flow mode selection
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("vb_flow_mode");
+      if (saved === "classic" || saved === "sequential" || saved === "both") setFlowMode(saved);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("vb_flow_mode", flowMode); } catch {}
+  }, [flowMode]);
 
   // Load environment defaults to reflect in UI label
   useEffect(() => {
@@ -426,15 +438,27 @@ export default function Home() {
       if (!listingId) throw new Error("No listing id");
       setLastListingId(listingId);
 
-      // 2) Fire parallel /edit/json per pose with listing_id
-      let done = 0;
+      // 2) Generate per pose according to flowMode (classic | sequential | both)
+      let done = 0; // count poses done (first variant finished)
       toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
-      // initialize pose statuses
-      const initialStatus = {};
-      for (const p of poses) initialStatus[p] = 'running';
-      setPoseStatus(initialStatus);
-      setPoseErrors({});
-      const genRequests = poses.map(async (pose) => {
+      const initialStatus = {}; for (const p of poses) initialStatus[p] = 'running';
+      setPoseStatus(initialStatus); setPoseErrors({});
+
+      // concurrency limiter
+      const limit = (n, fns) => new Promise((resolve) => {
+        const out = new Array(fns.length);
+        let i = 0, running = 0, finished = 0;
+        const next = () => {
+          if (finished >= fns.length) return resolve(out);
+          while (running < n && i < fns.length) {
+            const idx = i++; running++;
+            fns[idx]().then((v) => out[idx] = { status: 'fulfilled', value: v }).catch((e) => out[idx] = { status: 'rejected', reason: e }).finally(() => { running--; finished++; next(); });
+          }
+        };
+        next();
+      });
+
+      const buildCommonForm = (pose) => {
         const form = new FormData();
         form.append("image", selectedFile);
         form.append("gender", options.gender);
@@ -444,9 +468,13 @@ export default function Home() {
         if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
         if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
         else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
-        let effective = "";
+        form.append("listing_id", listingId);
+        return form;
+      };
+      const cloneForm = (fd) => { const f = new FormData(); fd.forEach((v, k) => f.append(k, v)); return f; };
+      const buildPrompt = (pose) => {
         if (promptDirty) {
-          effective = promptInput.trim();
+          let effective = promptInput.trim();
           if (pose === "random") {
             const items = Array.isArray(poseDescs) ? poseDescs : [];
             const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
@@ -456,34 +484,45 @@ export default function Home() {
           } else if (pose === "from the side") {
             effective += "\n- Orientation: side/profile view; ensure torso and garment remain visible.";
           }
-        } else {
-          effective = computeEffectivePrompt(pose, false);
+          return effective;
         }
-        form.append("prompt_override", effective);
-        form.append("listing_id", listingId);
-        const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          throw new Error(txt || `Pose ${pose} failed`);
-        }
-        const out = await res.json();
-        done += 1;
-        toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
-        setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
-        return out;
-      });
-
-      const genResults = await Promise.allSettled(genRequests);
-      const ok = genResults.some((r) => r.status === "fulfilled");
-      // capture any failures
-      genResults.forEach((r, idx) => {
-        if (r.status === 'rejected') {
-          const pose = poses[idx];
-          setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
-          setPoseErrors((e) => ({ ...e, [pose]: r.reason?.message || 'Failed' }));
-        }
-      });
-      if (!ok) throw new Error("All generations failed");
+        return computeEffectivePrompt(pose, false);
+      };
+      const runPose = (pose) => async () => {
+        const common = buildCommonForm(pose);
+        const prompt = buildPrompt(pose);
+        const classicReq = async () => {
+          const f = cloneForm(common);
+          f.append("prompt_override", prompt);
+          const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: f, headers: userId ? { "X-User-Id": String(userId) } : {} });
+          if (!res.ok) throw new Error(await res.text());
+          return res.json();
+        };
+        const seqReq = async () => {
+          const f = cloneForm(common);
+          const res = await fetch(`${baseUrl}/edit/sequential/json`, { method: "POST", body: f, headers: userId ? { "X-User-Id": String(userId) } : {} });
+          if (!res.ok) throw new Error(await res.text());
+          return res.json();
+        };
+        let classicP = null, seqP = null;
+        if (flowMode === 'classic') classicP = classicReq();
+        else if (flowMode === 'sequential') seqP = seqReq();
+        else { classicP = classicReq(); seqP = seqReq(); }
+        let firstDone = false;
+        const markDone = () => { if (!firstDone) { firstDone = true; done += 1; toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId }); setPoseStatus((s) => ({ ...s, [pose]: 'done' })); } };
+        if (classicP) classicP.then(() => markDone()).catch(() => {});
+        if (seqP) seqP.then(() => markDone()).catch(() => {});
+        const results = await Promise.all([classicP, seqP].filter(Boolean).map((p) => p.then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e }))));
+        const ok = results.find((r) => r.ok);
+        if (ok) { return ok.v; }
+        setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
+        setPoseErrors((e) => ({ ...e, [pose]: results.map((r) => r.e?.message || 'Failed').join('; ') }));
+        throw new Error(`Pose ${pose} failed`);
+      };
+      const tasks = poses.map((p) => runPose(p));
+      const settled = await limit(2, tasks);
+      const okAny = settled.some((r) => r && r.status === 'fulfilled');
+      if (!okAny) throw new Error("All generations failed");
 
       // 3) Optionally generate description attached to listing
       if (descEnabled) {
@@ -534,14 +573,12 @@ export default function Home() {
       if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
       else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
       let effective = "";
-      if (promptDirty) {
-        effective = promptInput.trim();
-      } else {
-        effective = computeEffectivePrompt(pose, false);
-      }
-      form.append("prompt_override", effective);
+      if (promptDirty) { effective = promptInput.trim(); } else { effective = computeEffectivePrompt(pose, false); }
       form.append("listing_id", lastListingId);
-      const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+      let url = `${baseUrl}/edit/json`;
+      if (flowMode === 'sequential') url = `${baseUrl}/edit/sequential/json`;
+      else form.append("prompt_override", effective);
+      const res = await fetch(url, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
       if (!res.ok) throw new Error(await res.text());
       await res.json();
       setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
@@ -695,6 +732,14 @@ export default function Home() {
                       {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
                         <p className="mt-1 text-[10px] text-amber-600">No default description; falls back to gender hint.</p>
                       )}
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500">Generation flow</label>
+                      <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
+                        {['classic','sequential','both'].map((m) => (
+                          <button key={m} type="button" onClick={() => setFlowMode(m)} className={`text-xs ${flowMode === m ? 'bg-foreground text-background' : 'text-foreground'}`}>{m}</button>
+                        ))}
+                      </div>
                     </div>
                     <div className="col-span-2">
                       <label className="text-xs text-gray-500">Environment</label>
@@ -923,6 +968,7 @@ export default function Home() {
             <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Env: {envDefaults.length > 0 ? (selectedEnvDefaultKey ? 'Default' : 'Default (first)') : options.environment}</span>
             <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Poses: {Array.isArray(options.poses) ? options.poses.length : 0}</span>
             <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Model: {useModelImage ? 'Image' : 'Desc'}</span>
+            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Flow: {flowMode}</span>
           </div>
           <button
             type="button"

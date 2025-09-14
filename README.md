@@ -137,6 +137,13 @@ npm run dev:full
 - Description prompts are built server-side from the uploaded image and provided metadata (gender, brand, model, size, condition)
 - Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 4)
 
+### Two-step sequential flow (new)
+- Optional flow selectable in the options drawer (Classic | Sequential | Both).
+- Sequential runs two model calls per pose:
+  1) Wear garment on person (garment + person only)
+  2) Place person-with-garment into the mirror scene (env image or textual env)
+- In Both mode, Classic results use the pose name (e.g., "Face"), and Sequential results use a suffixed pose name "Face (seq)" so both variants show up in the listing for easy A/B comparison.
+
 Prompt rules (Mirror Selfie for Vinted)
 - Always a mirror selfie, amateur smartphone look
 - Black iPhone 16 Pro held in front of the face (occluding it with correct reflection) while keeping the garment clearly visible
@@ -306,6 +313,12 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Content-Type: `multipart/form-data`
 - Same fields as `/edit` plus optional `listing_id`
 - Response: `{ ok, s3_key, url, pose, prompt, listing_id }`
+
+### POST /edit/sequential/json
+- Content-Type: `multipart/form-data`
+- Fields: same as `/edit/json` plus optional `prompt_override_step1`, `prompt_override_step2`.
+- Behavior: two model calls — Step 1 combines garment with person; Step 2 inserts that person into the environment. Only the final image is persisted and, when `listing_id` is provided, attached to the listing with pose suffixed as `"<pose> (seq)"`.
+- Response: `{ ok, s3_key, url, pose, prompt, listing_id }` (where `pose` includes the `(seq)` suffix)
 
 ### POST /generate
 - Content-Type: `application/x-www-form-urlencoded`
