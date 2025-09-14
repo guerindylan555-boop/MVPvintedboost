@@ -60,6 +60,11 @@ Default generation style (Mirror Selfie for Vinted)
   - Lists uploaded pose sources and the resulting descriptions (admin-only UI)
   - Saved pose descriptions are used globally by the main page (any user’s random pose can use them)
 
+### Auth & Middleware
+- Public Studio: `/studio` is intentionally public so any signed‑in or signed‑out user can browse. Admin‑only actions inside Studio (source uploads, defaults management, pose tools) are enforced in server routes under `app/api/admin/*`, which verify Better Auth session + `isAdmin` and forward to the backend with a bearer.
+- Public API paths: `middleware.ts` allows `/api/*` to pass through. Authentication and authorization happen inside the API handlers and at the Python backend. This avoids double‑checks in middleware and keeps behavior explicit at the endpoints.
+- Frontend API calls: client pages build URLs via `getApiBase()` and attach the current user via `withUserId()` when needed (see `app/lib/api.js`).
+
 ## Local development
 
 ### Prerequisites

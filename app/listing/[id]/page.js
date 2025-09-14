@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useParams } from "next/navigation";
 import { createAuthClient } from "better-auth/react";
 const authClient = createAuthClient();
+import { getApiBase, withUserId } from "@/app/lib/api";
 
 export default function ListingPage() {
   const params = useParams();
@@ -27,9 +28,9 @@ export default function ListingPage() {
       if (!id || !userId) return;
       setLoading(true);
       setError(null);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       try {
-        const res = await fetch(`${baseUrl}/listing/${id}`, { headers: { "X-User-Id": String(userId) } });
+        const res = await fetch(`${baseUrl}/listing/${id}`, { headers: withUserId({}, userId) });
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         setListing(data);
@@ -45,7 +46,7 @@ export default function ListingPage() {
   useEffect(() => {
     (async () => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/pose/descriptions`, { cache: "no-store" });
         const data = await res.json();
         if (data?.items && Array.isArray(data.items)) setPoseDescs(data.items);
@@ -163,14 +164,14 @@ export default function ListingPage() {
   async function setCover(s3Key) {
     if (!id || !userId || !s3Key) return;
     setSettingCover(true);
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const baseUrl = getApiBase();
     try {
       const form = new FormData();
       form.append("s3_key", s3Key);
-      const res = await fetch(`${baseUrl}/listing/${id}/cover`, { method: "PATCH", body: form, headers: { "X-User-Id": String(userId) } });
+      const res = await fetch(`${baseUrl}/listing/${id}/cover`, { method: "PATCH", body: form, headers: withUserId({}, userId) });
       if (res.ok) {
         // Refresh listing
-        const r = await fetch(`${baseUrl}/listing/${id}`, { headers: { "X-User-Id": String(userId) } });
+        const r = await fetch(`${baseUrl}/listing/${id}`, { headers: withUserId({}, userId) });
         if (r.ok) setListing(await r.json());
       }
     } catch {}
@@ -180,12 +181,12 @@ export default function ListingPage() {
   async function generateDescription() {
     if (!id || !userId) return;
     setGenDescLoading(true);
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const baseUrl = getApiBase();
     try {
       const form = new FormData();
-      const res = await fetch(`${baseUrl}/listing/${id}/describe`, { method: "POST", body: form, headers: { "X-User-Id": String(userId) } });
+      const res = await fetch(`${baseUrl}/listing/${id}/describe`, { method: "POST", body: form, headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
-      const r = await fetch(`${baseUrl}/listing/${id}`, { headers: { "X-User-Id": String(userId) } });
+      const r = await fetch(`${baseUrl}/listing/${id}`, { headers: withUserId({}, userId) });
       if (r.ok) setListing(await r.json());
     } catch (e) {
       // eslint-disable-next-line no-alert
@@ -198,7 +199,7 @@ export default function ListingPage() {
     if (!id || !userId || !listing?.source_url || !pose) return;
     setRegenLoading((s) => ({ ...s, [pose]: true }));
     setRegenError((e) => ({ ...e, [pose]: undefined }));
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const baseUrl = getApiBase();
     try {
       const form = new FormData();
       const s = listing.settings || {};
@@ -230,10 +231,10 @@ export default function ListingPage() {
       }
       if (effectivePrompt) form.append("prompt_override", effectivePrompt);
       form.append("listing_id", id);
-      const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: { "X-User-Id": String(userId) } });
+      const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
       // Refresh listing to pull the new image in
-      const r = await fetch(`${baseUrl}/listing/${id}`, { headers: { "X-User-Id": String(userId) }, cache: "no-store" });
+      const r = await fetch(`${baseUrl}/listing/${id}`, { headers: withUserId({}, userId), cache: "no-store" });
       if (r.ok) setListing(await r.json());
     } catch (e) {
       setRegenError((er) => ({ ...er, [pose]: e?.message || "Failed to regenerate" }));

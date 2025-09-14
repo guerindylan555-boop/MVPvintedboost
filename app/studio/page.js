@@ -3,6 +3,8 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
 import { createAuthClient } from "better-auth/react";
+import { getApiBase, withUserId } from "@/app/lib/api";
+import { VB_STUDIO_ACTIVE_TAB, VB_STUDIO_MODEL_GENDER } from "@/app/lib/storage-keys";
 const authClient = createAuthClient();
 
 export default function StudioPage() {
@@ -39,19 +41,19 @@ export default function StudioPage() {
   // Remember UI state
   useEffect(() => {
     try {
-      const tab = localStorage.getItem("vb_studio_active_tab");
+      const tab = localStorage.getItem(VB_STUDIO_ACTIVE_TAB);
       if (tab && (tab === "environment" || tab === "model" || tab === "pose")) setActiveTab(tab);
     } catch {}
     try {
-      const mg = localStorage.getItem("vb_studio_model_gender");
+      const mg = localStorage.getItem(VB_STUDIO_MODEL_GENDER);
       if (mg && (mg === "man" || mg === "woman")) setModelGender(mg);
     } catch {}
   }, []);
   useEffect(() => {
-    try { localStorage.setItem("vb_studio_active_tab", activeTab); } catch {}
+    try { localStorage.setItem(VB_STUDIO_ACTIVE_TAB, activeTab); } catch {}
   }, [activeTab]);
   useEffect(() => {
-    try { localStorage.setItem("vb_studio_model_gender", modelGender); } catch {}
+    try { localStorage.setItem(VB_STUDIO_MODEL_GENDER, modelGender); } catch {}
   }, [modelGender]);
   // Model sources (admin library removed; single source per gender handled via top pickers)
   // Pose tab state
@@ -75,16 +77,16 @@ export default function StudioPage() {
   async function handleGenerate() {
     try {
       setIsGenerating(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       // If user entered a prompt, use /env/generate (instruction + prompt). Else fallback to /env/random.
       const endpoint = prompt.trim() ? "/env/generate" : "/env/random";
       let res;
       if (endpoint === "/env/generate") {
         const form = new FormData();
         form.append("prompt", prompt.trim());
-        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", body: form, headers: withUserId({}, userId) });
       } else {
-        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", headers: userId ? { "X-User-Id": String(userId) } : {} });
+        res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", headers: withUserId({}, userId) });
       }
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
@@ -102,8 +104,8 @@ export default function StudioPage() {
   async function handleRandomGenerate() {
     try {
       setIsGenerating(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/env/random`, { method: "POST", headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/env/random`, { method: "POST", headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -127,7 +129,7 @@ export default function StudioPage() {
     (async () => {
       try {
         if (bulkFiles.length === 0) return alert("Choose files first");
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBase();
         const form = new FormData();
         for (const f of bulkFiles) form.append("files", f);
         const res = await fetch(`${baseUrl}/env/sources/upload`, { method: "POST", body: form });
@@ -142,7 +144,7 @@ export default function StudioPage() {
 
   async function refreshSources() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/env/sources`);
       const data = await res.json();
       if (data?.items) setSources(data.items);
@@ -151,8 +153,8 @@ export default function StudioPage() {
 
   async function refreshGenerated() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/env/generated`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/env/generated`, { headers: withUserId({}, userId) });
       const data = await res.json();
       if (data?.items) setGenerated(data.items);
     } catch {}
@@ -160,8 +162,8 @@ export default function StudioPage() {
 
   async function refreshModelGenerated() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/model/generated`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/model/generated`, { headers: withUserId({}, userId) });
       const data = await res.json();
       if (data?.items) {
         setModelGenerated(data.items);
@@ -173,8 +175,8 @@ export default function StudioPage() {
 
   async function refreshDefaults() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/env/defaults`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/env/defaults`, { headers: withUserId({}, userId) });
       const data = await res.json();
       if (data?.items) setDefaults(data.items);
     } catch {}
@@ -182,7 +184,7 @@ export default function StudioPage() {
 
   async function refreshModelDefaults() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/model/defaults`);
       const data = await res.json();
       if (data?.items) {
@@ -195,7 +197,7 @@ export default function StudioPage() {
 
   async function refreshModelSources() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       // Man
       let res = await fetch(`${baseUrl}/model/sources?gender=man`);
       let data = await res.json();
@@ -225,7 +227,7 @@ export default function StudioPage() {
 
   async function refreshPoseSources() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/pose/sources`);
       const data = await res.json();
       if (data?.items) setPoseSources(data.items);
@@ -234,7 +236,7 @@ export default function StudioPage() {
 
   async function refreshPoseDescriptions() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/pose/descriptions`);
       const data = await res.json();
       if (data?.items) setPoseDescs(data.items);
@@ -249,7 +251,7 @@ export default function StudioPage() {
     try {
       if (poseFiles.length === 0) return alert("Choose pose images first");
       setIsPoseUploading(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const form = new FormData();
       for (const f of poseFiles) form.append("files", f);
       const res = await fetch(`${baseUrl}/pose/sources/upload`, { method: "POST", body: form });
@@ -268,7 +270,7 @@ export default function StudioPage() {
   async function generatePoseDescriptions() {
     try {
       setIsPoseDescribing(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/pose/describe`, { method: "POST" });
       if (!res.ok) throw new Error(await res.text());
       await refreshPoseDescriptions();
@@ -294,11 +296,11 @@ export default function StudioPage() {
 
   async function saveDefaults() {
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const form = new FormData();
       for (const k of selectedKeys) form.append("s3_keys", k);
       for (const k of selectedKeys) form.append("names", defaultNames[k] || "Untitled");
-      const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", headers: userId ? { "X-User-Id": String(userId) } : {}, body: form });
+      const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", headers: withUserId({}, userId), body: form });
       if (!res.ok) throw new Error(await res.text());
       // Refresh and clear selection for clarity
       await refreshDefaults();
@@ -314,7 +316,7 @@ export default function StudioPage() {
   async function deleteAllSources() {
     if (!confirm("Delete all uploaded sources? This cannot be undone.")) return;
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/env/sources`, { method: "DELETE" });
       if (!res.ok) throw new Error(await res.text());
       await refreshSources();
@@ -335,7 +337,7 @@ export default function StudioPage() {
     (async () => {
       try {
         setIsModelSourceUploading(true);
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBase();
         const form = new FormData();
         form.append("gender", "man");
         form.append("files", f);
@@ -361,7 +363,7 @@ export default function StudioPage() {
     (async () => {
       try {
         setIsModelSourceUploading(true);
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBase();
         const form = new FormData();
         form.append("gender", "woman");
         form.append("files", f);
@@ -404,8 +406,8 @@ export default function StudioPage() {
       if (file) form.append("image", file);
       form.append("gender", gender);
       if (modelPrompt.trim()) form.append("prompt", modelPrompt.trim());
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -503,7 +505,7 @@ export default function StudioPage() {
                     {generated.map((g) => {
                       const isDefault = defaults.some((d) => d.s3_key === g.s3_key);
                       const selected = selectedKeys.includes(g.s3_key);
-                      const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                      const src = g.url || `${getApiBase()}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
                       const name = defaults.find((d) => d.s3_key === g.s3_key)?.name;
                       return (
                         <div key={g.s3_key} className={`relative rounded-md overflow-hidden border aspect-square ${isDefault ? "border-blue-500" : selected ? "border-blue-500" : "border-black/10 dark:border-white/15"}`} title={g.s3_key}>
@@ -518,11 +520,11 @@ export default function StudioPage() {
                                     const newName = prompt("Rename default", name || "");
                                     if (newName == null) return;
                                     try {
-                                      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                      const baseUrl = getApiBase();
                                       const form = new FormData();
                                       form.append("s3_key", g.s3_key);
                                       form.append("name", newName);
-                                      const res = await fetch(`${baseUrl}/env/defaults`, { method: "PATCH", headers: userId ? { "X-User-Id": String(userId) } : {}, body: form });
+                                      const res = await fetch(`${baseUrl}/env/defaults`, { method: "PATCH", headers: withUserId({}, userId), body: form });
                                       if (!res.ok) throw new Error(await res.text());
                                       await refreshDefaults();
                                     } catch (e) {
@@ -538,8 +540,8 @@ export default function StudioPage() {
                                   onClick={async () => {
                                     if (!confirm("Remove from defaults?")) return;
                                     try {
-                                      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-                                      const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE", headers: userId ? { "X-User-Id": String(userId) } : {} });
+                                      const baseUrl = getApiBase();
+                                      const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE", headers: withUserId({}, userId) });
                                       if (!res.ok) throw new Error(await res.text());
                                       await refreshDefaults();
                                     } catch (e) {
@@ -566,7 +568,7 @@ export default function StudioPage() {
                               onClick={async () => {
                                 if (!confirm("Delete this image? This cannot be undone.")) return;
                                 try {
-                                  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                  const baseUrl = getApiBase();
                                   const res = await fetch(`${baseUrl}/env/generated?s3_key=${encodeURIComponent(g.s3_key)}`, { method: "DELETE" });
                                   if (!res.ok) throw new Error(await res.text());
                                   await refreshGenerated();
@@ -822,7 +824,7 @@ export default function StudioPage() {
               ) : (
                 <div className="mt-2 grid grid-cols-3 gap-2">
                   {(modelGender === "man" ? modelGeneratedMen : modelGeneratedWomen).map((g) => {
-                    const src = g.url || `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
+                    const src = g.url || `${getApiBase()}/env/image?s3_key=${encodeURIComponent(g.s3_key)}`;
                     const gender = modelGender;
                     const isDefault = gender === "man" ? (defaultsModel?.man?.s3_key === g.s3_key) : (defaultsModel?.woman?.s3_key === g.s3_key);
                     const defaultName = gender === "man" ? (defaultsModel?.man?.name || null) : (defaultsModel?.woman?.name || null);
@@ -842,7 +844,7 @@ export default function StudioPage() {
                                   const newName = prompt("Rename default", defaultName || "");
                                   if (newName == null) return;
                                   try {
-                                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                    const baseUrl = getApiBase();
                                     const form = new FormData();
                                     form.append("gender", gender);
                                     form.append("name", newName);
@@ -862,7 +864,7 @@ export default function StudioPage() {
                                 onClick={async () => {
                                   if (!confirm("Remove from defaults?")) return;
                                   try {
-                                    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                    const baseUrl = getApiBase();
                                     const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
                                     if (!res.ok) throw new Error(await res.text());
                                     await refreshModelDefaults();
@@ -880,7 +882,7 @@ export default function StudioPage() {
                               className="px-2 py-1 text-[10px] rounded bg-blue-600 text-white"
                               onClick={async () => {
                                 try {
-                                  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                                  const baseUrl = getApiBase();
                                   const form = new FormData();
                                   form.append("gender", gender);
                                   form.append("s3_key", g.s3_key);

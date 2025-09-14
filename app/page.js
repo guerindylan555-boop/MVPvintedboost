@@ -7,6 +7,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
 import { Camera, Check, X, Loader2 } from "lucide-react";
+import { getApiBase, withUserId } from "@/app/lib/api";
+import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY } from "@/app/lib/storage-keys";
 const authClient = createAuthClient();
 
 export default function Home() {
@@ -63,9 +65,9 @@ export default function Home() {
     (async () => {
       if (!userId) return;
       setListingsLoading(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       try {
-        const res = await fetch(`${baseUrl}/listings`, { headers: { "X-User-Id": String(userId) } });
+        const res = await fetch(`${baseUrl}/listings`, { headers: withUserId({}, userId) });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data?.items)) setListings(data.items);
@@ -79,7 +81,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/pose/descriptions`);
         const data = await res.json();
         if (data?.items && Array.isArray(data.items)) {
@@ -95,12 +97,12 @@ export default function Home() {
   // Load/persist flow mode selection
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("vb_flow_mode");
+      const saved = localStorage.getItem(VB_FLOW_MODE);
       if (saved === "classic" || saved === "sequential" || saved === "both") setFlowMode(saved);
     } catch {}
   }, []);
   useEffect(() => {
-    try { localStorage.setItem("vb_flow_mode", flowMode); } catch {}
+    try { localStorage.setItem(VB_FLOW_MODE, flowMode); } catch {}
   }, [flowMode]);
 
   // Load environment defaults to reflect in UI label
@@ -108,8 +110,8 @@ export default function Home() {
     (async () => {
       setEnvDefaultsLoading(true);
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-        const res = await fetch(`${baseUrl}/env/defaults`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
+        const baseUrl = getApiBase();
+        const res = await fetch(`${baseUrl}/env/defaults`, { headers: withUserId({}, userId) });
         const data = await res.json();
         if (data?.items) setEnvDefaults(data.items);
       } catch {}
@@ -120,7 +122,7 @@ export default function Home() {
   // Remember last selected options (gender, environment, poses, extra) and restore on load
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("vb_main_options");
+      const raw = localStorage.getItem(VB_MAIN_OPTIONS);
       if (raw) {
         const saved = JSON.parse(raw);
         if (saved && typeof saved === "object") {
@@ -135,7 +137,7 @@ export default function Home() {
     } catch {}
   }, []);
   useEffect(() => {
-    try { localStorage.setItem("vb_main_options", JSON.stringify(options)); } catch {}
+    try { localStorage.setItem(VB_MAIN_OPTIONS, JSON.stringify(options)); } catch {}
   }, [options]);
 
   // Load model defaults (one per gender)
@@ -143,7 +145,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+        const baseUrl = getApiBase();
         const res = await fetch(`${baseUrl}/model/defaults`);
         const data = await res.json();
         if (data?.items) {
@@ -158,7 +160,7 @@ export default function Home() {
   // Load saved studio default selection
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("vb_env_default_key");
+      const saved = localStorage.getItem(VB_ENV_DEFAULT_KEY);
       if (saved) setSelectedEnvDefaultKey(saved);
     } catch {}
   }, []);
@@ -171,7 +173,7 @@ export default function Home() {
       const first = envDefaults[0]?.s3_key || null;
       setSelectedEnvDefaultKey(first);
       try {
-        if (first) localStorage.setItem("vb_env_default_key", first);
+        if (first) localStorage.setItem(VB_ENV_DEFAULT_KEY, first);
       } catch {}
     }
   }, [envDefaults]);
@@ -187,9 +189,9 @@ export default function Home() {
     // Simple refetch helper to reflect new cover/images soon after generation
     setTimeout(async () => {
       if (!userId) return;
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
       try {
-        const res = await fetch(`${baseUrl}/listings`, { headers: { "X-User-Id": String(userId) } });
+        const res = await fetch(`${baseUrl}/listings`, { headers: withUserId({}, userId) });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data?.items)) setListings(data.items);
@@ -404,7 +406,7 @@ export default function Home() {
     if (!selectedFile) return;
     try {
       setIsGenerating(true);
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const baseUrl = getApiBase();
 
       // Ensure at least one pose
       const poses = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses : ["standing"];
@@ -431,7 +433,7 @@ export default function Home() {
       if (promptDirty) lform.append("prompt_override", promptInput.trim());
       if (title) lform.append("title", title);
       const toastId = toast.loading("Creating listing…");
-      const lres = await fetch(`${baseUrl}/listing`, { method: "POST", body: lform, headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const lres = await fetch(`${baseUrl}/listing`, { method: "POST", body: lform, headers: withUserId({}, userId) });
       if (!lres.ok) throw new Error(await lres.text());
       const listing = await lres.json();
       const listingId = listing?.id;
@@ -494,13 +496,13 @@ export default function Home() {
         const classicReq = async () => {
           const f = cloneForm(common);
           f.append("prompt_override", prompt);
-          const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: f, headers: userId ? { "X-User-Id": String(userId) } : {} });
+          const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: f, headers: withUserId({}, userId) });
           if (!res.ok) throw new Error(await res.text());
           return res.json();
         };
         const seqReq = async () => {
           const f = cloneForm(common);
-          const res = await fetch(`${baseUrl}/edit/sequential/json`, { method: "POST", body: f, headers: userId ? { "X-User-Id": String(userId) } : {} });
+          const res = await fetch(`${baseUrl}/edit/sequential/json`, { method: "POST", body: f, headers: withUserId({}, userId) });
           if (!res.ok) throw new Error(await res.text());
           return res.json();
         };
@@ -536,7 +538,7 @@ export default function Home() {
           if (productCondition) dform.append("condition", productCondition);
           dform.append("listing_id", listingId);
           toast.loading("Generating description…", { id: toastId });
-          await fetch(`${baseUrl}/describe`, { method: "POST", body: dform, headers: userId ? { "X-User-Id": String(userId) } : {} });
+          await fetch(`${baseUrl}/describe`, { method: "POST", body: dform, headers: withUserId({}, userId) });
         } catch {}
       }
       toast.success("Listing ready!", { id: toastId });
@@ -554,7 +556,7 @@ export default function Home() {
 
   async function retryPose(pose) {
     if (!selectedFile || !lastListingId) return;
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const baseUrl = getApiBase();
     try {
       setPoseStatus((s) => ({ ...s, [pose]: 'running' }));
       const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
@@ -578,7 +580,7 @@ export default function Home() {
       let url = `${baseUrl}/edit/json`;
       if (flowMode === 'sequential') url = `${baseUrl}/edit/sequential/json`;
       else form.append("prompt_override", effective);
-      const res = await fetch(url, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+      const res = await fetch(url, { method: "POST", body: form, headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
       await res.json();
       setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
