@@ -2313,7 +2313,7 @@ async def generate_product_description(
                         {"d": description_text.strip(), "id": listing_id},
                     )
 
-    return {"ok": True, "description": description_text}
+        return {"ok": True, "description": description_text}
     except Exception as e:
         logger.exception("description generation failed")
         return JSONResponse({"error": str(e)}, status_code=500)
