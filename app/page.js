@@ -31,7 +31,7 @@ export default function Home() {
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
-  const [history, setHistory] = useState([]); // [{id, dataUrl, createdAt, prompt, options}]
+  const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
@@ -47,33 +47,13 @@ export default function Home() {
 
   useEffect(() => {
     (async () => {
-      // Load server-side history if logged in; else fallback to localStorage
+      if (!userId) return;
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       try {
-        if (userId) {
-          const res = await fetch(`${baseUrl}/history`, { headers: { "X-User-Id": String(userId) } });
-          if (res.ok) {
-            const data = await res.json();
-            if (Array.isArray(data?.items)) {
-              const serverItems = data.items.map((it) => ({
-                id: it.s3_key,
-                dataUrl: it.url || "",
-                createdAt: Date.parse(it.created_at) || Date.now(),
-                prompt: it.prompt || "",
-                options: { poses: [it.pose] },
-              }));
-              setHistory(serverItems);
-              return;
-            }
-          }
-        }
-      } catch {}
-      // Fallback: localStorage
-      try {
-        const raw = localStorage.getItem("vb_history");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) setHistory(parsed);
+        const res = await fetch(`${baseUrl}/listings`, { headers: { "X-User-Id": String(userId) } });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.items)) setListings(data.items);
         }
       } catch {}
     })();
@@ -175,11 +155,19 @@ export default function Home() {
     }
   }, [envDefaults, options.environment]);
 
-  function persistHistory(next) {
-    setHistory(next);
-    try {
-      localStorage.setItem("vb_history", JSON.stringify(next));
-    } catch {}
+  function refreshListingsSoon(delay = 800) {
+    // Simple refetch helper to reflect new cover/images soon after generation
+    setTimeout(async () => {
+      if (!userId) return;
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      try {
+        const res = await fetch(`${baseUrl}/listings`, { headers: { "X-User-Id": String(userId) } });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.items)) setListings(data.items);
+        }
+      } catch {}
+    }, delay);
   }
 
   function computeEffectivePrompt(poseOverride, forPreview = true) {
@@ -382,61 +370,50 @@ export default function Home() {
       // Ensure at least one pose
       const poses = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses : ["standing"];
 
-      // Fire parallel requests per pose (max 3 by UI)
-      // Use selected studio default (persisted), or fall back to first
+      // Resolve environment default for main request
       const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
         ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
         : undefined;
 
-      // If description generation is enabled, start description request in parallel now
-      let descPromise = null;
-      if (descEnabled) {
-        const dform = new FormData();
-        dform.append("image", selectedFile);
-        dform.append("gender", options.gender);
-        if (desc.brand) dform.append("brand", desc.brand);
-        if (desc.productModel) dform.append("model_name", desc.productModel);
-        if (desc.size) dform.append("size", desc.size);
-        if (productCondition) dform.append("condition", productCondition);
-        descPromise = fetch(`${baseUrl}/describe`, {
-          method: "POST",
-          body: dform,
-          headers: userId ? { "X-User-Id": String(userId) } : {},
-        })
-          .then(async (r) => (r.ok ? r.json() : null))
-          .catch(() => null);
-      }
+      // 1) Create listing first
+      const lform = new FormData();
+      lform.append("image", selectedFile);
+      lform.append("gender", options.gender);
+      lform.append("environment", options.environment);
+      for (const p of poses) lform.append("poses", p);
+      lform.append("extra", options.extra || "");
+      if (envDefaultKey) lform.append("env_default_s3_key", envDefaultKey);
+      const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
+      const personDefaultKey = personDefault?.s3_key;
+      const personDesc = personDefault?.description;
+      if (useModelImage && personDefaultKey) lform.append("model_default_s3_key", personDefaultKey);
+      if (!useModelImage && personDesc) lform.append("model_description_text", personDesc);
+      if (promptDirty) lform.append("prompt_override", promptInput.trim());
+      if (title) lform.append("title", title);
+      const lres = await fetch(`${baseUrl}/listing`, { method: "POST", body: lform, headers: userId ? { "X-User-Id": String(userId) } : {} });
+      if (!lres.ok) throw new Error(await lres.text());
+      const listing = await lres.json();
+      const listingId = listing?.id;
+      if (!listingId) throw new Error("No listing id");
 
-      const requests = poses.map(async (pose) => {
+      // 2) Fire parallel /edit/json per pose with listing_id
+      const genRequests = poses.map(async (pose) => {
         const form = new FormData();
         form.append("image", selectedFile);
         form.append("gender", options.gender);
         form.append("environment", options.environment);
         form.append("poses", pose);
         form.append("extra", options.extra || "");
-        form.append("title", title || "");
-        if (envDefaultKey) {
-          form.append("env_default_s3_key", envDefaultKey);
-        }
-        const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
-        const personDefaultKey = personDefault?.s3_key;
-        const personDesc = personDefault?.description;
-        if (useModelImage && personDefaultKey) {
-          form.append("model_default_s3_key", personDefaultKey);
-        } else if (!useModelImage && personDesc) {
-          form.append("model_description_text", personDesc);
-        }
-        // Build per-pose effective prompt.
-        // If user edited the prompt, use their text but augment with pose info when needed.
+        if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
+        if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
+        else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
         let effective = "";
         if (promptDirty) {
           effective = promptInput.trim();
           if (pose === "random") {
             const items = Array.isArray(poseDescs) ? poseDescs : [];
             const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
-            if (pick?.description) {
-              effective += `\nPose description: ${pick.description}`;
-            }
+            if (pick?.description) effective += `\nPose description: ${pick.description}`;
           } else if (pose === "face trois quart") {
             effective += "\n- Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.";
           } else if (pose === "from the side") {
@@ -446,53 +423,35 @@ export default function Home() {
           effective = computeEffectivePrompt(pose, false);
         }
         form.append("prompt_override", effective);
-        // Description fields are not sent to backend for generation
-        const res = await fetch(`${baseUrl}/edit`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+        form.append("listing_id", listingId);
+        const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
         if (!res.ok) throw new Error(await res.text());
-        const blob = await res.blob();
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = () => reject(new Error("Failed to read image"));
-          reader.onload = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-        return { pose, dataUrl: String(dataUrl), effectivePrompt: effective };
+        return res.json();
       });
 
-      const results = await Promise.allSettled(requests);
-      const successes = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
-      if (successes.length === 0) throw new Error("All generations failed");
+      const genResults = await Promise.allSettled(genRequests);
+      const ok = genResults.some((r) => r.status === "fulfilled");
+      if (!ok) throw new Error("All generations failed");
 
-      // Show first result in preview
-      const first = successes[0];
-      if (previewUrl && typeof previewUrl === "string" && previewUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(previewUrl);
-      }
-      setPreviewUrl(first.dataUrl);
-
-      // Save all in history (cap 12). Prefer server-backed entries if available.
-      const now = Date.now();
-      const newItems = successes.map((s) => ({
-        id: `${now}-${s.pose}-${Math.random().toString(36).slice(2, 6)}`,
-        dataUrl: s.dataUrl,
-        createdAt: now,
-        prompt: s.effectivePrompt || (promptDirty ? promptInput : computeEffectivePrompt(s.pose, true)),
-        options: { ...options, poses: [s.pose], title, desc: descEnabled ? desc : undefined },
-      }));
-      const next = [...newItems, ...history].slice(0, 12);
-      persistHistory(next);
-
-      // Finish description request if it was started (ran in parallel)
-      if (descPromise) {
+      // 3) Optionally generate description attached to listing
+      if (descEnabled) {
         try {
-          const dj = await descPromise;
-          if (dj?.description) {
-            alert("Generated product description:\n\n" + dj.description);
-          }
+          const dform = new FormData();
+          dform.append("image", selectedFile);
+          dform.append("gender", options.gender);
+          if (desc.brand) dform.append("brand", desc.brand);
+          if (desc.productModel) dform.append("model_name", desc.productModel);
+          if (desc.size) dform.append("size", desc.size);
+          if (productCondition) dform.append("condition", productCondition);
+          dform.append("listing_id", listingId);
+          await fetch(`${baseUrl}/describe`, { method: "POST", body: dform, headers: userId ? { "X-User-Id": String(userId) } : {} });
         } catch {}
       }
 
-      // Description request already sent earlier in parallel when enabled.
+      refreshListingsSoon();
+
+      // 4) Navigate to the listing detail page
+      window.location.href = `/listing/${listingId}`;
     } catch (err) {
       console.error(err);
       alert("Generation failed. Check backend logs and API key.");
@@ -833,33 +792,28 @@ export default function Home() {
 
         
 
-        {/* History */}
+        {/* Listings History (server-backed, auth only) */}
         <section className="mt-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium">History</h2>
-            {history.length > 0 && (
-              <button
-                type="button"
-                className="text-xs text-gray-500 hover:underline"
-                onClick={() => persistHistory([])}
-              >
-                Clear
-              </button>
-            )}
+            <h2 className="text-sm font-medium">Your Listings</h2>
           </div>
-          {history.length === 0 ? (
+          {(!listings || listings.length === 0) ? (
             <p className="text-xs text-gray-500 mt-2">No generations yet.</p>
           ) : (
             <div className="mt-2 grid grid-cols-3 gap-2">
-              {history.map((item) => (
-                <button
-                  key={item.id}
+              {listings.map((l) => (
+                <a
+                  key={l.id}
                   className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square"
-                  onClick={() => setPreviewUrl(item.dataUrl)}
-                  title={new Date(item.createdAt).toLocaleString()}
+                  href={`/listing/${l.id}`}
+                  title={new Date(l.created_at).toLocaleString()}
                 >
-                  <img src={item.dataUrl} alt="History" className="h-full w-full object-cover" />
-                </button>
+                  {l.cover_url ? (
+                    <img src={l.cover_url} alt="Listing" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">No image yet</div>
+                  )}
+                </a>
               ))}
             </div>
           )}

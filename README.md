@@ -24,9 +24,12 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - the selected environment default image (optional)
   - the selected gender model default image (optional)
   Backend builds one prompt and includes all references for the model
-- History gallery of generated images with quick preview
-  - Server-backed: `/history` returns the last 200 garment edits for the current user (requires `X-User-Id`)
-  - Falls back to per-browser localStorage when not signed in
+- Listings flow (auth required): each generation session becomes a "Listing" bundling the source garment image, settings, generated images, and optional description
+  - Create listing via `POST /listing` with the garment image and settings
+  - Add images by calling `POST /edit/json` per selected pose with `listing_id`
+  - Generate description via `POST /describe` with `listing_id` to store on the listing
+  - History grid on the main page uses `GET /listings`; the cover image defaults to the first generated image
+  - Listing detail page at `/listing/[id]` shows all images, settings, and description
 
 Default generation style (Mirror Selfie for Vinted)
 - Photorealistic mirror selfie, amateur smartphone look
@@ -183,7 +186,7 @@ AWS_S3_BUCKET=<bucket-name>
   - Sends `multipart/form-data` to `/edit` with fields: `image`, `gender` (woman|man), `environment`, repeated `poses`, and `extra`
   - When available, also sends `env_default_s3_key` (selected Studio environment default) and `model_default_s3_key` (selected gender’s model default)
   - When multiple poses are selected, fires parallel requests (one per pose)
-  - History is fetched from `/history` when signed in (falls back to localStorage; max 12 shown)
+  - History grid now fetches your listings from `/listings` (auth required)
   - Description generation toggle: when enabled, sends the uploaded garment image and metadata to `/describe` in parallel with `/edit`
   - Condition selector uses three buttons: Brand new / Very good / Good
 
@@ -299,6 +302,11 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Response: `image/png` stream
 - Errors: 400 invalid input; 413 image too large; 502 upstream / no image
 
+### POST /edit/json
+- Content-Type: `multipart/form-data`
+- Same fields as `/edit` plus optional `listing_id`
+- Response: `{ ok, s3_key, url, pose, prompt, listing_id }`
+
 ### POST /generate
 - Content-Type: `application/x-www-form-urlencoded`
 - Fields: `prompt`
@@ -323,6 +331,12 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 
 ### GET /health
 - Response: `{ ok: true, model: string }`
+
+### Listings
+- `POST /listing` — create a listing with product source image and settings
+- `GET /listings` — list current user’s listings (requires `X-User-Id`)
+- `GET /listing/{id}` — fetch a single listing with images (requires `X-User-Id` and ownership)
+- `PATCH /listing/{id}/cover` — set the cover image to an attached image `s3_key`
 
 ## Troubleshooting
 - TLS warning on backend domain: ensure HTTPS enabled and DNS A record points to Dokploy server; wait for Let’s Encrypt

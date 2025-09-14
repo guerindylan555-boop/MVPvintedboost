@@ -111,6 +111,29 @@ class EnvDefaultUser(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
+# Listings group a source garment image, settings, description, and generated images
+class Listing(Base):
+    __tablename__ = "listings"
+    # Use a hex uuid string as primary key for easy client routing
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    source_s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    settings_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    description_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_s3_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class ListingImage(Base):
+    __tablename__ = "listing_images"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    listing_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    pose: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
 _engine: AsyncEngine | None = None
 _SessionFactory: sessionmaker | None = None
 
