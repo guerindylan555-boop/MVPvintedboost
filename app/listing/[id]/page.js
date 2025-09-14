@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useParams } from "next/navigation";
 import { createAuthClient } from "better-auth/react";
 const authClient = createAuthClient();
@@ -73,7 +74,9 @@ export default function ListingPage() {
           <h1 className="text-base font-semibold">Listing</h1>
           <div className="mt-2 rounded-2xl overflow-hidden border border-black/10 dark:border-white/15">
             {listing.source_url ? (
-              <img src={listing.source_url} alt="Source" className="w-full object-contain" />
+              <div className="relative w-full aspect-[4/5]">
+                <Image src={listing.source_url} alt="Source" fill sizes="(max-width: 768px) 100vw, 600px" className="object-contain" />
+              </div>
             ) : (
               <div className="p-10 text-center text-sm text-gray-500">Source image unavailable</div>
             )}
@@ -100,8 +103,12 @@ export default function ListingPage() {
                 const isCover = img.s3_key === listing.cover_s3_key;
                 return (
                   <div key={img.s3_key} className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15">
-                    <a href={img.url || "#"} target="_blank" rel="noreferrer">
-                      <img src={img.url} alt={img.pose} className="w-full h-full object-cover" />
+                    <a href={img.url || "#"} target="_blank" rel="noreferrer" className="block relative w-full aspect-square">
+                      {img.url ? (
+                        <Image src={img.url} alt={img.pose} fill sizes="(max-width: 768px) 50vw, 300px" className="object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-black/10 dark:bg-white/10" />
+                      )}
                     </a>
                     <div className="absolute top-1 left-1 flex items-center gap-1">
                       <button

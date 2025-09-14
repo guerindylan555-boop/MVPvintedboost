@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Drawer } from "vaul";
 import { Toaster, toast } from "react-hot-toast";
+import Link from "next/link";
+import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
-import { Camera } from "lucide-react";
+import { Camera, Check, X, Loader2 } from "lucide-react";
 const authClient = createAuthClient();
 
 export default function Home() {
@@ -36,6 +38,9 @@ export default function Home() {
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
   const [showAdvancedPrompt, setShowAdvancedPrompt] = useState(false);
+  const [poseStatus, setPoseStatus] = useState({}); // { [pose]: 'pending'|'running'|'done'|'error' }
+  const [poseErrors, setPoseErrors] = useState({}); // { [pose]: string }
+  const [lastListingId, setLastListingId] = useState(null);
   const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
   const [listingsLoading, setListingsLoading] = useState(true);
   // Prompt preview/editor
@@ -418,10 +423,16 @@ export default function Home() {
       const listing = await lres.json();
       const listingId = listing?.id;
       if (!listingId) throw new Error("No listing id");
+      setLastListingId(listingId);
 
       // 2) Fire parallel /edit/json per pose with listing_id
       let done = 0;
       toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
+      // initialize pose statuses
+      const initialStatus = {};
+      for (const p of poses) initialStatus[p] = 'running';
+      setPoseStatus(initialStatus);
+      setPoseErrors({});
       const genRequests = poses.map(async (pose) => {
         const form = new FormData();
         form.append("image", selectedFile);
@@ -450,15 +461,27 @@ export default function Home() {
         form.append("prompt_override", effective);
         form.append("listing_id", listingId);
         const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(txt || `Pose ${pose} failed`);
+        }
         const out = await res.json();
         done += 1;
         toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
+        setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
         return out;
       });
 
       const genResults = await Promise.allSettled(genRequests);
       const ok = genResults.some((r) => r.status === "fulfilled");
+      // capture any failures
+      genResults.forEach((r, idx) => {
+        if (r.status === 'rejected') {
+          const pose = poses[idx];
+          setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
+          setPoseErrors((e) => ({ ...e, [pose]: r.reason?.message || 'Failed' }));
+        }
+      });
       if (!ok) throw new Error("All generations failed");
 
       // 3) Optionally generate description attached to listing
@@ -486,6 +509,45 @@ export default function Home() {
       toast.error("Generation failed. Check backend/API key.");
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function retryPose(pose) {
+    if (!selectedFile || !lastListingId) return;
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    try {
+      setPoseStatus((s) => ({ ...s, [pose]: 'running' }));
+      const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
+        ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
+        : undefined;
+      const form = new FormData();
+      form.append("image", selectedFile);
+      form.append("gender", options.gender);
+      form.append("environment", options.environment);
+      form.append("poses", pose);
+      form.append("extra", options.extra || "");
+      if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
+      const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
+      const personDefaultKey = personDefault?.s3_key;
+      const personDesc = personDefault?.description;
+      if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
+      else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
+      let effective = "";
+      if (promptDirty) {
+        effective = promptInput.trim();
+      } else {
+        effective = computeEffectivePrompt(pose, false);
+      }
+      form.append("prompt_override", effective);
+      form.append("listing_id", lastListingId);
+      const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
+      if (!res.ok) throw new Error(await res.text());
+      await res.json();
+      setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
+      setPoseErrors((e) => ({ ...e, [pose]: undefined }));
+    } catch (e) {
+      setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
+      setPoseErrors((er) => ({ ...er, [pose]: e?.message || 'Failed' }));
     }
   }
 
@@ -813,18 +875,21 @@ export default function Home() {
           ) : (
             <div className="mt-2 grid grid-cols-3 gap-2">
               {listings.map((l) => (
-                <a
+                <Link
                   key={l.id}
                   className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square"
                   href={`/listing/${l.id}`}
                   title={new Date(l.created_at).toLocaleString()}
                 >
                   {l.cover_url ? (
-                    <img src={l.cover_url} alt="Listing" className="h-full w-full object-cover" />
+                    <Image src={l.cover_url} alt="Listing cover" fill sizes="(max-width: 768px) 33vw, 200px" className="object-cover" />
                   ) : (
                     <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">No image yet</div>
                   )}
-                </a>
+                  {typeof l.images_count === 'number' && l.images_count > 0 && (
+                    <div className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15">{l.images_count} images</div>
+                  )}
+                </Link>
               ))}
             </div>
           )}
