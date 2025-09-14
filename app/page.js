@@ -333,8 +333,8 @@ export default function Home() {
       if (has) {
         return { ...o, poses: o.poses.filter((p) => p !== pose) };
       }
-      // limit to 3
-      if (o.poses.length >= 3) return o;
+      // limit to 4
+      if (o.poses.length >= 4) return o;
       return { ...o, poses: [...o.poses, pose] };
     });
   }
@@ -415,6 +415,7 @@ export default function Home() {
       const personDesc = personDefault?.description;
       if (useModelImage && personDefaultKey) lform.append("model_default_s3_key", personDefaultKey);
       if (!useModelImage && personDesc) lform.append("model_description_text", personDesc);
+      lform.append("use_model_image", String(!!useModelImage));
       if (promptDirty) lform.append("prompt_override", promptInput.trim());
       if (title) lform.append("title", title);
       const toastId = toast.loading("Creating listing…");
@@ -743,11 +744,11 @@ export default function Home() {
                       )}
                     </div>
                     <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Poses (up to 3) <span className="ml-2 text-[10px] text-gray-500">{Math.min(options.poses?.length || 0, 3)}/3</span></label>
+                      <label className="text-xs text-gray-500">Poses (up to 4) <span className="ml-2 text-[10px] text-gray-500">{Math.min(options.poses?.length || 0, 4)}/4</span></label>
                       <div className="mt-1 grid grid-cols-2 gap-2">
                         {allowedPoses.map((pose) => {
                           const selected = options.poses.includes(pose);
-                          const limitReached = !selected && options.poses.length >= 3;
+                          const limitReached = !selected && options.poses.length >= 4;
                           return (
                             <button
                               key={pose}

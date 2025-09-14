@@ -15,7 +15,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
 - Options panel:
   - gender: woman/man
   - environment: studio/street/bed/beach/indoor (when Studio defaults exist, shows their names instead)
-  - poses: select up to 3 (Face, three-quarter pose, from the side, random). Random uses a saved pose description from Studio; one is pre-picked on page load for the prompt preview and appended at generation time as “Pose description: …”
+  - poses: select up to 4 (Face, three-quarter pose, from the side, random). Random uses a saved pose description from Studio; one is pre-picked on page load for the prompt preview and appended at generation time as “Pose description: …”
   - extra: free text instructions
 - model reference toggle: choose the gender default as image, or send its description only
 - Prompt preview/editor: live view of the exact prompt; optionally override before generating
@@ -135,7 +135,7 @@ npm run dev:full
 - The frontend sends structured fields (gender, environment, poses[], extra) and may include environment/person reference images
 - The backend builds a deterministic "Mirror Selfie for Vinted" prompt for image edits
 - Description prompts are built server-side from the uploaded image and provided metadata (gender, brand, model, size, condition)
-- Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 3)
+- Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 4)
 
 Prompt rules (Mirror Selfie for Vinted)
 - Always a mirror selfie, amateur smartphone look
