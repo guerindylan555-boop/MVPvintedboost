@@ -23,7 +23,6 @@ from .db import (
     init_db,
     Generation,
     EnvSource,
-    EnvDefault,
     EnvDefaultUser,
     ModelDefault,
     ModelSource,
