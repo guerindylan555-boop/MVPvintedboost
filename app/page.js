@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Drawer } from "vaul";
+import { Toaster, toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
 const authClient = createAuthClient();
 
@@ -13,7 +15,7 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [optionsOpen, setOptionsOpen] = useState(true);
+  const [sheetOpen, setSheetOpen] = useState(false);
   // Pose choices for mirror selfie flow
   const allowedPoses = ["Face", "three-quarter pose", "from the side", "random"];
   const [options, setOptions] = useState({
@@ -26,12 +28,14 @@ export default function Home() {
   // only its stored textual description (false) with the prompt
   const [useModelImage, setUseModelImage] = useState(true);
   const [envDefaults, setEnvDefaults] = useState([]); // [{s3_key,name,url}]
+  const [envDefaultsLoading, setEnvDefaultsLoading] = useState(true);
   const [selectedEnvDefaultKey, setSelectedEnvDefaultKey] = useState(null);
   const [title, setTitle] = useState("");
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
   const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
+  const [listingsLoading, setListingsLoading] = useState(true);
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
@@ -48,6 +52,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       if (!userId) return;
+      setListingsLoading(true);
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       try {
         const res = await fetch(`${baseUrl}/listings`, { headers: { "X-User-Id": String(userId) } });
@@ -56,6 +61,7 @@ export default function Home() {
           if (Array.isArray(data?.items)) setListings(data.items);
         }
       } catch {}
+      setListingsLoading(false);
     })();
   }, [userId]);
 
@@ -80,12 +86,14 @@ export default function Home() {
   // Load environment defaults to reflect in UI label
   useEffect(() => {
     (async () => {
+      setEnvDefaultsLoading(true);
       try {
         const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
         const res = await fetch(`${baseUrl}/env/defaults`, { headers: userId ? { "X-User-Id": String(userId) } : {} });
         const data = await res.json();
         if (data?.items) setEnvDefaults(data.items);
       } catch {}
+      setEnvDefaultsLoading(false);
     })();
   }, [userId]);
 
@@ -390,6 +398,7 @@ export default function Home() {
       if (!useModelImage && personDesc) lform.append("model_description_text", personDesc);
       if (promptDirty) lform.append("prompt_override", promptInput.trim());
       if (title) lform.append("title", title);
+      const toastId = toast.loading("Creating listing…");
       const lres = await fetch(`${baseUrl}/listing`, { method: "POST", body: lform, headers: userId ? { "X-User-Id": String(userId) } : {} });
       if (!lres.ok) throw new Error(await lres.text());
       const listing = await lres.json();
@@ -397,6 +406,8 @@ export default function Home() {
       if (!listingId) throw new Error("No listing id");
 
       // 2) Fire parallel /edit/json per pose with listing_id
+      let done = 0;
+      toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
       const genRequests = poses.map(async (pose) => {
         const form = new FormData();
         form.append("image", selectedFile);
@@ -426,7 +437,10 @@ export default function Home() {
         form.append("listing_id", listingId);
         const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: form, headers: userId ? { "X-User-Id": String(userId) } : {} });
         if (!res.ok) throw new Error(await res.text());
-        return res.json();
+        const out = await res.json();
+        done += 1;
+        toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
+        return out;
       });
 
       const genResults = await Promise.allSettled(genRequests);
@@ -444,17 +458,18 @@ export default function Home() {
           if (desc.size) dform.append("size", desc.size);
           if (productCondition) dform.append("condition", productCondition);
           dform.append("listing_id", listingId);
+          toast.loading("Generating description…", { id: toastId });
           await fetch(`${baseUrl}/describe`, { method: "POST", body: dform, headers: userId ? { "X-User-Id": String(userId) } : {} });
         } catch {}
       }
-
+      toast.success("Listing ready!", { id: toastId });
       refreshListingsSoon();
 
       // 4) Navigate to the listing detail page
       window.location.href = `/listing/${listingId}`;
     } catch (err) {
       console.error(err);
-      alert("Generation failed. Check backend logs and API key.");
+      toast.error("Generation failed. Check backend/API key.");
     } finally {
       setIsGenerating(false);
     }
@@ -469,6 +484,7 @@ export default function Home() {
 
   return (
     <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
+      <Toaster position="top-center" />
       <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
         {/* Upload first */}
         <section>
@@ -555,6 +571,146 @@ export default function Home() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* Quick actions */}
+        <section className="flex items-center justify-between">
+          <Drawer.Root open={sheetOpen} onOpenChange={setSheetOpen}>
+            <Drawer.Trigger asChild>
+              <button
+                type="button"
+                className="h-10 px-4 rounded-lg border border-black/10 dark:border-white/15 text-sm"
+                aria-label="Edit options"
+              >
+                Edit options
+              </button>
+            </Drawer.Trigger>
+            <Drawer.Portal>
+              <Drawer.Overlay className="fixed inset-0 bg-black/40" />
+              <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background">
+                <div className="mx-auto max-w-md p-4">
+                  <div className="h-1 w-8 bg-black/20 dark:bg-white/20 rounded-full mx-auto mb-3" />
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-sm font-medium">Options</h2>
+                    <button type="button" className="text-xs text-gray-500" onClick={() => setSheetOpen(false)}>Done</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-1">
+                      <label className="text-xs text-gray-500">Gender</label>
+                      <select
+                        className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                        value={options.gender}
+                        onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
+                      >
+                        <option value="woman">Woman</option>
+                        <option value="man">Man</option>
+                      </select>
+                    </div>
+                    <div className="col-span-1">
+                      <label className="text-xs text-gray-500">Model reference</label>
+                      <div className="mt-1 grid grid-cols-2 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setUseModelImage(true)}
+                          className={`text-xs ${useModelImage ? 'bg-foreground text-background' : 'text-foreground'} `}
+                        >
+                          Image
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUseModelImage(false)}
+                          className={`text-xs ${!useModelImage ? 'bg-foreground text-background' : 'text-foreground'} `}
+                        >
+                          Description
+                        </button>
+                      </div>
+                      {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
+                        <p className="mt-1 text-[10px] text-amber-600">No default description; falls back to gender hint.</p>
+                      )}
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500">Environment</label>
+                      {envDefaultsLoading ? (
+                        <div className="mt-2 flex gap-2 overflow-x-auto">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <div key={i} className="w-20 h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                          ))}
+                        </div>
+                      ) : envDefaults.length > 0 ? (
+                        <div className="mt-2 flex gap-2 overflow-x-auto snap-x snap-mandatory">
+                          {envDefaults.map((d) => (
+                            <button
+                              key={d.s3_key}
+                              type="button"
+                              onClick={() => {
+                                setSelectedEnvDefaultKey(d.s3_key);
+                                try { localStorage.setItem('vb_env_default_key', d.s3_key); } catch {}
+                                if (options.environment !== 'studio') setOptions((o) => ({ ...o, environment: 'studio' }));
+                              }}
+                              className={`w-20 snap-start rounded-md border ${selectedEnvDefaultKey === d.s3_key ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}
+                              title={d.name || 'Environment'}
+                            >
+                              <div className="w-full aspect-[3/4] overflow-hidden rounded-t-md">
+                                {d.url ? (
+                                  <img src={d.url} alt={d.name || 'Environment'} className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-black/10 dark:bg-white/10" />
+                                )}
+                              </div>
+                              <div className="px-1 py-1 text-[10px] truncate">{d.name || 'Untitled'}</div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <select
+                          className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                          value={options.environment}
+                          onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
+                        >
+                          <option value="studio">Studio</option>
+                          <option value="street">Street</option>
+                          <option value="bed">Bed</option>
+                          <option value="beach">Beach</option>
+                          <option value="indoor">Indoor</option>
+                        </select>
+                      )}
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500">Poses (up to 3)</label>
+                      <div className="mt-1 grid grid-cols-2 gap-2">
+                        {allowedPoses.map((pose) => {
+                          const selected = options.poses.includes(pose);
+                          const limitReached = !selected && options.poses.length >= 3;
+                          return (
+                            <button
+                              key={pose}
+                              type="button"
+                              onClick={() => togglePose(pose)}
+                              disabled={limitReached}
+                              className={`h-10 rounded-md border text-sm ${selected ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}
+                              aria-pressed={selected}
+                            >
+                              {pose}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500">Extra instructions</label>
+                      <input
+                        type="text"
+                        placeholder="e.g., natural daylight, smiling, medium shot"
+                        className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                        value={options.extra}
+                        onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </Drawer.Content>
+            </Drawer.Portal>
+          </Drawer.Root>
         </section>
 
         {/* Title */}
@@ -797,7 +953,13 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium">Your Listings</h2>
           </div>
-          {(!listings || listings.length === 0) ? (
+          {listingsLoading ? (
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="aspect-square rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+              ))}
+            </div>
+          ) : (!listings || listings.length === 0) ? (
             <p className="text-xs text-gray-500 mt-2">No generations yet.</p>
           ) : (
             <div className="mt-2 grid grid-cols-3 gap-2">
@@ -828,8 +990,14 @@ export default function Home() {
         </section>
       </main>
 
-      <div className="sticky bottom-0 z-10 w-full bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t border-black/10 dark:border-white/15">
-        <div className="max-w-md mx-auto p-4 flex gap-3">
+      <div className="sticky bottom-0 z-10 w-full bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t border-black/10 dark:border-white/15 pb-[env(safe-area-inset-bottom)]">
+        <div className="max-w-md mx-auto p-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2 text-xs overflow-x-auto">
+            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">{options.gender}</span>
+            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Env: {envDefaults.length > 0 ? (selectedEnvDefaultKey ? 'Default' : 'Default (first)') : options.environment}</span>
+            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Poses: {Array.isArray(options.poses) ? options.poses.length : 0}</span>
+            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Model: {useModelImage ? 'Image' : 'Desc'}</span>
+          </div>
           <button
             type="button"
             onClick={handleGenerate}
