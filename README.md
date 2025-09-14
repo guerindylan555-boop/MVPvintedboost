@@ -138,7 +138,7 @@ npm run dev:full
 
 ### Prompting strategy
 - The frontend sends structured fields (gender, environment, poses[], extra) and may include environment/person reference images
-- The backend builds a deterministic "Mirror Selfie for Vinted" prompt for image edits
+- The backend builds a deterministic "Mirror Selfie for Vinted" prompt for image edits. The prompt explicitly states whether a person or environment reference IS or IS NOT present (no conditional phrasing like “If provided”). When an image reference is attached, textual fields that could conflict (e.g., environment text) are omitted.
 - Description prompts are built server-side from the uploaded image and provided metadata (gender, brand, model, size, condition)
 - Multiple poses: the frontend fires one parallel `/edit` request per pose (up to 4)
 

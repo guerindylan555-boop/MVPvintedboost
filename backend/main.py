@@ -278,11 +278,20 @@ def build_mirror_selfie_prompt(
     lines.append("- Keep results PG-13 (no nudity; no explicit content).")
     lines.append("")
     lines.append("TASK")
-    lines.append(
-        "You render a photorealistic mirror selfie of a person wearing the provided garment. "
-        "If a person reference is provided, keep identity cues and hair/build consistent (the face may be occluded by the phone). "
-        "If an environment reference is provided, match its lighting, camera angle, color palette, and depth of field. Keep an amateur smartphone look."
-    )
+    task_parts: list[str] = []
+    task_parts.append("You render a photorealistic mirror selfie of a person wearing the provided garment.")
+    if use_person_image:
+        task_parts.append("Use the attached person reference image; keep identity cues, hair, and overall build consistent (the face may be occluded by the phone).")
+    elif person_description:
+        task_parts.append("No person image; use the provided person description to guide identity (the face may be occluded by the phone).")
+    else:
+        task_parts.append("No person reference; synthesize a plausible model matching the selected person.")
+    if use_env_image:
+        task_parts.append("Use the attached environment reference as a mirror scene; match its lighting, camera angle, color palette, and depth of field.")
+    else:
+        task_parts.append("No environment reference; synthesize a clean mirror setting consistent with the requested environment.")
+    task_parts.append("Keep an amateur smartphone look.")
+    lines.append(" ".join(task_parts))
     lines.append("")
     lines.append("REQUIRED OUTPUT")
     lines.append("- One 2D PNG photo, realistic lighting and skin.")
@@ -299,7 +308,8 @@ def build_mirror_selfie_prompt(
     lines.append("8) Garment usage: the person must be wearing the uploaded garment; do not omit or replace it.")
     lines.append("")
     lines.append("CONDITIONED CONTROLS")
-    lines.append(f"- Gender: {conditioned_gender if conditioned_gender else '""'}")
+    # Show person label instead of gender; omit value when a person image is attached
+    lines.append(f"- Person: {conditioned_gender if (conditioned_gender and not use_person_image) else '""'}")
     lines.append(f"- Environment: {conditioned_env if conditioned_env else '""'}")
     lines.append(f"- Pose: {conditioned_pose if conditioned_pose else '""'}")
     lines.append(f"- Extra user instructions: \"{conditioned_extra.replace('\\n', ' ')}\"")
@@ -312,18 +322,19 @@ def build_mirror_selfie_prompt(
     lines.append("- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible when natural.")
     lines.append("")
     lines.append("ENVIRONMENT BEHAVIOR")
-    lines.append("- If environment reference is provided: imitate its scene category, palette, light direction, shadows, and DoF; keep any mirror frame consistent.")
     if use_env_image:
-        pass
+        lines.append("- Use the attached environment reference as a mirror scene; imitate its scene category, palette, light direction, shadows, and depth of field; keep any mirror frame consistent.")
     else:
-        lines.append("- If not provided: synthesize a clean mirror setting that complements the garment; minimal, elegant background; avoid busy textures behind the torso.")
+        lines.append("- No environment reference: synthesize a clean mirror setting that complements the garment; minimal, elegant background; avoid busy textures behind the torso.")
     lines.append("")
     lines.append("PERSON BEHAVIOR")
-    lines.append("- If a person reference is provided: keep face, hair, skin tone, and general build consistent (face may be partly occluded by phone).")
-    lines.append("- If not provided: synthesize a plausible model matching the gender; natural expression.")
-    if person_description:
-        lines.append("- Use a person that matches this description.")
-        lines.append(f"- Person description: {person_description}")
+    if use_person_image:
+        lines.append("- Person reference: use the attached image; keep face, hair, skin tone, and general build consistent (face may be partly occluded by phone).")
+    else:
+        lines.append("- No person reference: synthesize a plausible model; natural expression.")
+        if person_description:
+            lines.append("- Use a person that matches this description.")
+            lines.append(f"- Person description: {person_description}")
     lines.append("- Hand pose: holding a smartphone naturally; fingers look correct; phone and reflection visible.")
     lines.append("")
     lines.append("POSE RENDERING")
@@ -346,12 +357,20 @@ def build_mirror_selfie_prompt(
 
 
 def build_sequential_step1_prompt(*, use_person_image: bool, person_description: Optional[str], pose: str, extra: str) -> str:
-    """Step 1: Wear garment on person (no environment changes)."""
+    """Step 1: Wear garment on person (no environment changes).
+
+    Explicitly describe whether a person image or only a description is provided.
+    """
     def q(s: Optional[str]) -> str:
         return (s or "").strip()
     lines: list[str] = []
     lines.append("TASK")
-    lines.append("Combine the attached garment with the attached person: put the garment on the person.")
+    if use_person_image:
+        lines.append("Use the attached person reference image and the attached garment: put the garment on that person.")
+    elif q(person_description):
+        lines.append("No person image: synthesize a person matching the provided description and put the garment on them.")
+    else:
+        lines.append("No person reference: synthesize a plausible person and put the garment on them.")
     lines.append("")
     lines.append("HARD CONSTRAINTS")
     lines.append("- Do not change the person's identity, body, hair, or pose.")
@@ -372,12 +391,18 @@ def build_sequential_step1_prompt(*, use_person_image: bool, person_description:
 
 
 def build_sequential_step2_prompt(*, environment: str, pose: str, extra: str, use_env_image: bool) -> str:
-    """Step 2: Place person-with-garment into mirror scene."""
+    """Step 2: Place person-with-garment into mirror scene.
+
+    Explicitly describe whether an environment image is provided.
+    """
     def q(s: Optional[str]) -> str:
         return (s or "").strip()
     lines: list[str] = []
     lines.append("TASK")
-    lines.append("Insert the person from the attached person image into the attached mirror-scene environment (if provided).")
+    if use_env_image:
+        lines.append("Insert the person from the attached person image into the attached mirror-scene environment.")
+    else:
+        lines.append("Insert the person from the attached person image into a synthesized mirror scene consistent with the requested environment.")
     lines.append("")
     lines.append("CONSTRAINTS")
     lines.append("- Do not change the person or clothing at all; keep exact colors, textures, prints, and fit from the person image.")

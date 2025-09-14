@@ -93,9 +93,22 @@ export default function ListingPage() {
     lines.push("- Garment is the hero: exact shape, color, fabric, prints, logos.");
     lines.push("");
     lines.push("TASK");
-    lines.push(
-      "You render a photorealistic mirror selfie of a person wearing the provided garment. The person holds a black iPhone 16 Pro. If a person reference is provided, keep hair and overall build consistent (the face may be occluded by the phone). If an environment reference is provided, treat it as a mirror scene and match its lighting, camera angle, color palette, and depth of field. Keep an amateur phone-shot look."
-    );
+    const taskParts = [];
+    taskParts.push("You render a photorealistic mirror selfie of a person wearing the provided garment. The person holds a black iPhone 16 Pro.");
+    if (usingPersonImage) {
+      taskParts.push("Use the attached person reference image; keep hair and overall build consistent (the face may be occluded by the phone).");
+    } else if (usingPersonDesc) {
+      taskParts.push("No person image; use the provided person description to guide identity (the face may be occluded by the phone).");
+    } else {
+      taskParts.push("No person reference; synthesize a plausible model matching the selected person.");
+    }
+    if (envDefaultKey) {
+      taskParts.push("Use the attached environment reference as a mirror scene; match its lighting, camera angle, color palette, and depth of field.");
+    } else {
+      taskParts.push("No environment reference; synthesize a clean mirror setting consistent with the requested environment.");
+    }
+    taskParts.push("Keep an amateur smartphone look.");
+    lines.push(taskParts.join(" "));
     lines.push("");
     lines.push("REQUIRED OUTPUT");
     lines.push("- One 2D PNG photo, vertical smartphone framing (prefer 4:5).");
@@ -113,7 +126,7 @@ export default function ListingPage() {
     lines.push("8) Garment usage: the person must be wearing the uploaded garment; do not omit or replace it.");
     lines.push("");
     lines.push("CONDITIONED CONTROLS");
-    lines.push(`- Gender: ${usingPersonImage ? "" : (s?.gender || "")}`);
+    lines.push(`- Person: ${usingPersonImage ? "" : (s?.gender || "")}`);
     lines.push(`- Environment: ${envDefaultKey ? "" : (s?.environment || "")}`);
     lines.push(`- Pose: ${poseLine || ""}`);
     lines.push(`- Extra user instructions: "${(s?.extra || "").trim().replace(/\n/g, " ")}"`);
@@ -126,18 +139,21 @@ export default function ListingPage() {
     lines.push("- Composition: center subject in mirror; show phone and hand; avoid cropping garment edges; keep hands visible naturally.");
     lines.push("");
     lines.push("ENVIRONMENT BEHAVIOR");
-    lines.push("- If an environment reference is provided: treat it as a mirror scene; imitate its framing, palette, light direction, shadows, and DoF; keep any mirror frame consistent.");
-    if (!envDefaultKey) {
-      lines.push("- If not provided: synthesize a clean mirror setting (bedroom/closet/bath) that complements the garment; uncluttered background.");
+    if (envDefaultKey) {
+      lines.push("- Use the attached environment reference as a mirror scene; imitate its framing, palette, light direction, shadows, and DoF; keep any mirror frame consistent.");
+    } else {
+      lines.push("- No environment reference: synthesize a clean mirror setting (bedroom/closet/bath) that complements the garment; uncluttered background.");
     }
     lines.push("");
     lines.push("PERSON BEHAVIOR");
-    lines.push("- If a person reference is provided: keep hair, skin tone, and general build consistent (face may be partly occluded by phone).");
-    lines.push("- If not provided: synthesize a plausible model matching the gender; friendly neutral expression.");
-    if (usingPersonDesc) {
-      // None currently available on listing; included for parity with main page
-      lines.push("- Use a person that matches this description.");
-      lines.push(`- Person description: ${""}`);
+    if (usingPersonImage) {
+      lines.push("- Person reference: use the attached image; keep hair, skin tone, and general build consistent (face may be partly occluded by phone).");
+    } else {
+      lines.push("- No person reference: synthesize a plausible model; friendly neutral expression.");
+      if (usingPersonDesc) {
+        lines.push("- Use a person that matches this description.");
+        lines.push(`- Person description: ${""}`);
+      }
     }
     lines.push("- Hand pose: holding a black iPhone 16 Pro naturally; fingers look correct; phone and its reflection visible.");
     lines.push("");
