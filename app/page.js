@@ -35,6 +35,7 @@ export default function Home() {
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
+  const [showAdvancedPrompt, setShowAdvancedPrompt] = useState(false);
   const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
   const [listingsLoading, setListingsLoading] = useState(true);
   // Prompt preview/editor
@@ -680,7 +681,7 @@ export default function Home() {
                       )}
                     </div>
                     <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Poses (up to 3)</label>
+                      <label className="text-xs text-gray-500">Poses (up to 3) <span className="ml-2 text-[10px] text-gray-500">{Math.min(options.poses?.length || 0, 3)}/3</span></label>
                       <div className="mt-1 grid grid-cols-2 gap-2">
                         {allowedPoses.map((pose) => {
                           const selected = options.poses.includes(pose);
@@ -710,6 +711,69 @@ export default function Home() {
                         onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
                       />
                     </div>
+                    {/* Description controls inside sheet */}
+                    <div className="col-span-2">
+                      <div className="flex items-center justify-between py-2">
+                        <span className="text-xs text-gray-500">Generate product description</span>
+                        <button
+                          type="button"
+                          onClick={() => setDescEnabled((v) => !v)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${descEnabled ? 'bg-foreground' : 'bg-black/20 dark:bg-white/20'}`}
+                          aria-pressed={descEnabled}
+                        >
+                          <span className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${descEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+                      {descEnabled && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="col-span-2">
+                            <input
+                              type="text"
+                              className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                              placeholder="Brand (e.g., Nike, Zara)"
+                              value={desc.brand}
+                              onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <input
+                              type="text"
+                              className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                              placeholder="Model (e.g., Air Max 90)"
+                              value={desc.productModel}
+                              onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
+                            />
+                          </div>
+                          <div className="col-span-2 flex items-center gap-2">
+                            {['Brand new','Very good','Good'].map((c) => (
+                              <button key={c} type="button" onClick={() => setProductCondition(c)} className={`h-8 px-2 rounded-md border text-xs ${productCondition === c ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{c}</button>
+                            ))}
+                          </div>
+                          <div className="col-span-2 flex items-center gap-2">
+                            {['xs','s','m','l','xl'].map((s) => (
+                              <button key={s} type="button" onClick={() => setDesc((d) => ({ ...d, size: s }))} className={`h-8 px-2 rounded-md border text-xs ${desc.size === s ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{s.toUpperCase()}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Advanced prompt (admin-only) */}
+                    {isAdmin && (
+                      <div className="col-span-2">
+                        <div className="flex items-center justify-between py-2">
+                          <button type="button" className="text-xs font-medium" onClick={() => setShowAdvancedPrompt((v) => !v)} aria-expanded={showAdvancedPrompt}>Advanced prompt</button>
+                          {promptDirty && showAdvancedPrompt ? (
+                            <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => { setPromptDirty(false); setPromptInput(computeEffectivePrompt()); }}>Reset to template</button>
+                          ) : null}
+                        </div>
+                        {showAdvancedPrompt && (
+                          <>
+                            <textarea rows={4} className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm" placeholder="Exact prompt that will be sent" value={promptInput} onChange={(e) => { setPromptInput(e.target.value); setPromptDirty(true); }} />
+                            <p className="mt-1 text-[10px] text-gray-500">Changing options updates the suggestion unless you edit it.</p>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </Drawer.Content>
@@ -728,109 +792,6 @@ export default function Home() {
             onChange={(e) => setTitle(e.target.value)}
           />
         </section>
-
-        {/* Description generation toggle */}
-        <section>
-          <div className="flex items-center justify-between py-2">
-            <span className="text-sm font-medium">Description generation</span>
-            <button
-              type="button"
-              onClick={() => setDescEnabled((v) => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${descEnabled ? "bg-foreground" : "bg-black/20 dark:bg-white/20"}`}
-              aria-pressed={descEnabled}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${descEnabled ? "translate-x-5" : "translate-x-1"}`}
-              />
-            </button>
-          </div>
-          {descEnabled && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Brand</label>
-                <input
-                  type="text"
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  placeholder="e.g., Nike, Zara"
-                  value={desc.brand}
-                  onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Model</label>
-                <input
-                  type="text"
-                  className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                  placeholder="e.g., Air Max 90, Oversized Hoodie"
-                  value={desc.productModel}
-                  onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Condition</label>
-                <div className="mt-1 grid grid-cols-3 gap-2">
-                  {["Brand new", "Very good", "Good"].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setProductCondition(c)}
-                      className={`h-10 rounded-md border text-sm ${productCondition === c ? "border-foreground" : "border-black/10 dark:border-white/15"}`}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs text-gray-500">Size</label>
-                <div className="mt-1 grid grid-cols-5 gap-2">
-                  {["xs", "s", "m", "l", "xl"].map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setDesc((d) => ({ ...d, size: s }))}
-                      className={`h-10 rounded-md border text-sm ${desc.size === s ? "border-foreground" : "border-black/10 dark:border-white/15"}`}
-                    >
-                      {s.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Prompt preview and editor — admin only */}
-        {isAdmin && (
-          <section>
-            <div className="flex items-center justify-between py-2">
-              <span className="text-sm font-medium">Prompt</span>
-              {promptDirty ? (
-                <button
-                  type="button"
-                  className="text-xs text-gray-500 hover:underline"
-                  onClick={() => {
-                    setPromptDirty(false);
-                    setPromptInput(computeEffectivePrompt());
-                  }}
-                >
-                  Reset to suggested
-                </button>
-              ) : null}
-            </div>
-            <textarea
-              rows={4}
-              className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
-              placeholder="Exact prompt that will be sent"
-              value={promptInput}
-              onChange={(e) => {
-                setPromptInput(e.target.value);
-                setPromptDirty(true);
-              }}
-            />
-            <p className="mt-1 text-[10px] text-gray-500">This exact text is sent to the model. Changing options updates the suggestion unless you edit it.</p>
-          </section>
-        )}
 
         {/* Options moved to bottom sheet */}
 
