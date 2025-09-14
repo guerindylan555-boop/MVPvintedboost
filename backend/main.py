@@ -46,6 +46,14 @@ from .storage import (
 from sqlalchemy import select, func, text
 import asyncio
 import uuid
+from .prompts import (
+    classic_detailed,
+    classic_concise,
+    seq_step1_detailed,
+    seq_step1_concise,
+    seq_step2_detailed,
+    seq_step2_concise,
+)
 
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
@@ -470,49 +478,45 @@ async def edit(
         if not norm_poses:
             norm_poses = ["standing"]
 
-        # Build prompt (Mirror Selfie template) considering optional environment/person references
-        parts: list[types.Part] = []
-        env_key_used: str | None = None
-
+        # Build prompt and parts in numbered image order: 1=garment, 2=person (opt), 3=environment (opt)
         use_env_image = bool(env_default_s3_key)
         use_person_image = bool(model_default_s3_key)
         pose_str = norm_poses[0] if norm_poses else ""
-
-        # Prefer explicit override; otherwise build canonical mirror selfie prompt
+        prompt_variant = "detailed"
         if prompt_override and prompt_override.strip():
             prompt_text = prompt_override.strip()
         else:
-            prompt_text = build_mirror_selfie_prompt(
+            prompt_text = classic_detailed(
                 gender=gender,
                 environment=environment,
                 pose=pose_str,
-                extra=extra,
-                use_env_image=use_env_image,
                 use_person_image=use_person_image,
+                use_env_image=use_env_image,
                 person_description=(model_description_text if (model_description_text and not use_person_image) else None),
             )
-        parts.append(types.Part.from_text(text=prompt_text))
-
-        if env_default_s3_key:
-            try:
-                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
-                parts.append(types.Part.from_text(text="Environment reference:"))
-                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
-                env_key_used = env_default_s3_key
-            except Exception:
-                env_key_used = None
+        parts: list[types.Part] = [types.Part.from_text(text=prompt_text)]
+        if (not use_person_image) and model_description_text:
+            parts.append(types.Part.from_text(text=f"Person description: {model_description_text}"))
+        # Image 1: garment (uploaded)
+        parts.append(types.Part.from_bytes(data=png_bytes, mime_type="image/png"))
+        person_key_used: str | None = None
+        env_key_used: str | None = None
+        # Image 2: person (optional)
         if model_default_s3_key:
             try:
                 person_bytes, person_mime = get_object_bytes(model_default_s3_key)
-                parts.append(types.Part.from_text(text="Person reference:"))
                 parts.append(types.Part.from_bytes(data=person_bytes, mime_type=person_mime or "image/png"))
                 person_key_used = model_default_s3_key
             except Exception:
                 person_key_used = None
-
-        # Uploaded garment/source image last
-        image_part = types.Part.from_bytes(data=png_bytes, mime_type="image/png")
-        parts.append(image_part)
+        # Image 3: environment (optional)
+        if env_default_s3_key:
+            try:
+                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
+                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
+                env_key_used = env_default_s3_key
+            except Exception:
+                env_key_used = None
 
         resp = await _genai_generate_with_retries(parts, attempts=2)
         for c in getattr(resp, "candidates", []) or []:
@@ -540,12 +544,58 @@ async def edit(
                                 "model_default_s3_key": person_key_used,
                                 "model_description_text": (model_description_text if not person_key_used else None),
                                 "user_id": x_user_id,
+                                "prompt_variant": prompt_variant,
                             },
                             model=MODEL,
                         )
                         session.add(rec)
                     # Stream bytes back for current UI
                     return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+        # Fallback to concise variant if no image and no explicit override
+        if not (prompt_override and prompt_override.strip()):
+            try:
+                prompt_variant = "concise"
+                prompt_text = classic_concise(
+                    gender=gender,
+                    environment=environment,
+                    pose=pose_str,
+                    use_person_image=use_person_image,
+                    use_env_image=use_env_image,
+                    person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                )
+                parts[0] = types.Part.from_text(text=prompt_text)
+                resp2 = await _genai_generate_with_retries(parts, attempts=1)
+                for c in getattr(resp2, "candidates", []) or []:
+                    content = getattr(c, "content", None)
+                    prts = getattr(content, "parts", None) if content is not None else None
+                    if not prts:
+                        continue
+                    for p in prts:
+                        if getattr(p, "inline_data", None):
+                            png_bytes2 = p.inline_data.data
+                            bucket, key = upload_image(png_bytes2, pose=norm_poses[0])
+                            async with db_session() as session:
+                                rec = Generation(
+                                    s3_key=key,
+                                    pose=norm_poses[0],
+                                    prompt=prompt_text,
+                                    options_json={
+                                        "gender": gender,
+                                        "environment": environment,
+                                        "poses": norm_poses,
+                                        "extra": extra,
+                                        "env_default_s3_key": env_key_used,
+                                        "model_default_s3_key": person_key_used,
+                                        "model_description_text": (model_description_text if not person_key_used else None),
+                                        "user_id": x_user_id,
+                                        "prompt_variant": prompt_variant,
+                                    },
+                                    model=MODEL,
+                                )
+                                session.add(rec)
+                            return StreamingResponse(BytesIO(png_bytes2), media_type="image/png")
+            except Exception:
+                pass
         try:
             cand_count = len(getattr(resp, "candidates", []) or [])
         except Exception:
@@ -1515,38 +1565,43 @@ async def edit_json(
         # Build parts and call model
         use_env_image = bool(env_default_s3_key)
         use_person_image = bool(model_default_s3_key)
+        # Build prompt and parts in numbered image order: 1=garment, 2=person (opt), 3=environment (opt)
         if prompt_override and prompt_override.strip():
             prompt_text = prompt_override.strip()
+            prompt_variant = "override"
         else:
-            prompt_text = build_mirror_selfie_prompt(
+            prompt_text = classic_detailed(
                 gender=gender,
                 environment=environment,
                 pose=pose_str,
-                extra=extra,
-                use_env_image=use_env_image,
                 use_person_image=use_person_image,
+                use_env_image=use_env_image,
                 person_description=(model_description_text if (model_description_text and not use_person_image) else None),
             )
+            prompt_variant = "detailed"
         parts: list[types.Part] = [types.Part.from_text(text=prompt_text)]
+        if (not use_person_image) and model_description_text:
+            parts.append(types.Part.from_text(text=f"Person description: {model_description_text}"))
+        # Image 1: garment
+        parts.append(types.Part.from_bytes(data=src_png, mime_type="image/png"))
         env_key_used: str | None = None
         person_key_used: str | None = None
-        if env_default_s3_key:
-            try:
-                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
-                parts.append(types.Part.from_text(text="Environment reference:"))
-                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
-                env_key_used = env_default_s3_key
-            except Exception:
-                env_key_used = None
+        # Image 2: person (opt)
         if model_default_s3_key:
             try:
                 person_bytes, person_mime = get_object_bytes(model_default_s3_key)
-                parts.append(types.Part.from_text(text="Person reference:"))
                 parts.append(types.Part.from_bytes(data=person_bytes, mime_type=person_mime or "image/png"))
                 person_key_used = model_default_s3_key
             except Exception:
                 person_key_used = None
-        parts.append(types.Part.from_bytes(data=src_png, mime_type="image/png"))
+        # Image 3: environment (opt)
+        if env_default_s3_key:
+            try:
+                env_bytes, env_mime = get_object_bytes(env_default_s3_key)
+                parts.append(types.Part.from_bytes(data=env_bytes, mime_type=env_mime or "image/png"))
+                env_key_used = env_default_s3_key
+            except Exception:
+                env_key_used = None
 
         resp = await _genai_generate_with_retries(parts, attempts=2)
         for c in getattr(resp, "candidates", []) or []:
@@ -1574,6 +1629,7 @@ async def edit_json(
                                     "model_default_s3_key": person_key_used,
                                     "model_description_text": (model_description_text if not person_key_used else None),
                                     "user_id": x_user_id,
+                                    "prompt_variant": prompt_variant,
                                 },
                                 model=MODEL,
                             )
@@ -1610,6 +1666,83 @@ async def edit_json(
                         "prompt": prompt_text,
                         "listing_id": listing_id,
                     }
+        # Fallback to concise prompt if no image and no explicit override
+        if not (prompt_override and prompt_override.strip()):
+            try:
+                prompt_variant = "concise"
+                prompt_text = classic_concise(
+                    gender=gender,
+                    environment=environment,
+                    pose=pose_str,
+                    use_person_image=use_person_image,
+                    use_env_image=use_env_image,
+                    person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                )
+                parts[0] = types.Part.from_text(text=prompt_text)
+                resp2 = await _genai_generate_with_retries(parts, attempts=1)
+                for c in getattr(resp2, "candidates", []) or []:
+                    content = getattr(c, "content", None)
+                    cparts = getattr(content, "parts", None) if content is not None else None
+                    if not cparts:
+                        continue
+                    for p in cparts:
+                        if getattr(p, "inline_data", None):
+                            png_bytes = p.inline_data.data
+                            _, key = upload_image(png_bytes, pose=pose_str or "pose")
+                            async with db_session() as session:
+                                session.add(
+                                    Generation(
+                                        s3_key=key,
+                                        pose=pose_str or "pose",
+                                        prompt=prompt_text,
+                                        options_json={
+                                            "gender": gender,
+                                            "environment": environment,
+                                            "poses": poses,
+                                            "extra": extra,
+                                            "env_default_s3_key": env_key_used,
+                                            "model_default_s3_key": person_key_used,
+                                            "model_description_text": (model_description_text if not person_key_used else None),
+                                            "user_id": x_user_id,
+                                            "prompt_variant": prompt_variant,
+                                        },
+                                        model=MODEL,
+                                    )
+                                )
+                                # Attach to listing if provided and owned by user
+                                if listing_id and x_user_id:
+                                    owns = await session.execute(
+                                        text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
+                                        {"id": listing_id, "uid": x_user_id},
+                                    )
+                                    if owns.first():
+                                        session.add(
+                                            ListingImage(
+                                                listing_id=listing_id,
+                                                s3_key=key,
+                                                pose=pose_str or "pose",
+                                                prompt=prompt_text,
+                                            )
+                                        )
+                                        # Set cover if not set yet
+                                        await session.execute(
+                                            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                                            {"k": key, "id": listing_id},
+                                        )
+                            try:
+                                url = generate_presigned_get_url(key)
+                            except Exception:
+                                url = None
+                            return {
+                                "ok": True,
+                                "s3_key": key,
+                                "url": url,
+                                "pose": pose_str or "pose",
+                                "prompt": prompt_text,
+                                "listing_id": listing_id,
+                            }
+            except Exception:
+                pass
         return JSONResponse({"error": "no edited image from model"}, status_code=502)
     except genai_errors.APIError as e:
         logger.exception("GenAI API error on /edit/json")
@@ -1684,13 +1817,14 @@ async def edit_sequential_json(
         # Step 1 prompt
         if prompt_override_step1 and prompt_override_step1.strip():
             step1_prompt = prompt_override_step1.strip()
+            step1_variant = "override"
         else:
-            step1_prompt = build_sequential_step1_prompt(
+            step1_prompt = seq_step1_detailed(
                 use_person_image=use_person_image,
-                person_description=(model_description_text if (model_description_text and not use_person_image) else None),
                 pose=pose_str,
-                extra=extra,
+                person_description=(model_description_text if (model_description_text and not use_person_image) else None),
             )
+            step1_variant = "detailed"
         parts1: list[types.Part] = [types.Part.from_text(text=step1_prompt)]
         person_key_used: str | None = None
         if model_default_s3_key:
@@ -1722,18 +1856,43 @@ async def edit_sequential_json(
             if step1_png:
                 break
         if not step1_png:
-            return JSONResponse({"error": "no image from model (step1)"}, status_code=502)
+            if not (prompt_override_step1 and prompt_override_step1.strip()):
+                try:
+                    step1_variant = "concise"
+                    step1_prompt = seq_step1_concise(
+                        use_person_image=use_person_image,
+                        pose=pose_str,
+                        person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                    )
+                    parts1[0] = types.Part.from_text(text=step1_prompt)
+                    resp1b = await _genai_generate_with_retries(parts1, attempts=1)
+                    for c in getattr(resp1b, "candidates", []) or []:
+                        content = getattr(c, "content", None)
+                        prts = getattr(content, "parts", None) if content is not None else None
+                        if not prts:
+                            continue
+                        for p in prts:
+                            if getattr(p, "inline_data", None):
+                                step1_png = p.inline_data.data
+                                break
+                        if step1_png:
+                            break
+                except Exception:
+                    step1_png = None
+            if not step1_png:
+                return JSONResponse({"error": "no image from model (step1)"}, status_code=502)
 
         # Step 2 prompt
         if prompt_override_step2 and prompt_override_step2.strip():
             step2_prompt = prompt_override_step2.strip()
+            step2_variant = "override"
         else:
-            step2_prompt = build_sequential_step2_prompt(
+            step2_prompt = seq_step2_detailed(
+                use_env_image=use_env_image,
                 environment=_normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio"),
                 pose=pose_str,
-                extra=extra,
-                use_env_image=use_env_image,
             )
+            step2_variant = "detailed"
         parts2: list[types.Part] = [types.Part.from_text(text=step2_prompt)]
         env_key_used: str | None = None
         person_key_used: str | None = None
@@ -1808,6 +1967,77 @@ async def edit_sequential_json(
                     except Exception:
                         url = None
                     return {"ok": True, "s3_key": key, "url": url, "pose": pose_final, "prompt": step2_prompt, "listing_id": listing_id}
+        if not (prompt_override_step2 and prompt_override_step2.strip()):
+            try:
+                step2_variant = "concise"
+                step2_prompt = seq_step2_concise(
+                    use_env_image=use_env_image,
+                    environment=_normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio"),
+                    pose=pose_str,
+                )
+                parts2[0] = types.Part.from_text(text=step2_prompt)
+                resp2b = await _genai_generate_with_retries(parts2, attempts=1)
+                for c in getattr(resp2b, "candidates", []) or []:
+                    content = getattr(c, "content", None)
+                    prts = getattr(content, "parts", None) if content is not None else None
+                    if not prts:
+                        continue
+                    for p in prts:
+                        if getattr(p, "inline_data", None):
+                            final_png = p.inline_data.data
+                            # Persist final
+                            pose_final = (pose_str or "pose").strip() or "pose"
+                            pose_final = f"{pose_final} (seq)"
+                            bucket, key = upload_image(final_png, pose=pose_final)
+                            async with db_session() as session:
+                                session.add(
+                                    Generation(
+                                        s3_key=key,
+                                        pose=pose_final,
+                                        prompt=step2_prompt,
+                                        options_json={
+                                            "flow": "sequential",
+                                            "prompt_step1": step1_prompt,
+                                            "prompt_step2": step2_prompt,
+                                            "prompt_step1_variant": step1_variant,
+                                            "prompt_step2_variant": step2_variant,
+                                            "gender": gender,
+                                            "environment": environment,
+                                            "poses": poses,
+                                            "extra": extra,
+                                            "env_default_s3_key": env_key_used,
+                                            "model_default_s3_key": person_key_used,
+                                            "model_description_text": (model_description_text if not person_key_used else None),
+                                            "user_id": x_user_id,
+                                        },
+                                        model=MODEL,
+                                    )
+                                )
+                                if listing_id and x_user_id:
+                                    owns = await session.execute(
+                                        text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
+                                        {"id": listing_id, "uid": x_user_id},
+                                    )
+                                    if owns.first():
+                                        session.add(
+                                            ListingImage(
+                                                listing_id=listing_id,
+                                                s3_key=key,
+                                                pose=pose_final,
+                                                prompt=step2_prompt,
+                                            )
+                                        )
+                                        await session.execute(
+                                            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                                            {"k": key, "id": listing_id},
+                                        )
+                            try:
+                                url = generate_presigned_get_url(key)
+                            except Exception:
+                                url = None
+                            return {"ok": True, "s3_key": key, "url": url, "pose": pose_final, "prompt": step2_prompt, "listing_id": listing_id}
+            except Exception:
+                pass
         return JSONResponse({"error": "no image from model (step2)"}, status_code=502)
     except genai_errors.APIError as e:
         logger.exception("GenAI API error on /edit/sequential/json")
