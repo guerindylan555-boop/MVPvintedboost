@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { createAuthClient } from "better-auth/react";
 const authClient = createAuthClient();
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
 
 export default function ListingPage() {
   const params = useParams();
