@@ -793,10 +793,9 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
         # Load source image bytes from S3 and include as input
         src_bytes, mime = get_object_bytes(row[0])
         image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
-        resp = await asyncio.to_thread(
-            get_client().models.generate_content,
-            model=MODEL,
-            contents=types.Content(role="user", parts=[types.Part.from_text(text=instruction), image_part]),
+        resp = await _genai_generate_with_retries(
+            [types.Part.from_text(text=instruction), image_part],
+            attempts=2,
         )
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
@@ -841,10 +840,9 @@ async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(de
             return JSONResponse({"error": "no sources uploaded"}, status_code=400)
         src_bytes, mime = get_object_bytes(row[0])
         image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
-        resp = await asyncio.to_thread(
-            get_client().models.generate_content,
-            model=MODEL,
-            contents=types.Content(role="user", parts=[types.Part.from_text(text=full), image_part]),
+        resp = await _genai_generate_with_retries(
+            [types.Part.from_text(text=full), image_part],
+            attempts=2,
         )
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
