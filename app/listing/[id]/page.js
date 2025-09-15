@@ -23,6 +23,7 @@ export default function ListingPage() {
   const [regenLoading, setRegenLoading] = useState({}); // { [pose]: boolean }
   const [regenError, setRegenError] = useState({}); // { [pose]: string }
   const [poseDescs, setPoseDescs] = useState([]); // [{description}]
+  const [showPrompt, setShowPrompt] = useState({}); // { [s3_key]: boolean }
 
   useEffect(() => {
     (async () => {
@@ -155,6 +156,10 @@ export default function ListingPage() {
     }
   }
 
+  function togglePromptFor(s3Key) {
+    setShowPrompt((m) => ({ ...m, [s3Key]: !m[s3Key] }));
+  }
+
   if (!id) return <div className="p-5">Invalid listing id</div>;
   if (loading) return <div className="p-5 text-sm text-gray-500">Loading…</div>;
   if (error) return <div className="p-5 text-sm text-red-600">{error}</div>;
@@ -243,7 +248,20 @@ export default function ListingPage() {
                           >
                             {isCover ? "Cover" : "Set cover"}
                           </button>
+                          <button
+                            type="button"
+                            className="px-2 py-1 text-[11px] rounded bg-background/80 border border-black/10 dark:border-white/15"
+                            onClick={() => togglePromptFor(img.s3_key)}
+                            title="View prompt"
+                          >
+                            {showPrompt[img.s3_key] ? "Hide prompt" : "Prompt"}
+                          </button>
                         </div>
+                        {showPrompt[img.s3_key] && (
+                          <div className="p-2 border-t border-black/10 dark:border-white/15 text-[11px] whitespace-pre-wrap max-h-40 overflow-auto bg-background/70">
+                            {img.prompt || "No prompt stored."}
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -294,7 +312,20 @@ export default function ListingPage() {
                         >
                           {isCover ? "Cover" : "Set cover"}
                         </button>
+                        <button
+                          type="button"
+                          className="px-2 py-1 text-[11px] rounded bg-background/80 border border-black/10 dark:border-white/15"
+                          onClick={() => togglePromptFor(img.s3_key)}
+                          title="View prompt"
+                        >
+                          {showPrompt[img.s3_key] ? "Hide prompt" : "Prompt"}
+                        </button>
                       </div>
+                      {showPrompt[img.s3_key] && (
+                        <div className="p-2 border-t border-black/10 dark:border-white/15 text-[11px] whitespace-pre-wrap max-h-40 overflow-auto bg-background/70">
+                          {img.prompt || "No prompt stored."}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
