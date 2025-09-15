@@ -54,6 +54,8 @@ export default function Home() {
   // Pose descriptions fetched from Studio (for random)
   const [poseDescs, setPoseDescs] = useState([]); // [{s3_key, description, created_at}]
   const [randomPosePick, setRandomPosePick] = useState(null); // one chosen description at load
+  // Garment type override: null (auto), or 'top'|'bottom'|'full'
+  const [garmentType, setGarmentType] = useState(null);
   const plannedImagesCount = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses.length : 1;
 
   useEffect(() => {
@@ -332,6 +334,7 @@ export default function Home() {
       if (!useModelImage && personDesc) lform.append("model_description_text", personDesc);
       lform.append("use_model_image", String(!!useModelImage));
       if (promptDirty) lform.append("prompt_override", promptInput.trim());
+      if (garmentType) lform.append("garment_type_override", garmentType);
       if (title) lform.append("title", title);
       const toastId = toast.loading("Creating listing…");
       const lres = await fetch(`${baseUrl}/listing`, { method: "POST", body: lform, headers: withUserId({}, userId) });
@@ -372,6 +375,7 @@ export default function Home() {
         if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
         else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
         form.append("listing_id", listingId);
+        if (garmentType) form.append("garment_type_override", garmentType);
         return form;
       };
       const cloneForm = (fd) => { const f = new FormData(); fd.forEach((v, k) => f.append(k, v)); return f; };
@@ -475,6 +479,7 @@ export default function Home() {
       const personDesc = personDefault?.description;
       if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
       else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
+      if (garmentType) form.append("garment_type_override", garmentType);
       let effective = "";
       if (promptDirty) { effective = promptInput.trim(); } else { effective = computeEffectivePrompt(pose, false); }
       form.append("listing_id", lastListingId);
@@ -579,6 +584,24 @@ export default function Home() {
               </div>
             </div>
           )}
+          <div className="mt-3">
+            <label className="text-xs text-gray-500">Garment type</label>
+            <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
+              {['top','bottom','full'].map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setGarmentType((prev) => prev === t ? null : t)}
+                  className={`text-xs ${garmentType === t ? 'bg-foreground text-background' : 'text-foreground'}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {!garmentType && (
+              <p className="mt-1 text-[10px] text-gray-500">Auto-detect if not set.</p>
+            )}
+          </div>
         </section>
 
         {/* Quick actions */}
@@ -643,6 +666,24 @@ export default function Home() {
                           <button key={m} type="button" onClick={() => setFlowMode(m)} className={`text-xs ${flowMode === m ? 'bg-foreground text-background' : 'text-foreground'}`}>{m}</button>
                         ))}
                       </div>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-500">Garment type</label>
+                      <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
+                        {['top','bottom','full'].map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setGarmentType((prev) => prev === t ? null : t)}
+                            className={`text-xs ${garmentType === t ? 'bg-foreground text-background' : 'text-foreground'}`}
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                      {!garmentType && (
+                        <p className="mt-1 text-[10px] text-gray-500">Auto-detect if not set.</p>
+                      )}
                     </div>
                     <div className="col-span-2">
                       <label className="text-xs text-gray-500">Environment</label>
@@ -844,9 +885,12 @@ export default function Home() {
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15">{l.images_count} images</span>
                       )}
                     </div>
-                    <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between px-1">
+                    <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between gap-1 px-1">
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{when.toLocaleDateString()}</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{settings.gender || ''} {settings.environment || ''}</span>
+                      {settings.garment_type && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{settings.garment_type}</span>
+                      )}
                     </div>
                   </Link>
                 );
@@ -872,6 +916,7 @@ export default function Home() {
             <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Poses: {Array.isArray(options.poses) ? options.poses.length : 0}</span>
             <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Model: {useModelImage ? 'Image' : 'Desc'}</span>
             <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Flow: {flowMode}</span>
+            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Type: {garmentType || 'auto'}</span>
           </div>
           <button
             type="button"

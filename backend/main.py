@@ -58,6 +58,8 @@ from .prompts import (
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
 API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GARMENT_TYPE_CLASSIFY = os.getenv("GARMENT_TYPE_CLASSIFY", "1").strip().lower() not in ("0", "false", "no")
+GARMENT_TYPE_TTL_SECONDS = int(os.getenv("GARMENT_TYPE_TTL_SECONDS", "86400") or "86400")
 
 app = FastAPI(title="VintedBoost Backend", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
@@ -84,6 +86,74 @@ def get_client() -> genai.Client:
             raise RuntimeError("GOOGLE_API_KEY env var is required")
         _client = genai.Client(api_key=API_KEY)
     return _client
+
+# --- Garment type classification (top | bottom | full) ---
+_garment_type_cache: dict[str, tuple[float, str]] = {}
+
+def _sha1(data: bytes) -> str:
+    import hashlib
+    h = hashlib.sha1()
+    h.update(data)
+    return h.hexdigest()
+
+def _normalize_garment_type(label: str) -> Optional[str]:
+    s = (label or "").strip().lower()
+    if s in ("top", "bottom", "full"):
+        return s
+    # Heuristic keyword mapping for occasional non-strict replies
+    if any(k in s for k in ("dress", "jumpsuit", "romper", "boilersuit", "overalls", "pinafore", "catsuit", "unitard", "one-piece", "one piece")):
+        return "full"
+    if any(k in s for k in ("jeans", "pants", "trousers", "shorts", "skirt", "leggings", "bottom")):
+        return "bottom"
+    if any(k in s for k in ("t-shirt", "tshirt", "shirt", "blouse", "sweater", "jumper", "hoodie", "cardigan", "jacket", "coat", "vest", "bodysuit", "top")):
+        return "top"
+    return None
+
+async def _classify_garment_type(image_png: bytes, override: Optional[str] = None) -> str:
+    """Classify garment coverage. Returns one of: top|bottom|full.
+
+    Uses in-memory TTL cache keyed by SHA1 of image bytes.
+    """
+    # Explicit override from client/UI takes precedence
+    if override and _normalize_garment_type(override):
+        return _normalize_garment_type(override) or "full"
+    if not GARMENT_TYPE_CLASSIFY:
+        return "full"
+    key = _sha1(image_png)
+    now = asyncio.get_event_loop().time()
+    cached = _garment_type_cache.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+    instruction = (
+        "From the attached garment image, classify coverage for try-on. "
+        "Return ONLY one word: top (upper body), bottom (lower body), or full (one piece covering upper+lower like dress/jumpsuit/romper/overalls). "
+        "Output: top|bottom|full."
+    )
+    parts = [
+        types.Part.from_text(text=instruction),
+        types.Part.from_bytes(data=image_png, mime_type="image/png"),
+    ]
+    try:
+        resp = await _genai_generate_with_retries(parts, attempts=2)
+        label_text: Optional[str] = None
+        for c in getattr(resp, "candidates", []) or []:
+            content = getattr(c, "content", None)
+            prts = getattr(content, "parts", None) if content is not None else None
+            if not prts:
+                continue
+            for p in prts:
+                if getattr(p, "text", None):
+                    label_text = p.text
+                    break
+            if label_text:
+                break
+        t = _normalize_garment_type(label_text or "")
+        garment_type = t or "full"
+    except Exception:
+        garment_type = "full"
+    # Cache with TTL
+    _garment_type_cache[key] = (now + GARMENT_TYPE_TTL_SECONDS, garment_type)
+    return garment_type
 
 
 def _normalize_to_png_limited(raw_bytes: bytes, *, max_px: int = 2048) -> bytes:
@@ -441,6 +511,7 @@ async def edit(
     model_default_s3_key: str | None = Form(None),
     model_description_text: str | None = Form(None),
     prompt_override: str | None = Form(None),
+    garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     try:
@@ -478,6 +549,9 @@ async def edit(
         if not norm_poses:
             norm_poses = ["standing"]
 
+        # Classify garment type (with optional override)
+        garment_type = await _classify_garment_type(png_bytes, garment_type_override)
+
         # Build prompt and parts in numbered image order: 1=garment, 2=person (opt), 3=environment (opt)
         use_env_image = bool(env_default_s3_key)
         use_person_image = bool(model_default_s3_key)
@@ -493,6 +567,7 @@ async def edit(
                 use_person_image=use_person_image,
                 use_env_image=use_env_image,
                 person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                garment_type=garment_type,
             )
         parts: list[types.Part] = [types.Part.from_text(text=prompt_text)]
         if (not use_person_image) and model_description_text:
@@ -543,6 +618,8 @@ async def edit(
                                 "env_default_s3_key": env_key_used,
                                 "model_default_s3_key": person_key_used,
                                 "model_description_text": (model_description_text if not person_key_used else None),
+                                "garment_type": garment_type,
+                                "garment_type_override": (garment_type_override if garment_type_override else None),
                                 "user_id": x_user_id,
                                 "prompt_variant": prompt_variant,
                             },
@@ -562,6 +639,7 @@ async def edit(
                     use_person_image=use_person_image,
                     use_env_image=use_env_image,
                     person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                    garment_type=garment_type,
                 )
                 parts[0] = types.Part.from_text(text=prompt_text)
                 resp2 = await _genai_generate_with_retries(parts, attempts=1)
@@ -587,6 +665,8 @@ async def edit(
                                         "env_default_s3_key": env_key_used,
                                         "model_default_s3_key": person_key_used,
                                         "model_description_text": (model_description_text if not person_key_used else None),
+                                        "garment_type": garment_type,
+                                        "garment_type_override": (garment_type_override if garment_type_override else None),
                                         "user_id": x_user_id,
                                         "prompt_variant": prompt_variant,
                                     },
@@ -1292,6 +1372,7 @@ async def create_listing(
     use_model_image: str | None = Form(None),  # "true" | "false"
     prompt_override: str | None = Form(None),
     title: str | None = Form(None),
+    garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     try:
@@ -1332,6 +1413,7 @@ async def create_listing(
             "use_model_image": (str(use_model_image).lower() == "true") if use_model_image is not None else None,
             "prompt_override": (prompt_override or "").strip() or None,
             "title": (title or "").strip() or None,
+            "garment_type_override": (garment_type_override or None),
         }
 
         lid = uuid.uuid4().hex
@@ -1516,6 +1598,7 @@ async def edit_json(
     model_description_text: str | None = Form(None),
     prompt_override: str | None = Form(None),
     listing_id: str | None = Form(None),
+    garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     """Same as /edit but returns JSON and optionally attaches to a listing."""
@@ -1562,6 +1645,9 @@ async def edit_json(
         if len(extra) > 200:
             extra = extra[:200]
 
+        # Determine garment type
+        garment_type = await _classify_garment_type(src_png, garment_type_override)
+
         # Build parts and call model
         use_env_image = bool(env_default_s3_key)
         use_person_image = bool(model_default_s3_key)
@@ -1577,6 +1663,7 @@ async def edit_json(
                 use_person_image=use_person_image,
                 use_env_image=use_env_image,
                 person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                garment_type=garment_type,
             )
             prompt_variant = "detailed"
         parts: list[types.Part] = [types.Part.from_text(text=prompt_text)]
@@ -1628,6 +1715,8 @@ async def edit_json(
                                     "env_default_s3_key": env_key_used,
                                     "model_default_s3_key": person_key_used,
                                     "model_description_text": (model_description_text if not person_key_used else None),
+                                    "garment_type": garment_type,
+                                    "garment_type_override": (garment_type_override if garment_type_override else None),
                                     "user_id": x_user_id,
                                     "prompt_variant": prompt_variant,
                                 },
@@ -1654,6 +1743,25 @@ async def edit_json(
                                     text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
                                     {"k": key, "id": listing_id},
                                 )
+                                # Update listing settings with garment type and origin
+                                try:
+                                    lres = await session.execute(
+                                        text("SELECT settings_json FROM listings WHERE id = :id"),
+                                        {"id": listing_id},
+                                    )
+                                    lrow = lres.first()
+                                    settings = (lrow[0] or {}) if lrow else {}
+                                    origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
+                                    settings.update({
+                                        "garment_type": garment_type,
+                                        "garment_type_origin": origin,
+                                    })
+                                    await session.execute(
+                                        text("UPDATE listings SET settings_json = :j WHERE id = :id"),
+                                        {"j": settings, "id": listing_id},
+                                    )
+                                except Exception:
+                                    pass
                     try:
                         url = generate_presigned_get_url(key)
                     except Exception:
@@ -1677,6 +1785,7 @@ async def edit_json(
                     use_person_image=use_person_image,
                     use_env_image=use_env_image,
                     person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                    garment_type=garment_type,
                 )
                 parts[0] = types.Part.from_text(text=prompt_text)
                 resp2 = await _genai_generate_with_retries(parts, attempts=1)
@@ -1703,6 +1812,8 @@ async def edit_json(
                                             "env_default_s3_key": env_key_used,
                                             "model_default_s3_key": person_key_used,
                                             "model_description_text": (model_description_text if not person_key_used else None),
+                                            "garment_type": garment_type,
+                                            "garment_type_override": (garment_type_override if garment_type_override else None),
                                             "user_id": x_user_id,
                                             "prompt_variant": prompt_variant,
                                         },
@@ -1724,6 +1835,25 @@ async def edit_json(
                                                 prompt=prompt_text,
                                             )
                                         )
+                                        # Update listing settings with garment type and origin
+                                        try:
+                                            lres = await session.execute(
+                                                text("SELECT settings_json FROM listings WHERE id = :id"),
+                                                {"id": listing_id},
+                                            )
+                                            lrow = lres.first()
+                                            settings = (lrow[0] or {}) if lrow else {}
+                                            origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
+                                            settings.update({
+                                                "garment_type": garment_type,
+                                                "garment_type_origin": origin,
+                                            })
+                                            await session.execute(
+                                                text("UPDATE listings SET settings_json = :j WHERE id = :id"),
+                                                {"j": settings, "id": listing_id},
+                                            )
+                                        except Exception:
+                                            pass
                                         # Set cover if not set yet
                                         await session.execute(
                                             text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
@@ -1768,6 +1898,7 @@ async def edit_sequential_json(
     prompt_override_step1: str | None = Form(None),
     prompt_override_step2: str | None = Form(None),
     listing_id: str | None = Form(None),
+    garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     """Two-pass generation: (1) put garment on person; (2) place into scene.
@@ -1813,6 +1944,8 @@ async def edit_sequential_json(
             extra = extra[:200]
         use_env_image = bool(env_default_s3_key)
         use_person_image = bool(model_default_s3_key)
+        # Classify garment type for metadata and potential conditioning (currently used in stored options)
+        garment_type = await _classify_garment_type(src_png, garment_type_override)
 
         # Step 1 prompt
         if prompt_override_step1 and prompt_override_step1.strip():
@@ -1823,6 +1956,7 @@ async def edit_sequential_json(
                 use_person_image=use_person_image,
                 pose=pose_str,
                 person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                gender=_normalize_choice(gender, ["woman", "man"], "woman"),
             )
             step1_variant = "detailed"
         parts1: list[types.Part] = [types.Part.from_text(text=step1_prompt)]
@@ -1863,6 +1997,7 @@ async def edit_sequential_json(
                         use_person_image=use_person_image,
                         pose=pose_str,
                         person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                        gender=_normalize_choice(gender, ["woman", "man"], "woman"),
                     )
                     parts1[0] = types.Part.from_text(text=step1_prompt)
                     resp1b = await _genai_generate_with_retries(parts1, attempts=1)
@@ -1939,6 +2074,8 @@ async def edit_sequential_json(
                                     "env_default_s3_key": env_key_used,
                                     "model_default_s3_key": person_key_used,
                                     "model_description_text": (model_description_text if not person_key_used else None),
+                                    "garment_type": garment_type,
+                                    "garment_type_override": (garment_type_override if garment_type_override else None),
                                     "user_id": x_user_id,
                                 },
                                 model=MODEL,
@@ -1962,6 +2099,25 @@ async def edit_sequential_json(
                                     text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
                                     {"k": key, "id": listing_id},
                                 )
+                                # Update listing settings with garment type and origin
+                                try:
+                                    lres = await session.execute(
+                                        text("SELECT settings_json FROM listings WHERE id = :id"),
+                                        {"id": listing_id},
+                                    )
+                                    lrow = lres.first()
+                                    settings = (lrow[0] or {}) if lrow else {}
+                                    origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
+                                    settings.update({
+                                        "garment_type": garment_type,
+                                        "garment_type_origin": origin,
+                                    })
+                                    await session.execute(
+                                        text("UPDATE listings SET settings_json = :j WHERE id = :id"),
+                                        {"j": settings, "id": listing_id},
+                                    )
+                                except Exception:
+                                    pass
                     try:
                         url = generate_presigned_get_url(key)
                     except Exception:

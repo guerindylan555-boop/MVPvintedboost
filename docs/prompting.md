@@ -142,3 +142,10 @@ blurry, over‑saturated, HDR halos, duplicated limbs, extra/merged fingers, war
 - Map UI poses (face/three‑quarter/side/random) to their short pose lines here to keep frontend preview and backend identical.
 - When images are present, omit conflicting textual descriptions (person identity or environment details) and only instruct how to use the image.
 
+## Garment Type Conditioning
+- Before building prompts, the backend classifies the uploaded garment as `top`, `bottom`, or `full` via a short Gemini text-from-image call (cached by image).
+- The prompt adds a single compact line based on the type:
+  - Top: complement with a neutral, non‑branded bottom; keep the top dominant and unaltered.
+  - Bottom: add a plain, non‑branded top that does not cover key design details; keep the bottom dominant and unaltered.
+  - Full: do not add garments; keep the provided piece intact.
+- Clients may send `garment_type_override` to override classification when needed.

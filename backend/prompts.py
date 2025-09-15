@@ -14,6 +14,20 @@ def _pose_line(pose: str) -> str:
     return (pose or "").strip()
 
 
+def _garment_condition_line(garment_type: str) -> str:
+    t = (garment_type or "").strip().lower()
+    if t == "top":
+        return (
+            "Complement with a neutral, non-branded bottom only to stabilize composition; keep the top dominant and unaltered."
+        )
+    if t == "bottom":
+        return (
+            "Add a plain, non-branded top that does not cover key design details; keep the bottom dominant and unaltered."
+        )
+    # full piece
+    return "Do not add garments; keep the provided piece intact."
+
+
 def classic_detailed(
     *,
     gender: str,
@@ -22,34 +36,36 @@ def classic_detailed(
     use_person_image: bool,
     use_env_image: bool,
     person_description: Optional[str] = None,
+    garment_type: str = "full",
 ) -> str:
     pose_line = _pose_line(pose)
     has_desc = bool((person_description or "").strip() and not use_person_image)
-    lines = []
+    lines: list[str] = []
+    lines.append("Create a photorealistic mirror selfie (amateur smartphone look) for a Vinted listing.")
+    # Image roles (no conditional phrasing; select exact line per case)
+    lines.append("Garment: use Image 1.")
+    if use_person_image:
+        lines.append(
+            "Person: use Image 2 and keep identity (face, hair color/length, build, pose) unchanged."
+        )
+    elif has_desc:
+        lines.append("Person: synthesize a plausible wearer matching: " + (person_description or "").strip())
+    else:
+        lines.append("Person: synthesize a plausible " + (gender or "person"))
+    if use_env_image:
+        lines.append(
+            "Scene: use Image 3 as the mirror scene; match lighting, camera angle, palette, and depth of field."
+        )
+    else:
+        lines.append("Scene: synthesize a clean " + (environment or "studio") + " mirror setting.")
+    # Fidelity and conditioning (compact)
     lines.append(
-        "Create a photorealistic mirror selfie in an amateur smartphone style suitable for a Vinted listing. "
-        "The outfit must be clearly visible and look natural. A black iPhone 16 Pro occludes the face in the reflection without hiding the garment."
+        "Fidelity: preserve exact silhouette, proportions, color, fabric texture, print scale/alignment, closures, trim, and logos; do not redesign, recolor, simplify, or add/remove features."
     )
-    lines.append(
-        "Use Image 1 as the garment to be worn. "
-        + ("Use Image 2 as the person reference and preserve their identity cues (hair/build). " if use_person_image else "Synthesize a plausible person." )
-        + (" Use Image 3 as the mirror scene and match its lighting, camera angle, palette, shadows, and depth of field." if use_env_image else " Synthesize a clean mirror setting consistent with the requested environment.")
-    )
-    if has_desc:
-        lines.append("Person description (no image provided): " + (person_description or "").strip())
-    lines.append("Required output: one vertical PNG (4:5 preferred), three-quarter or full-body so the garment is dominant and sharp.")
-    lines.append(
-        "Preserve garment silhouette, color, fabric texture, print scale/alignment, closures, and logos with believable fit and drape. "
-        "Natural proportions; realistic hands with five distinct fingers; clean output with no text/watermarks; PG-13."
-    )
-    lines.append(f"Pose: {pose_line}. Keep the outfit unobstructed.")
-    lines.append(
-        "Style: smartphone mirror-selfie aesthetic; ~26–35mm equiv look; soft natural light; mild depth of field; correct phone reflection; center the subject in the mirror and avoid cropping garment edges."
-    )
-    lines.append(
-        "Avoid: blurry, over-saturated, HDR halos, duplicated limbs, extra/merged fingers, warped faces, melted textures, AI artifacts, ring-light glare, tripod/DSLR look, explicit content."
-    )
-    lines.append("End of instructions.")
+    lines.append(_garment_condition_line(garment_type))
+    # Pose and style
+    lines.append(f"Pose: {pose_line}. Outfit unobstructed.")
+    lines.append("Mirror‑selfie smartphone look; correct reflection; PG‑13; no text/watermarks.")
     return "\n".join(lines)
 
 
@@ -61,57 +77,57 @@ def classic_concise(
     use_person_image: bool,
     use_env_image: bool,
     person_description: Optional[str] = None,
+    garment_type: str = "full",
 ) -> str:
     pose_line = _pose_line(pose)
     has_desc = bool((person_description or "").strip() and not use_person_image)
-    lines = []
-    lines.append(
-        "Create a photorealistic mirror selfie (amateur smartphone look) for a Vinted listing. A black iPhone 16 Pro occludes the face without hiding the outfit."
+    lines: list[str] = []
+    lines.append("Photorealistic mirror selfie (amateur smartphone look).")
+    if use_person_image:
+        person_line = "Person: use Image 2; keep identity unchanged."
+    elif has_desc:
+        person_line = "Person: synthesize matching: " + (person_description or "").strip()
+    else:
+        person_line = "Person: synthesize a plausible " + (gender or "person")
+    scene_line = (
+        "Scene: use Image 3; match lighting/angle/palette/DoF." if use_env_image else "Scene: synthesize a clean " + (environment or "studio") + " mirror setting."
     )
+    lines.append("Garment: Image 1. " + person_line + " " + scene_line)
     lines.append(
-        "Garment: Image 1. "
-        + ("Person: Image 2." if use_person_image else "Person: synthesize plausibly.")
-        + (" Scene: Image 3 (match lighting/angle/palette/DoF)." if use_env_image else " Scene: synthesize a clean mirror setting.")
+        "Fidelity: exact silhouette/proportions, color, fabric texture, print alignment/scale, closures, trim, logos; no redesign/recolor/simplify/add/remove."
     )
-    if has_desc:
-        lines.append("Person description: " + (person_description or "").strip())
-    lines.append("Output: one vertical PNG (4:5 preferred), 3/4 or full-body, outfit dominant and sharp.")
-    lines.append(
-        "Constraints: preserve garment silhouette/color/fabric/print alignment/logos and believable fit; natural proportions and realistic hands; no text/watermarks; PG-13."
-    )
-    lines.append(f"Pose: {pose_line}. Garment unobstructed.")
-    lines.append("Style: soft natural light; ~26–35mm equiv look; mild DoF; correct phone reflection.")
-    lines.append("Avoid: blur, halos, duplicates, extra fingers, warped faces, artifacts, explicit content.")
+    lines.append(_garment_condition_line(garment_type))
+    lines.append(f"Pose: {pose_line}. Outfit unobstructed. Mirror selfie; correct reflection; PG‑13; no text/watermarks.")
     return "\n".join(lines)
 
 
-def seq_step1_detailed(*, use_person_image: bool, pose: str, person_description: Optional[str]) -> str:
+def seq_step1_detailed(*, use_person_image: bool, pose: str, person_description: Optional[str], gender: str = "") -> str:
     pose_line = _pose_line(pose)
     has_desc = bool((person_description or "").strip() and not use_person_image)
-    lines = []
-    lines.append("Put the garment from Image 2 onto the person in Image 1.")
-    lines.append("Do not change the person’s identity, body, hair, or pose.")
+    lines: list[str] = []
+    lines.append("Put the garment from Image 2 onto the person in Image 1; do not change identity, body, hair, or pose.")
     if has_desc:
-        lines.append("Person description (no image provided): " + (person_description or "").strip())
+        lines.append("Person: synthesize matching: " + (person_description or "").strip())
+    elif not use_person_image:
+        lines.append("Person: synthesize a plausible " + (gender or "person"))
     lines.append(
-        "Preserve garment color, fabric texture, print scale/alignment, closures, logos, and ensure a believable fit and drape. Background neutral and unchanged."
+        "Fidelity: preserve exact color, fabric texture, print scale/alignment, closures, logos, silhouette, and believable fit/drape. Background neutral and unchanged."
     )
-    lines.append(f"Pose: {pose_line}. Keep the outfit unobstructed.")
-    lines.append("Output: one photorealistic PNG; PG-13; no text/watermarks.")
-    lines.append("Avoid: artifacts, extra/merged fingers, warped limbs, identity/pose changes, background edits.")
+    lines.append(f"Pose: {pose_line}. Outfit unobstructed. PG‑13; no text/watermarks.")
     return "\n".join(lines)
 
 
-def seq_step1_concise(*, use_person_image: bool, pose: str, person_description: Optional[str]) -> str:
+def seq_step1_concise(*, use_person_image: bool, pose: str, person_description: Optional[str], gender: str = "") -> str:
     pose_line = _pose_line(pose)
     has_desc = bool((person_description or "").strip() and not use_person_image)
-    lines = []
-    lines.append("Wear the garment from Image 2 on the person in Image 1 without changing identity or pose.")
+    lines: list[str] = []
+    lines.append("Wear the garment from Image 2 on the person in Image 1; identity and pose unchanged.")
     if has_desc:
-        lines.append("Person description: " + (person_description or "").strip())
-    lines.append("Preserve garment color/fabric/print alignment/logos and believable fit. Background unchanged.")
-    lines.append(f"Pose: {pose_line}. Garment unobstructed.")
-    lines.append("Output: one photorealistic PNG; PG-13; no text/watermarks.")
+        lines.append("Person: synthesize matching: " + (person_description or "").strip())
+    elif not use_person_image:
+        lines.append("Person: synthesize a plausible " + (gender or "person"))
+    lines.append("Fidelity: exact color/fabric/print alignment/logos, silhouette, believable fit; background unchanged.")
+    lines.append(f"Pose: {pose_line}. Outfit unobstructed. PG‑13; no text/watermarks.")
     return "\n".join(lines)
 
 
@@ -141,4 +157,3 @@ def seq_step2_concise(*, use_env_image: bool, environment: str, pose: str) -> st
     lines.append(f"Pose: {pose_line}. Garment unobstructed.")
     lines.append("Output: one photorealistic PNG; PG-13; no text/watermarks.")
     return "\n".join(lines)
-
