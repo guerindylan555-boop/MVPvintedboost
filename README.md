@@ -12,6 +12,7 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
 
 ### Features
 - Upload clothing image (tap or drag‑and‑drop)
+- Garment type selector (auto/top/bottom/full): 3 buttons directly under the upload box. If set, overrides detection; if not set, the backend auto‑detects the garment type once and caches it.
 - Options panel:
   - gender: woman/man
   - environment: studio/street/bed/beach/indoor (when Studio defaults exist, shows their names instead)
@@ -29,12 +30,13 @@ Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and
   - Add images by calling `POST /edit/json` per selected pose with `listing_id`
   - Generate description via `POST /describe` with `listing_id` to store on the listing
   - History grid on the main page uses `GET /listings`; the cover image defaults to the first generated image
-  - Listing detail page at `/listing/[id]` shows all images, settings, and description
+  - Listing detail page at `/listing/[id]` shows all images, settings, and description. Each image has a “Prompt” button to reveal the exact prompt used.
 
 Default generation style (Mirror Selfie for Vinted)
 - Photorealistic mirror selfie, amateur smartphone look
 - Person holds a black iPhone 16 Pro; phone occludes the face (with correct reflection) without hiding key garment details
 - The person must be wearing the uploaded garment; strict garment fidelity (shape, color, fabric, prints, logos)
+  - Concise, case‑specific prompts are built server‑side. They explicitly state how to use the attached images by number (garment, person, environment), include the selected pose, and add a compact garment‑type conditioning line (top/bottom/full) while enforcing strict garment fidelity.
 
 ### Studio (Environments, Models & Poses)
 - Environment tab:
@@ -188,6 +190,10 @@ AWS_ACCESS_KEY_ID=<aws-access-key>
 AWS_SECRET_ACCESS_KEY=<aws-secret>
 AWS_REGION=<aws-region>
 AWS_S3_BUCKET=<bucket-name>
+
+# Garment type classification (optional)
+GARMENT_TYPE_CLASSIFY=1                 # 1 to enable auto-detection (default), 0 to disable
+GARMENT_TYPE_TTL_SECONDS=86400          # in-memory cache TTL for type detection
 ```
 
 ## Frontend
@@ -195,6 +201,7 @@ AWS_S3_BUCKET=<bucket-name>
 ### Key file
 - `app/page.js`:
   - Upload UI, options panel, and sticky Generate button
+  - Garment type control under the upload box (auto/top/bottom/full). If set, the backend uses this instead of detection.
   - Sends `multipart/form-data` to `/edit` with fields: `image`, `gender` (woman|man), `environment`, repeated `poses`, and `extra`
   - When available, also sends `env_default_s3_key` (selected Studio environment default) and `model_default_s3_key` (selected gender’s model default)
   - When multiple poses are selected, fires parallel requests (one per pose)
@@ -311,6 +318,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
   - `extra` (string, optional)
 - `env_default_s3_key` (string, optional) — environment reference image
 - `model_default_s3_key` (string, optional) — person reference image (gender default)
+- `garment_type_override` (string, optional) — one of `top|bottom|full`; when present, the backend will not run auto‑detection
 - Response: `image/png` stream
 - Errors: 400 invalid input; 413 image too large; 502 upstream / no image
 
@@ -322,6 +330,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 ### POST /edit/sequential/json
 - Content-Type: `multipart/form-data`
 - Fields: same as `/edit/json` plus optional `prompt_override_step1`, `prompt_override_step2`.
+- Accepts `garment_type_override` like `/edit`.
 - Behavior: two model calls — Step 1 combines garment with person; Step 2 inserts that person into the environment. Only the final image is persisted and, when `listing_id` is provided, attached to the listing with pose suffixed as `"<pose> (seq)"`.
 - Response: `{ ok, s3_key, url, pose, prompt, listing_id }` (where `pose` includes the `(seq)` suffix)
 
@@ -351,10 +360,13 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Response: `{ ok: true, model: string }`
 
 ### Listings
-- `POST /listing` — create a listing with product source image and settings
+- `POST /listing` — create a listing with product source image and settings (accepts optional `garment_type_override`)
 - `GET /listings` — list current user’s listings (requires `X-User-Id`)
 - `GET /listing/{id}` — fetch a single listing with images (requires `X-User-Id` and ownership)
 - `PATCH /listing/{id}/cover` — set the cover image to an attached image `s3_key`
+Notes:
+- When a generation is attached to a listing, the backend stores `garment_type` and `garment_type_origin` (`user` when overridden; otherwise `model`) in `settings_json`.
+- The listing detail page renders a “Prompt” button on each image to show the exact prompt that was used.
 
 ## Troubleshooting
 - TLS warning on backend domain: ensure HTTPS enabled and DNS A record points to Dokploy server; wait for Let’s Encrypt
@@ -375,6 +387,12 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Basic auth for admin endpoints
 
 ## Changelog
+
+- 2025-09-15
+  - Feature: Garment type control (auto/top/bottom/full) under the upload box and in Options. When set, backend bypasses detection. When unset, backend classifies once and caches. Stored on listings as `garment_type` + `garment_type_origin`.
+  - Feature: Per-image “Prompt” button on listing detail page to view the exact prompt used.
+  - Backend: Added garment-type classifier with TTL cache. New env vars `GARMENT_TYPE_CLASSIFY`, `GARMENT_TYPE_TTL_SECONDS`.
+  - Prompting: Switched to concise, case‑specific templates that reference images by number, include the selected pose, and add garment‑type conditioning while enforcing strict garment fidelity.
 
 - 2025-09-13
   - Fix: Hardened `/env/random` response parsing to avoid `NoneType.parts` when a candidate has no content. Now safely skips empty candidates and returns 502 “no image from model” instead of a 500 crash.
