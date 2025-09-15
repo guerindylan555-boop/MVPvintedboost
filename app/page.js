@@ -18,6 +18,7 @@ export default function Home() {
   const isAdmin = Boolean(session?.user?.isAdmin);
   const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -322,9 +323,8 @@ export default function Home() {
     setIsDragging(false);
   }
 
-  function handleTriggerPick() {
-    fileInputRef.current?.click();
-  }
+  function handleTriggerPick() { fileInputRef.current?.click(); }
+  function handleTriggerCamera() { cameraInputRef.current?.click(); }
 
   async function handleUseSample() {
     // Tiny 1x1 PNG so backend accepts it
@@ -542,9 +542,19 @@ export default function Home() {
       <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
         {/* Upload first */}
         <section>
+          {/* Library picker (default) */}
           <input
             ref={fileInputRef}
             id="file"
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          {/* Camera capture (optional) */}
+          <input
+            ref={cameraInputRef}
+            id="camera"
             type="file"
             accept="image/*"
             capture="environment"
@@ -571,8 +581,9 @@ export default function Home() {
                 </div>
                 <div className="text-sm"><span className="font-medium">Tap to upload</span> or drop an image</div>
                 <div className="text-xs text-gray-500">PNG, JPG, HEIC up to ~10MB</div>
-                <div className="mt-2">
+                <div className="mt-2 flex items-center gap-3">
                   <button type="button" onClick={handleUseSample} className="text-xs underline underline-offset-4">Use sample image</button>
+                  <button type="button" onClick={handleTriggerCamera} className="text-xs underline underline-offset-4">Take photo</button>
                 </div>
                 {isPreprocessing && (
                   <div className="mt-2 text-xs text-gray-500">Optimizing photo…</div>

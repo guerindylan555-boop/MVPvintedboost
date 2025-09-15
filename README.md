@@ -212,7 +212,7 @@ GARMENT_TYPE_TTL_SECONDS=86400          # in-memory cache TTL for type detection
 ### Key file
 - `app/page.js`:
   - Upload UI, options panel, and sticky Generate button
-  - Mobile uploads: client-side preprocessing (HEIC → JPEG conversion and compression to ~1600px via `browser-image-compression`) to speed up uploads and fix orientation. File input also uses `capture="environment"` for direct camera on phones.
+  - Mobile uploads: client-side preprocessing (HEIC → JPEG conversion and compression to ~1600px via `browser-image-compression`) to speed up uploads and fix orientation. Default “Upload” opens the library; “Take photo” uses the camera via a separate input.
   - Garment type control under the upload box (auto/top/bottom/full). If set, the backend uses this instead of detection.
   - Sends `multipart/form-data` to `/edit` with fields: `image`, `gender` (woman|man), `environment`, repeated `poses`, and `extra`
   - When available, also sends `env_default_s3_key` (selected Studio environment default) and `model_default_s3_key` (selected gender’s model default)
