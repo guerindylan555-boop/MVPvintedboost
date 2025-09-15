@@ -10,6 +10,7 @@ import { Camera, Check, X, Loader2 } from "lucide-react";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY } from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
+import { preprocessImage } from "@/app/lib/image-preprocess";
 const authClient = createAuthClient();
 
 export default function Home() {
@@ -21,6 +22,7 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPreprocessing, setIsPreprocessing] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Pose choices for mirror selfie flow
   const allowedPoses = ["Face", "three-quarter pose", "from the side", "random"];
@@ -51,6 +53,8 @@ export default function Home() {
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
+  // Admin: DB init action
+  const [initDbBusy, setInitDbBusy] = useState(false);
   // Pose descriptions fetched from Studio (for random)
   const [poseDescs, setPoseDescs] = useState([]); // [{s3_key, description, created_at}]
   const [randomPosePick, setRandomPosePick] = useState(null); // one chosen description at load
@@ -203,6 +207,22 @@ export default function Home() {
     }, delay);
   }
 
+  async function handleInitDb() {
+    if (!isAdmin || initDbBusy) return;
+    const toastId = toast.loading("Initializing database…");
+    setInitDbBusy(true);
+    try {
+      const res = await fetch("/api/admin/init-db", { method: "POST" });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || "Failed");
+      toast.success("DB initialized", { id: toastId });
+    } catch (e) {
+      toast.error(`Init failed: ${e?.message || "error"}`, { id: toastId });
+    } finally {
+      setInitDbBusy(false);
+    }
+  }
+
   function computeEffectivePrompt(poseOverride, forPreview = true) {
     const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
       ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
@@ -256,28 +276,40 @@ export default function Home() {
     });
   }
 
-  function setImageFile(file) {
+  async function setImageFile(file) {
     if (!file) return;
     if (!file.type?.startsWith("image/")) {
       alert("Please select an image file.");
       return;
     }
-    const objectUrl = URL.createObjectURL(file);
-    setSelectedFile(file);
-    setPreviewUrl(objectUrl);
+    // Revoke previous preview if any
+    if (previewUrl) try { URL.revokeObjectURL(previewUrl); } catch {}
+    setIsPreprocessing(true);
+    try {
+      const { file: processed, previewUrl: url } = await preprocessImage(file);
+      setSelectedFile(processed || file);
+      setPreviewUrl(url || URL.createObjectURL(processed || file));
+    } catch {
+      // Fallback to original
+      const objectUrl = URL.createObjectURL(file);
+      setSelectedFile(file);
+      setPreviewUrl(objectUrl);
+    } finally {
+      setIsPreprocessing(false);
+    }
   }
 
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     const file = e.target.files?.[0];
-    setImageFile(file);
+    await setImageFile(file);
   }
 
-  function handleDrop(e) {
+  async function handleDrop(e) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
-    setImageFile(file);
+    await setImageFile(file);
   }
 
   function handleDragOver(e) {
@@ -294,7 +326,7 @@ export default function Home() {
     fileInputRef.current?.click();
   }
 
-  function handleUseSample() {
+  async function handleUseSample() {
     // Tiny 1x1 PNG so backend accepts it
     const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
     const byteChars = atob(b64);
@@ -302,7 +334,7 @@ export default function Home() {
     for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
     const blob = new Blob([bytes], { type: "image/png" });
     const file = new File([blob], "sample.png", { type: "image/png" });
-    setImageFile(file);
+    await setImageFile(file);
   }
 
   async function handleGenerate() {
@@ -515,6 +547,7 @@ export default function Home() {
             id="file"
             type="file"
             accept="image/*"
+            capture="environment"
             className="hidden"
             onChange={handleFileChange}
           />
@@ -541,6 +574,9 @@ export default function Home() {
                 <div className="mt-2">
                   <button type="button" onClick={handleUseSample} className="text-xs underline underline-offset-4">Use sample image</button>
                 </div>
+                {isPreprocessing && (
+                  <div className="mt-2 text-xs text-gray-500">Optimizing photo…</div>
+                )}
               </div>
             </button>
           ) : (
@@ -552,6 +588,11 @@ export default function Home() {
                   alt="Selected garment preview"
                   className="h-full w-full object-cover"
                 />
+                {isPreprocessing && (
+                  <div className="absolute bottom-2 right-2 text-[11px] px-2 py-1 rounded-md bg-background/80 border border-black/10 dark:border-white/15">
+                    Optimizing…
+                  </div>
+                )}
                 <div className="absolute top-2 right-2 text-[11px] px-2 py-1 rounded-md bg-background/80 border border-black/10 dark:border-white/15">
                   {plannedImagesCount} image{plannedImagesCount > 1 ? "s" : ""}
                 </div>
@@ -904,6 +945,24 @@ export default function Home() {
             >
               Open Studio (Environment & Model)
             </a>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleInitDb}
+                disabled={initDbBusy}
+                className={`ml-3 inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border ${initDbBusy ? "opacity-60 cursor-not-allowed" : ""}`}
+                title="Create all backend tables (admin)"
+              >
+                {initDbBusy ? (
+                  <>
+                    <Loader2 className="size-3 animate-spin" />
+                    Initializing…
+                  </>
+                ) : (
+                  <>Init DB</>
+                )}
+              </button>
+            )}
           </div>
         </section>
       </main>

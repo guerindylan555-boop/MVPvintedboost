@@ -130,6 +130,17 @@ npm run dev:full
 - `upload_model_source_image(...)` for persisting person sources
 - `upload_pose_source_image(...)` for persisting pose sources
 
+#### Admin maintenance
+- Fail-fast startup: the backend now exits if database initialization fails during startup. Ensure `DATABASE_URL` is correct and the role has CREATE privileges, then restart.
+- Admin DB init endpoint (guarded by `ADMIN_BEARER_TOKEN`) to create tables after a DB reset:
+  - `POST /admin/init-db`
+  - Example:
+    ```bash
+    curl -X POST "$NEXT_PUBLIC_API_BASE_URL/admin/init-db" \
+      -H "Authorization: Bearer $ADMIN_BEARER_TOKEN"
+    ```
+  - Returns `{ ok: true, message: "DB initialized" }` on success.
+
 ### Model and SDK
 - Model: `gemini-2.5-flash-image-preview` (aka Nano Banana) for both image generation and text-from-image descriptions
 - SDK: `google-genai`
@@ -201,6 +212,7 @@ GARMENT_TYPE_TTL_SECONDS=86400          # in-memory cache TTL for type detection
 ### Key file
 - `app/page.js`:
   - Upload UI, options panel, and sticky Generate button
+  - Mobile uploads: client-side preprocessing (HEIC → JPEG conversion and compression to ~1600px via `browser-image-compression`) to speed up uploads and fix orientation. File input also uses `capture="environment"` for direct camera on phones.
   - Garment type control under the upload box (auto/top/bottom/full). If set, the backend uses this instead of detection.
   - Sends `multipart/form-data` to `/edit` with fields: `image`, `gender` (woman|man), `environment`, repeated `poses`, and `extra`
   - When available, also sends `env_default_s3_key` (selected Studio environment default) and `model_default_s3_key` (selected gender’s model default)

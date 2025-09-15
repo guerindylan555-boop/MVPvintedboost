@@ -3,7 +3,7 @@ from io import BytesIO
 from typing import Optional
 
 import logging
-from fastapi import FastAPI, UploadFile, Form, File, Header
+from fastapi import FastAPI, UploadFile, Form, File, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from PIL import Image
@@ -214,11 +214,39 @@ async def health():
 
 @app.on_event("startup")
 async def on_startup():
+    # Fail fast if DB cannot be initialized so the service doesn't run half‑broken
     try:
         await init_db()
         logger.info("DB initialized")
     except Exception:
-        logger.exception("Failed to initialize DB")
+        logger.exception("Failed to initialize DB (startup)")
+        # Re-raise to crash the worker/container; orchestration should restart once env is fixed
+        raise
+
+
+def _require_admin(authorization: str | None) -> None:
+    token = os.getenv("ADMIN_BEARER_TOKEN")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="ADMIN_BEARER_TOKEN not configured")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+    if authorization.split(" ", 1)[1] != token:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+@app.post("/admin/init-db")
+async def admin_init_db(authorization: str | None = Header(default=None, alias="Authorization")):
+    """Admin-only endpoint to (re)create all SQL tables using SQLAlchemy metadata.
+
+    Useful after resetting the database. Protected by ADMIN_BEARER_TOKEN.
+    """
+    _require_admin(authorization)
+    try:
+        await init_db()
+        return {"ok": True, "message": "DB initialized"}
+    except Exception as e:
+        logger.exception("Admin init-db failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/generate")
