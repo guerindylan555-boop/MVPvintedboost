@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Drawer } from "vaul";
 import { Toaster, toast } from "react-hot-toast";
 import Link from "next/link";
 import Image from "next/image";
@@ -28,9 +27,6 @@ export default function Home() {
   const [isPreprocessing, setIsPreprocessing] = useState(false);
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  // Temporary: keep legacy bottom-sheet options accessible until full wizard swap
-  const [sheetOpen, setSheetOpen] = useState(false);
   // Pose choices for mirror selfie flow
   const allowedPoses = useMemo(() => ["Face", "three-quarter pose", "from the side", "random"], []);
   const [options, setOptions] = useState({
@@ -649,9 +645,28 @@ export default function Home() {
       {/* Simple progress header */}
       <div className="sticky top-0 z-10 backdrop-blur bg-background/70 border-b border-black/10 dark:border-white/10">
         <div className="max-w-md mx-auto px-5 py-3 flex items-center gap-2 text-xs">
-          {[1,2,3].map((s) => (
-            <span key={s} className={`h-7 px-2 rounded-md border ${stepStatus(s) === 'active' ? 'bg-foreground text-background border-foreground' : stepStatus(s) === 'completed' ? 'border-foreground text-foreground' : 'border-black/15 dark:border-white/15 text-foreground/70'}`}>{s === 1 ? 'Upload' : s === 2 ? 'Customize' : 'Review'}</span>
-          ))}
+          {[1, 2, 3].map((s) => {
+            const status = stepStatus(s);
+            const label = s === 1 ? "Upload" : s === 2 ? "Customize" : "Review";
+            const disabled = s > maxUnlockedStep;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { if (!disabled) setActiveStep(s); }}
+                disabled={disabled}
+                className={`h-7 px-3 rounded-md border transition ${
+                  status === 'active'
+                    ? 'bg-foreground text-background border-foreground'
+                    : status === 'completed'
+                      ? 'border-foreground text-foreground'
+                      : 'border-black/15 dark:border-white/15 text-foreground/70'
+                } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
       <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
@@ -774,250 +789,210 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Quick actions */}
-        <section className="flex items-center justify-between">
-          <Drawer.Root open={sheetOpen} onOpenChange={setSheetOpen}>
-            <Drawer.Trigger asChild>
+        {/* Step 2 and Step 3 will render below */}
+
+        {/* Step 2 — Customize */}
+        <FlowStep
+          step={2}
+          title="Customize"
+          subtitle="Pick model, environment and poses. You can tweak the prompt later."
+          status={stepStatus(2)}
+          actions={
+            canContinueStep2 && (
               <button
                 type="button"
-                className="h-10 px-4 rounded-lg border border-black/10 dark:border-white/15 text-sm"
-                aria-label="Edit options"
+                onClick={() => setActiveStep(3)}
+                className="h-8 px-3 rounded-md bg-foreground text-background text-xs font-semibold"
               >
-                Edit options
+                Continue
               </button>
-            </Drawer.Trigger>
-            <Drawer.Portal>
-              <Drawer.Overlay className="fixed inset-0 bg-black/40" />
-              <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl border-t border-black/10 dark:border-white/15 bg-background">
-                <div className="mx-auto max-w-md p-4">
-                  <div className="h-1 w-8 bg-black/20 dark:bg-white/20 rounded-full mx-auto mb-3" />
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-sm font-medium">Options</h2>
-                    <button type="button" className="text-xs text-gray-500" onClick={() => setSheetOpen(false)}>Done</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-1">
-                      <label className="text-xs text-gray-500">Gender</label>
-                      <select
-                        className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                        value={options.gender}
-                        onChange={(e) => setOptions((o) => ({ ...o, gender: e.target.value }))}
-                      >
-                        <option value="woman">Woman</option>
-                        <option value="man">Man</option>
-                      </select>
-                    </div>
-                    <div className="col-span-1">
-                      <label className="text-xs text-gray-500">Model reference</label>
-                      <div className="mt-1 grid grid-cols-2 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => setUseModelImage(true)}
-                          className={`text-xs ${useModelImage ? 'bg-foreground text-background' : 'text-foreground'} `}
-                        >
-                          Image
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setUseModelImage(false)}
-                          className={`text-xs ${!useModelImage ? 'bg-foreground text-background' : 'text-foreground'} `}
-                        >
-                          Description
-                        </button>
-                      </div>
-                      {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
-                        <p className="mt-1 text-[10px] text-amber-600">No default description; falls back to gender hint.</p>
-                      )}
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Generation flow</label>
-                      <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
-                        {['classic','sequential','both'].map((m) => (
-                          <button key={m} type="button" onClick={() => setFlowMode(m)} className={`text-xs ${flowMode === m ? 'bg-foreground text-background' : 'text-foreground'}`}>{m}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Garment type</label>
-                      <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
-                        {['top','bottom','full'].map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => setGarmentType((prev) => prev === t ? null : t)}
-                            className={`text-xs ${garmentType === t ? 'bg-foreground text-background' : 'text-foreground'}`}
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                      {!garmentType && (
-                        <p className="mt-1 text-[10px] text-gray-500">Auto-detect if not set.</p>
-                      )}
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Environment</label>
-                      {envDefaultsLoading ? (
-                        <div className="mt-2 flex gap-2 overflow-x-auto">
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <div key={i} className="w-20 h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
-                          ))}
-                        </div>
-                      ) : envDefaults.length > 0 ? (
-                        <div className="mt-2 flex gap-2 overflow-x-auto snap-x snap-mandatory">
-                          {envDefaults.map((d) => (
-                            <button
-                              key={d.s3_key}
-                              type="button"
-                              onClick={() => {
-                                setSelectedEnvDefaultKey(d.s3_key);
-                                try { localStorage.setItem('vb_env_default_key', d.s3_key); } catch {}
-                                if (options.environment !== 'studio') setOptions((o) => ({ ...o, environment: 'studio' }));
-                              }}
-                              className={`w-20 snap-start rounded-md border ${selectedEnvDefaultKey === d.s3_key ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}
-                              title={d.name || 'Environment'}
-                            >
-                              <div className="w-full aspect-[3/4] overflow-hidden rounded-t-md">
-                                {d.url ? (
-                                  <img src={d.url} alt={d.name || 'Environment'} className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full bg-black/10 dark:bg-white/10" />
-                                )}
-                              </div>
-                              <div className="px-1 py-1 text-[10px] truncate">{d.name || 'Untitled'}</div>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <select
-                          className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                          value={options.environment}
-                          onChange={(e) => setOptions((o) => ({ ...o, environment: e.target.value }))}
-                        >
-                          <option value="studio">Studio</option>
-                          <option value="street">Street</option>
-                          <option value="bed">Bed</option>
-                          <option value="beach">Beach</option>
-                          <option value="indoor">Indoor</option>
-                        </select>
-                      )}
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Poses (up to 4) <span className="ml-2 text-[10px] text-gray-500">{Math.min(options.poses?.length || 0, 4)}/4</span></label>
-                      <div className="mt-1 grid grid-cols-2 gap-2">
-                        {allowedPoses.map((pose) => {
-                          const selected = options.poses.includes(pose);
-                          const limitReached = !selected && options.poses.length >= 4;
-                          return (
-                            <button
-                              key={pose}
-                              type="button"
-                              onClick={() => togglePose(pose)}
-                              disabled={limitReached}
-                              className={`h-10 rounded-md border text-sm ${selected ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}
-                              aria-pressed={selected}
-                            >
-                              {pose}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-xs text-gray-500">Extra instructions</label>
-                      <input
-                        type="text"
-                        placeholder="e.g., natural daylight, smiling, medium shot"
-                        className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                        value={options.extra}
-                        onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
-                      />
-                    </div>
-                    {/* Description controls inside sheet */}
-                    <div className="col-span-2">
-                      <div className="flex items-center justify-between py-2">
-                        <span className="text-xs text-gray-500">Generate product description</span>
-                        <button
-                          type="button"
-                          onClick={() => setDescEnabled((v) => !v)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${descEnabled ? 'bg-foreground' : 'bg-black/20 dark:bg-white/20'}`}
-                          aria-pressed={descEnabled}
-                        >
-                          <span className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${descEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
-                        </button>
-                      </div>
-                      {descEnabled && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="col-span-2">
-                            <input
-                              type="text"
-                              className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                              placeholder="Brand (e.g., Nike, Zara)"
-                              value={desc.brand}
-                              onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <input
-                              type="text"
-                              className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                              placeholder="Model (e.g., Air Max 90)"
-                              value={desc.productModel}
-                              onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
-                            />
-                          </div>
-                          <div className="col-span-2 flex items-center gap-2">
-                            {['Brand new','Very good','Good'].map((c) => (
-                              <button key={c} type="button" onClick={() => setProductCondition(c)} className={`h-8 px-2 rounded-md border text-xs ${productCondition === c ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{c}</button>
-                            ))}
-                          </div>
-                          <div className="col-span-2 flex items-center gap-2">
-                            {['xs','s','m','l','xl'].map((s) => (
-                              <button key={s} type="button" onClick={() => setDesc((d) => ({ ...d, size: s }))} className={`h-8 px-2 rounded-md border text-xs ${desc.size === s ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{s.toUpperCase()}</button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    {/* Advanced prompt (admin-only) */}
-                    {isAdmin && (
-                      <div className="col-span-2">
-                        <div className="flex items-center justify-between py-2">
-                          <button type="button" className="text-xs font-medium" onClick={() => setShowAdvancedPrompt((v) => !v)} aria-expanded={showAdvancedPrompt}>Advanced prompt</button>
-                          {promptDirty && showAdvancedPrompt ? (
-                            <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => { setPromptDirty(false); setPromptInput(computeEffectivePrompt()); }}>Reset to template</button>
-                          ) : null}
-                        </div>
-                        {showAdvancedPrompt && (
-                          <>
-                            <textarea rows={4} className="w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm" placeholder="Exact prompt that will be sent" value={promptInput} onChange={(e) => { setPromptInput(e.target.value); setPromptDirty(true); }} />
-                            <p className="mt-1 text-[10px] text-gray-500">Changing options updates the suggestion unless you edit it.</p>
-                          </>
+            )
+          }
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <OptionPicker
+                label="Gender"
+                options={genderOptions}
+                value={options.gender}
+                onChange={(v) => setOptions((o) => ({ ...o, gender: v }))}
+              />
+            </div>
+            <div className="col-span-2">
+              <OptionPicker
+                label="Model reference"
+                description="Use your default model photo from Studio, or send its description only."
+                options={modelReferenceOptions}
+                value={useModelImage ? 'image' : 'description'}
+                onChange={(v) => setUseModelImage(v === 'image')}
+              />
+              {!useModelImage && !((options.gender === 'woman' ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
+                <p className="mt-1 text-[10px] text-amber-600">No default description; falls back to gender hint.</p>
+              )}
+            </div>
+            <div className="col-span-2">
+              <OptionPicker
+                label="Generation flow"
+                options={flowOptions}
+                value={flowMode}
+                onChange={setFlowMode}
+              />
+            </div>
+            <div className="col-span-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold">Environment</label>
+                <span className="text-xs text-gray-400">{environmentSummary}</span>
+              </div>
+              {envDefaultsLoading ? (
+                <div className="mt-2 flex gap-2 overflow-x-auto">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="w-20 h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
+                  ))}
+                </div>
+              ) : envDefaults.length > 0 ? (
+                <div className="mt-2 flex gap-2 overflow-x-auto snap-x snap-mandatory">
+                  {envDefaults.map((d) => (
+                    <button
+                      key={d.s3_key}
+                      type="button"
+                      onClick={() => handleSelectEnvironmentDefault(d.s3_key)}
+                      className={`w-20 snap-start rounded-md border ${selectedEnvDefaultKey === d.s3_key ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}
+                      title={d.name || 'Environment'}
+                    >
+                      <div className="w-full aspect-[3/4] overflow-hidden rounded-t-md">
+                        {d.url ? (
+                          <img src={d.url} alt={d.name || 'Environment'} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-black/10 dark:bg-white/10" />
                         )}
                       </div>
-                    )}
+                      <div className="px-1 py-1 text-[10px] truncate">{d.name || 'Untitled'}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <OptionPicker
+                  options={environmentOptions}
+                  value={options.environment}
+                  onChange={(v) => setOptions((o) => ({ ...o, environment: v }))}
+                />
+              )}
+            </div>
+            <div className="col-span-2">
+              <OptionPicker
+                label={`Poses (up to 4)`}
+                description={`Selected: ${Math.min(options.poses?.length || 0, 4)}/4`}
+                options={poseOptions}
+                value={options.poses}
+                onChange={(next) => setOptions((o) => ({ ...o, poses: next }))}
+                multiple
+                maxSelections={4}
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500">Extra instructions</label>
+              <textarea
+                rows={3}
+                className="mt-1 w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
+                placeholder="Optional: add a style tweak, colors, or vibe"
+                value={options.extra}
+                onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500">Title</label>
+              <input
+                type="text"
+                placeholder="Give this generation a name"
+                className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+            <div className="col-span-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Generate product description</span>
+                <button
+                  type="button"
+                  onClick={() => setDescEnabled((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${descEnabled ? 'bg-foreground' : 'bg-black/20 dark:bg-white/20'}`}
+                  aria-pressed={descEnabled}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${descEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {descEnabled && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div className="col-span-2">
+                    <input
+                      type="text"
+                      className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                      placeholder="Brand (e.g., Nike, Zara)"
+                      value={desc.brand}
+                      onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <input
+                      type="text"
+                      className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
+                      placeholder="Model (e.g., Air Max 90)"
+                      value={desc.productModel}
+                      onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
+                    />
+                  </div>
+                  <div className="col-span-2 flex items-center gap-2">
+                    {['Brand new','Very good','Good'].map((c) => (
+                      <button key={c} type="button" onClick={() => setProductCondition(c)} className={`h-8 px-2 rounded-md border text-xs ${productCondition === c ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{c}</button>
+                    ))}
+                  </div>
+                  <div className="col-span-2 flex items-center gap-2">
+                    {['xs','s','m','l','xl'].map((s) => (
+                      <button key={s} type="button" onClick={() => setDesc((d) => ({ ...d, size: s }))} className={`h-8 px-2 rounded-md border text-xs ${desc.size === s ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{s.toUpperCase()}</button>
+                    ))}
                   </div>
                 </div>
-              </Drawer.Content>
-            </Drawer.Portal>
-          </Drawer.Root>
-        </section>
+              )}
+            </div>
+          </div>
+        </FlowStep>
 
-        {/* Title */}
-        <section>
-          <label className="text-xs text-gray-500">Title</label>
-          <input
-            type="text"
-            placeholder="Give this generation a name"
-            className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </section>
-
-        {/* Options moved to bottom sheet */}
-
-        
+        {/* Step 3 — Review */}
+        <FlowStep
+          step={3}
+          title="Review & generate"
+          subtitle="Check the prompt and start the generation."
+          status={stepStatus(3)}
+        >
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">{options.gender}</span>
+              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Env: {environmentSummary}</span>
+              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Poses: {poseSummary || '—'}</span>
+              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Model: {modelSummary}</span>
+              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Flow: {flowMode}</span>
+              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Type: {garmentSummary}</span>
+            </div>
+            <PromptPreviewCard
+              prompt={promptInput}
+              dirty={promptDirty}
+              onChange={(v) => { setPromptDirty(true); setPromptInput(v); }}
+              onReset={() => { setPromptDirty(false); setPromptInput(computeEffectivePrompt()); }}
+            />
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={!selectedFile || isGenerating}
+                className={`h-10 px-4 rounded-lg text-sm font-semibold ${
+                  !selectedFile || isGenerating ? 'opacity-60 cursor-not-allowed border' : 'bg-foreground text-background'
+                }`}
+              >
+                {isGenerating ? 'Generating…' : 'Generate'}
+              </button>
+            </div>
+          </div>
+        </FlowStep>
 
         {/* Listings History (server-backed, auth only) */}
         <section className="mt-2">
