@@ -2,6 +2,16 @@
 
 Mobile‑first Next.js frontend + FastAPI backend to upload a clothing photo and generate an image of the clothing worn by a person, powered by Google Gemini (google‑genai). Includes Dockerfiles, Dokploy deployment guidance, Postgres for metadata, and S3 for storing generated images.
 
+### Quickstart (User)
+- Open the app and go to the main page.
+- Step 1: Upload your garment photo (JPG/PNG/HEIC). Optionally set the garment type (Top/Bottom/Full); leave empty for auto‑detect.
+- Step 2: Customize — choose gender, model reference (image or description), pick an environment (use your Studio defaults or a preset), and select up to four poses. Add extra instructions if needed.
+- Step 3: Review the prompt preview and click Generate. The session becomes a Listing with your generated images; view details under the listings grid.
+- Studio: manage your personal defaults for environments and models. Use these as references in the main flow.
+
+Admin-only
+- Visit `/studio/admin` for bulk actions: upload/delete environment sources, upload model sources by gender, and manage pose sources and descriptions.
+
 ### Tech stack
 - Frontend: Next.js App Router (Tailwind v4 via `@tailwindcss/postcss`), mobile‑first UI
 - Backend: FastAPI (Python), Google Gen AI SDK (`google-genai`), Pillow, async SQLAlchemy

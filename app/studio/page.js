@@ -425,9 +425,14 @@ export default function StudioPage() {
   return (
     <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
       <main className="flex-1 p-5 pb-24 max-w-2xl w-full mx-auto flex flex-col gap-5">
-        <header className="pt-2">
-          <h1 className="text-xl font-semibold tracking-tight">Studio</h1>
-          <p className="text-sm text-gray-500 mt-1">Generate environment or human model scenes.</p>
+        <header className="pt-2 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Studio</h1>
+            <p className="text-sm text-gray-500 mt-1">Generate environment or human model scenes.</p>
+          </div>
+          {isAdmin && (
+            <a href="/studio/admin" className="h-9 px-3 rounded-md border text-xs font-medium">Admin</a>
+          )}
         </header>
 
         {/* Tabs */}

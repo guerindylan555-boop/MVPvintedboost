@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Drawer } from "vaul";
 import { Toaster, toast } from "react-hot-toast";
 import Link from "next/link";
 import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
 import { Camera, Check, X, Loader2 } from "lucide-react";
+import clsx from "clsx";
+import { FlowStep, InfoTooltip, OptionPicker, PromptPreviewCard } from "@/app/components";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY } from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
@@ -24,9 +26,13 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPreprocessing, setIsPreprocessing] = useState(false);
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const [activeStep, setActiveStep] = useState(1);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Temporary: keep legacy bottom-sheet options accessible until full wizard swap
   const [sheetOpen, setSheetOpen] = useState(false);
   // Pose choices for mirror selfie flow
-  const allowedPoses = ["Face", "three-quarter pose", "from the side", "random"];
+  const allowedPoses = useMemo(() => ["Face", "three-quarter pose", "from the side", "random"], []);
   const [options, setOptions] = useState({
     gender: "woman",
     environment: "studio",
@@ -68,6 +74,13 @@ export default function Home() {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem("vb_walkthrough_seen");
+      if (!seen) setShowWalkthrough(true);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -224,6 +237,11 @@ export default function Home() {
     }
   }
 
+  function dismissWalkthrough() {
+    setShowWalkthrough(false);
+    try { localStorage.setItem("vb_walkthrough_seen", "1"); } catch {}
+  }
+
   function computeEffectivePrompt(poseOverride, forPreview = true) {
     const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
       ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
@@ -325,6 +343,14 @@ export default function Home() {
 
   function handleTriggerPick() { fileInputRef.current?.click(); }
   function handleTriggerCamera() { cameraInputRef.current?.click(); }
+
+  function handleSelectEnvironmentDefault(key) {
+    setSelectedEnvDefaultKey(key);
+    try { localStorage.setItem(VB_ENV_DEFAULT_KEY, key); } catch {}
+    if (options.environment !== "studio") {
+      setOptions((o) => ({ ...o, environment: "studio" }));
+    }
+  }
 
   async function handleUseSample() {
     // Tiny 1x1 PNG so backend accepts it
@@ -536,9 +562,98 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  const stepStatus = (step) => {
+    if (activeStep === step) return "active";
+    return activeStep > step ? "completed" : "upcoming";
+  };
+
+  const canContinueStep1 = Boolean(selectedFile);
+  const canContinueStep2 = canContinueStep1 && (Array.isArray(options.poses) && options.poses.length > 0);
+  const canGenerate = canContinueStep1 && !isGenerating;
+  const maxUnlockedStep = canContinueStep2 ? 3 : canContinueStep1 ? 2 : 1;
+  const selectedEnvironment = selectedEnvDefaultKey
+    ? envDefaults.find((env) => env.s3_key === selectedEnvDefaultKey)
+    : envDefaults[0];
+  const environmentSummary = envDefaults.length > 0
+    ? selectedEnvironment?.name || "Saved default"
+    : options.environment;
+  const modelSummary = useModelImage ? "Default image" : "Description";
+  const garmentSummary = garmentType || "auto";
+  const poseSummary = Array.isArray(options.poses) ? options.poses.join(", ") : "";
+  const genderOptions = useMemo(() => [
+    {
+      value: "woman",
+      label: "Woman",
+      description: "Mirror selfie defaults crafted for womenswear listings.",
+    },
+    {
+      value: "man",
+      label: "Man",
+      description: "Tailors body shape and casing for menswear drops.",
+    },
+  ], []);
+  const modelReferenceOptions = useMemo(() => [
+    {
+      value: "image",
+      label: "Use model photo",
+      description: "Send the default person image alongside the garment for fidelity.",
+    },
+    {
+      value: "description",
+      label: "Text description",
+      description: "Send only the person description when you want more variation.",
+    },
+  ], []);
+  const flowOptions = useMemo(() => [
+    {
+      value: "classic",
+      label: "Instant",
+      description: "One model call blends garment, person, and environment together.",
+    },
+    {
+      value: "sequential",
+      label: "Two-stage",
+      description: "First dress the model, then place them into the environment.",
+    },
+    {
+      value: "both",
+      label: "Run both",
+      description: "Fire both pathways; we keep whichever returns an image first.",
+    },
+  ], []);
+  const garmentTypeOptions = useMemo(() => [
+    {
+      value: "auto",
+      label: "Auto detect",
+      description: "Let the backend classify top/bottom/full from the upload.",
+    },
+    { value: "top", label: "Top", description: "Use when you want the upper body focus locked." },
+    { value: "bottom", label: "Bottom", description: "Prioritize trousers, shorts, or skirts." },
+    { value: "full", label: "Full outfit", description: "For dresses, jumpsuits, or two-piece sets." },
+  ], []);
+  const poseOptions = useMemo(
+    () => allowedPoses.map((pose) => ({ value: pose, label: pose })),
+    [allowedPoses]
+  );
+  const environmentOptions = useMemo(() => [
+    { value: "studio", label: "Studio", description: "Use your saved defaults or a clean neutral room." },
+    { value: "street", label: "Street", description: "Outdoor mirror moment with natural light." },
+    { value: "bed", label: "Bedroom", description: "Soft indoor vibe for loungewear." },
+    { value: "beach", label: "Beach", description: "Sunlit boardwalk or sand backdrop." },
+    { value: "indoor", label: "Indoor", description: "General interior scenes beyond the studio." },
+  ], []);
+
   return (
     <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
       <Toaster position="top-center" />
+      {/* Simple progress header */}
+      <div className="sticky top-0 z-10 backdrop-blur bg-background/70 border-b border-black/10 dark:border-white/10">
+        <div className="max-w-md mx-auto px-5 py-3 flex items-center gap-2 text-xs">
+          {[1,2,3].map((s) => (
+            <span key={s} className={`h-7 px-2 rounded-md border ${stepStatus(s) === 'active' ? 'bg-foreground text-background border-foreground' : stepStatus(s) === 'completed' ? 'border-foreground text-foreground' : 'border-black/15 dark:border-white/15 text-foreground/70'}`}>{s === 1 ? 'Upload' : s === 2 ? 'Customize' : 'Review'}</span>
+          ))}
+        </div>
+      </div>
       <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
         {/* Upload first */}
         <section>
@@ -637,7 +752,10 @@ export default function Home() {
             </div>
           )}
           <div className="mt-3">
-            <label className="text-xs text-gray-500">Garment type</label>
+            <label className="text-xs text-gray-500 inline-flex items-center gap-2">
+              Garment type
+              <InfoTooltip label="Garment type" description="Set to Top/Bottom/Full if you know it. Leave empty to auto-detect once and cache on the listing." />
+            </label>
             <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
               {['top','bottom','full'].map((t) => (
                 <button
@@ -1026,8 +1144,27 @@ export default function Home() {
               "Generate"
             )}
           </button>
-        </div>
       </div>
+      </div>
+
+      {/* First-run walkthrough */}
+      {showWalkthrough && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5">
+          <div className="max-w-md w-full rounded-2xl border border-white/15 bg-background p-5">
+            <h2 className="text-lg font-semibold">How VintedBoost works</h2>
+            <ol className="mt-3 space-y-2 text-sm text-gray-300 list-decimal list-inside">
+              <li>Upload a clear photo of your garment.</li>
+              <li>Pick model, environment and up to 4 poses.</li>
+              <li>Review the prompt and generate mirror-selfie images.</li>
+            </ol>
+            <p className="mt-3 text-xs text-gray-400">Defaults for model and environment live in Studio. Set them once and reuse here.</p>
+            <div className="mt-4 flex items-center justify-between">
+              <a href="/studio" className="text-sm underline">Open Studio</a>
+              <button onClick={dismissWalkthrough} className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium">Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
