@@ -21,8 +21,8 @@ Admin-only
 - Deployment: Dokploy with Dockerfiles for frontend and backend
 
 ### Features
-- Upload clothing image (tap or drag‑and‑drop)
-- Garment type selector (auto/top/bottom/full): 3 buttons directly under the upload box. If set, overrides detection; if not set, the backend auto‑detects the garment type once and caches it.
+- Upload clothing image (tap or drag-and-drop) from a dedicated hero workspace with quick links to Studio and Settings
+- Garment type selector (auto/top/bottom/full): 3 buttons directly under the upload box. If set, overrides detection; if not set, the backend auto-detects the garment type once and caches it.
 - Options panel:
   - gender: woman/man
   - environment: studio/street/bed/beach/indoor (when Studio defaults exist, shows their names instead)
@@ -35,12 +35,13 @@ Admin-only
   - the selected environment default image (optional)
   - the selected gender model default image (optional)
   Backend builds one prompt and includes all references for the model
+- Settings page to manage default gender, environment, poses, flow mode, and model reference preference stored in localStorage
 - Listings flow (auth required): each generation session becomes a "Listing" bundling the source garment image, settings, generated images, and optional description
   - Create listing via `POST /listing` with the garment image and settings
   - Add images by calling `POST /edit/json` per selected pose with `listing_id`
   - Generate description via `POST /describe` with `listing_id` to store on the listing
-  - History grid on the main page uses `GET /listings`; the cover image defaults to the first generated image
-  - Listing detail page at `/listing/[id]` shows all images, settings, and description. Each image has a “Prompt” button to reveal the exact prompt used.
+  - History rail on the main page uses `GET /listings`; the cover image defaults to the first generated image and each card links into the redesigned gallery view
+- Listing detail page at `/listing/[id]` features a primary gallery with full-screen viewer, thumbnails, pose checklist, and per-image prompt/cover actions.
 
 Default generation style (Mirror Selfie for Vinted)
 - Photorealistic mirror selfie, amateur smartphone look

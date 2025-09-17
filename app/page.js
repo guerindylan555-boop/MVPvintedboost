@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Toaster, toast } from "react-hot-toast";
+import { toast } from "react-hot-toast";
 import Link from "next/link";
 import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
-import { Camera, Check, X, Loader2 } from "lucide-react";
-import clsx from "clsx";
-import { FlowStep, InfoTooltip, OptionPicker, PromptPreviewCard } from "@/app/components";
+import { Camera, Loader2 } from "lucide-react";
+import { InfoTooltip, OptionPicker, PromptPreviewCard } from "@/app/components";
 import { getApiBase, withUserId } from "@/app/lib/api";
-import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY } from "@/app/lib/storage-keys";
+import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY, VB_MODEL_REFERENCE_PREF } from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
 import { preprocessImage } from "@/app/lib/image-preprocess";
 const authClient = createAuthClient();
@@ -26,7 +25,6 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPreprocessing, setIsPreprocessing] = useState(false);
   const [showWalkthrough, setShowWalkthrough] = useState(false);
-  const [activeStep, setActiveStep] = useState(1);
   // Pose choices for mirror selfie flow
   const allowedPoses = useMemo(() => ["Face", "three-quarter pose", "from the side", "random"], []);
   const [options, setOptions] = useState({
@@ -45,12 +43,12 @@ export default function Home() {
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
-  const [showAdvancedPrompt, setShowAdvancedPrompt] = useState(false);
   const [poseStatus, setPoseStatus] = useState({}); // { [pose]: 'pending'|'running'|'done'|'error' }
   const [poseErrors, setPoseErrors] = useState({}); // { [pose]: string }
   const [lastListingId, setLastListingId] = useState(null);
   const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
   const [listingsLoading, setListingsLoading] = useState(true);
+  const [optionsCollapsed, setOptionsCollapsed] = useState(false);
   // Flow mode: classic | sequential | both
   const [flowMode, setFlowMode] = useState("classic");
   // Prompt preview/editor
@@ -121,6 +119,16 @@ export default function Home() {
   useEffect(() => {
     try { localStorage.setItem(VB_FLOW_MODE, flowMode); } catch {}
   }, [flowMode]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VB_MODEL_REFERENCE_PREF);
+      if (stored === "image" || stored === "description") setUseModelImage(stored === "image");
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(VB_MODEL_REFERENCE_PREF, useModelImage ? "image" : "description"); } catch {}
+  }, [useModelImage]);
 
   // Load environment defaults to reflect in UI label
   useEffect(() => {
@@ -193,7 +201,7 @@ export default function Home() {
         if (first) localStorage.setItem(VB_ENV_DEFAULT_KEY, first);
       } catch {}
     }
-  }, [envDefaults]);
+  }, [envDefaults, selectedEnvDefaultKey]);
 
   // If defaults exist, force environment to studio in options
   useEffect(() => {
@@ -271,12 +279,14 @@ export default function Home() {
   }, [
     options.gender,
     options.environment,
-    JSON.stringify(options.poses),
+    poseKey,
     options.extra,
     selectedEnvDefaultKey,
-    JSON.stringify(envDefaults),
-    JSON.stringify(modelDefaults),
+    envDefaultsKey,
+    modelDefaultsKey,
     useModelImage,
+    promptDirty,
+    randomPosePick?.description,
   ]);
 
   function togglePose(pose) {
@@ -558,15 +568,7 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  const stepStatus = (step) => {
-    if (activeStep === step) return "active";
-    return activeStep > step ? "completed" : "upcoming";
-  };
-
-  const canContinueStep1 = Boolean(selectedFile);
-  const canContinueStep2 = canContinueStep1 && (Array.isArray(options.poses) && options.poses.length > 0);
-  const canGenerate = canContinueStep1 && !isGenerating;
-  const maxUnlockedStep = canContinueStep2 ? 3 : canContinueStep1 ? 2 : 1;
+  const canGenerate = Boolean(selectedFile) && !isGenerating;
   const selectedEnvironment = selectedEnvDefaultKey
     ? envDefaults.find((env) => env.s3_key === selectedEnvDefaultKey)
     : envDefaults[0];
@@ -576,6 +578,28 @@ export default function Home() {
   const modelSummary = useModelImage ? "Default image" : "Description";
   const garmentSummary = garmentType || "auto";
   const poseSummary = Array.isArray(options.poses) ? options.poses.join(", ") : "";
+  const poseKey = useMemo(() => (Array.isArray(options.poses) ? options.poses.join("|") : ""), [options.poses]);
+  const envDefaultsKey = useMemo(
+    () => (Array.isArray(envDefaults) ? envDefaults.map((d) => d.s3_key).join("|") : ""),
+    [envDefaults]
+  );
+  const modelDefaultsKey = useMemo(() => {
+    if (!modelDefaults) return "";
+    const woman = modelDefaults?.woman
+      ? `${modelDefaults.woman.s3_key || ""}:${modelDefaults.woman.description || ""}`
+      : "";
+    const man = modelDefaults?.man
+      ? `${modelDefaults.man.s3_key || ""}:${modelDefaults.man.description || ""}`
+      : "";
+    return `${woman}|${man}`;
+  }, [modelDefaults]);
+  const poseStatusList = Array.isArray(options.poses)
+    ? options.poses.map((pose) => ({
+      pose,
+      status: poseStatus[pose] || (isGenerating ? "running" : "pending"),
+      error: poseErrors[pose],
+    }))
+    : [];
   const genderOptions = useMemo(() => [
     {
       value: "woman",
@@ -640,422 +664,413 @@ export default function Home() {
   ], []);
 
   return (
-    <div className="font-sans min-h-screen bg-background text-foreground flex flex-col">
-      <Toaster position="top-center" />
-      {/* Simple progress header */}
-      <div className="sticky top-0 z-10 backdrop-blur bg-background/70 border-b border-black/10 dark:border-white/10">
-        <div className="max-w-md mx-auto px-5 py-3 flex items-center gap-2 text-xs">
-          {[1, 2, 3].map((s) => {
-            const status = stepStatus(s);
-            const label = s === 1 ? "Upload" : s === 2 ? "Customize" : "Review";
-            const disabled = s > maxUnlockedStep;
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => { if (!disabled) setActiveStep(s); }}
-                disabled={disabled}
-                className={`h-7 px-3 rounded-md border transition ${
-                  status === 'active'
-                    ? 'bg-foreground text-background border-foreground'
-                    : status === 'completed'
-                      ? 'border-foreground text-foreground'
-                      : 'border-black/15 dark:border-white/15 text-foreground/70'
-                } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
-              >
-                {label}
-              </button>
-            );
-          })}
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Create a listing</h1>
+          <p className="text-sm text-foreground/70">Upload a garment photo, tweak the scene, and generate Vinted-ready imagery in seconds.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/studio" className="hidden sm:inline-flex h-9 items-center rounded-full border border-black/15 px-4 text-sm font-medium">
+            Open Studio
+          </Link>
+          <Link href="/settings" className="hidden sm:inline-flex h-9 items-center rounded-full border border-black/15 px-4 text-sm font-medium">
+            Preferences
+          </Link>
         </div>
       </div>
-      <main className="flex-1 p-5 max-w-md w-full mx-auto flex flex-col gap-5">
-        {/* Upload first */}
-        <section>
-          {/* Library picker (default) */}
-          <input
-            ref={fileInputRef}
-            id="file"
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          {/* Camera capture (optional) */}
-          <input
-            ref={cameraInputRef}
-            id="camera"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
-          />
 
-          {!previewUrl ? (
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="space-y-6">
+          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Upload garment</h2>
+                <p className="text-xs text-foreground/60">Drop a clear photo of the item you want the model to wear.</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <button type="button" onClick={handleUseSample} className="underline underline-offset-4">Use sample</button>
+                <button type="button" onClick={handleTriggerCamera} className="underline underline-offset-4">Take photo</button>
+              </div>
+            </div>
+            <div className="mt-4">
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
+              {!previewUrl ? (
+                <button
+                  type="button"
+                  onClick={handleTriggerPick}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`flex aspect-[4/5] w-full items-center justify-center rounded-xl border border-dashed px-4 text-center transition-colors ${
+                    isDragging ? "border-blue-500 bg-blue-500/10" : "border-foreground/20 hover:border-foreground/40"
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-2 text-foreground/70">
+                    <div className="size-14 rounded-full border border-dashed border-current/30 flex items-center justify-center">
+                      <Camera className="size-6" />
+                    </div>
+                    <div className="text-sm"><span className="font-medium text-foreground">Tap to upload</span> or drop an image</div>
+                    <div className="text-xs">PNG, JPG, HEIC up to ~10MB</div>
+                    {isPreprocessing && <div className="mt-1 text-xs">Optimizing photo…</div>}
+                  </div>
+                </button>
+              ) : (
+                <div className="w-full overflow-hidden rounded-xl border border-foreground/15 bg-background/40">
+                  <div className="relative w-full aspect-[4/5]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={previewUrl} alt="Selected garment" className="h-full w-full object-cover" />
+                    {isPreprocessing && (
+                      <div className="absolute bottom-2 right-2 rounded-md border border-black/10 bg-background/80 px-2 py-1 text-[11px] dark:border-white/15">
+                        Optimizing…
+                      </div>
+                    )}
+                    <div className="absolute top-2 right-2 rounded-md border border-black/10 bg-background/80 px-2 py-1 text-[11px] dark:border-white/15">
+                      {plannedImagesCount} image{plannedImagesCount > 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-foreground/10 p-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{selectedFile?.name || "Selected image"}</p>
+                      <p className="text-xs text-foreground/60">{selectedFile?.size ? `${Math.round(selectedFile.size / 1024)} KB` : ""}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={handleTriggerPick} className="h-9 rounded-lg bg-foreground px-3 text-sm font-medium text-background">Change</button>
+                      <button type="button" onClick={clearSelection} className="h-9 rounded-lg border border-foreground/20 px-3 text-sm font-medium">Remove</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-4">
+              <label className="inline-flex items-center gap-2 text-xs font-medium text-foreground/80">
+                Garment type
+                <InfoTooltip label="Garment type" description="Set to Top/Bottom/Full if you know it. Leave empty to auto-detect once and cache on the listing." />
+              </label>
+              <div className="mt-2 grid grid-cols-3 overflow-hidden rounded-lg border border-foreground/15">
+                {["top", "bottom", "full"].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setGarmentType((prev) => (prev === t ? null : t))}
+                    className={`h-10 text-xs font-medium uppercase tracking-wide transition ${
+                      garmentType === t ? "bg-foreground text-background" : "text-foreground/70"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              {!garmentType && <p className="mt-1 text-[11px] text-foreground/50">Auto-detect if not set.</p>}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-black/10 bg-black/5 dark:border-white/15 dark:bg-white/5">
             <button
               type="button"
-              onClick={handleTriggerPick}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              className={`w-full aspect-[4/5] rounded-2xl border text-center flex items-center justify-center px-4 transition-colors ${
-                isDragging
-                  ? "border-blue-500 bg-blue-500/10"
-                  : "border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5"
-              }`}
+              onClick={() => setOptionsCollapsed((v) => !v)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold"
             >
-              <div className="flex flex-col items-center gap-2">
-                <div className="size-12 rounded-full border border-dashed border-current/30 flex items-center justify-center text-gray-500">
-                  <Camera className="size-6" />
-                </div>
-                <div className="text-sm"><span className="font-medium">Tap to upload</span> or drop an image</div>
-                <div className="text-xs text-gray-500">PNG, JPG, HEIC up to ~10MB</div>
-                <div className="mt-2 flex items-center gap-3">
-                  <button type="button" onClick={handleUseSample} className="text-xs underline underline-offset-4">Use sample image</button>
-                  <button type="button" onClick={handleTriggerCamera} className="text-xs underline underline-offset-4">Take photo</button>
-                </div>
-                {isPreprocessing && (
-                  <div className="mt-2 text-xs text-gray-500">Optimizing photo…</div>
-                )}
-              </div>
+              <span>Scene & model options</span>
+              <span className="text-xs text-foreground/60">{optionsCollapsed ? "Show" : "Hide"}</span>
             </button>
-          ) : (
-            <div className="w-full rounded-2xl overflow-hidden border border-black/10 dark:border-white/15 bg-black/5 dark:bg-white/5">
-              <div className="relative w-full aspect-[4/5] bg-black/5">
-                {/* Using img for local blob preview to avoid domain config */}
-                <img
-                  src={previewUrl}
-                  alt="Selected garment preview"
-                  className="h-full w-full object-cover"
-                />
-                {isPreprocessing && (
-                  <div className="absolute bottom-2 right-2 text-[11px] px-2 py-1 rounded-md bg-background/80 border border-black/10 dark:border-white/15">
-                    Optimizing…
+            {!optionsCollapsed && (
+              <div className="border-t border-foreground/10 px-4 py-5">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <OptionPicker
+                      label="Gender"
+                      options={genderOptions}
+                      value={options.gender}
+                      onChange={(v) => setOptions((o) => ({ ...o, gender: v }))}
+                    />
                   </div>
-                )}
-                <div className="absolute top-2 right-2 text-[11px] px-2 py-1 rounded-md bg-background/80 border border-black/10 dark:border-white/15">
-                  {plannedImagesCount} image{plannedImagesCount > 1 ? "s" : ""}
+                  <div className="sm:col-span-2">
+                    <OptionPicker
+                      label="Model reference"
+                      description="Use your default model photo from Studio, or send its description only."
+                      options={modelReferenceOptions}
+                      value={useModelImage ? "image" : "description"}
+                      onChange={(v) => setUseModelImage(v === "image")}
+                    />
+                    {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
+                      <p className="mt-1 text-[11px] text-amber-500">No default description stored yet. Add one from Studio.</p>
+                    )}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <OptionPicker
+                      label="Generation flow"
+                      options={flowOptions}
+                      value={flowMode}
+                      onChange={setFlowMode}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-semibold">Environment</label>
+                      <span className="text-xs text-foreground/60">{environmentSummary}</span>
+                    </div>
+                    {envDefaultsLoading ? (
+                      <div className="mt-2 flex gap-2 overflow-x-auto">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="h-28 w-20 animate-pulse rounded-lg bg-foreground/10" />
+                        ))}
+                      </div>
+                    ) : envDefaults.length > 0 ? (
+                      <div className="mt-2 flex gap-2 overflow-x-auto">
+                        {envDefaults.map((d) => (
+                          <button
+                            key={d.s3_key}
+                            type="button"
+                            onClick={() => handleSelectEnvironmentDefault(d.s3_key)}
+                            className={`w-24 flex-shrink-0 overflow-hidden rounded-lg border ${
+                              selectedEnvDefaultKey === d.s3_key ? "border-foreground" : "border-foreground/15"
+                            }`}
+                            title={d.name || "Environment"}
+                          >
+                            <div className="relative aspect-[3/4] w-full overflow-hidden">
+                              {d.url ? (
+                                <Image
+                                  src={d.url}
+                                  alt={d.name || "Environment"}
+                                  fill
+                                  sizes="96px"
+                                  className="object-cover"
+                                  unoptimized
+                                />
+                              ) : (
+                                <div className="h-full w-full bg-foreground/10" />
+                              )}
+                            </div>
+                            <div className="px-2 py-1 text-[11px] text-foreground/70">{d.name || "Untitled"}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <OptionPicker
+                        options={environmentOptions}
+                        value={options.environment}
+                        onChange={(v) => setOptions((o) => ({ ...o, environment: v }))}
+                      />
+                    )}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <OptionPicker
+                      label="Poses"
+                      description={`Selected ${Math.min(options.poses?.length || 0, 4)}/4`}
+                      options={poseOptions}
+                      value={options.poses}
+                      onChange={(next) => setOptions((o) => ({ ...o, poses: next }))}
+                      multiple
+                      maxSelections={4}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs text-foreground/70">Extra instructions</label>
+                    <textarea
+                      rows={3}
+                      className="mt-2 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 py-2 text-sm"
+                      placeholder="Optional: add a style tweak, colours, or vibe"
+                      value={options.extra}
+                      onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs text-foreground/70">Listing title</label>
+                    <input
+                      type="text"
+                      placeholder="Give this generation a name"
+                      className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 space-y-3">
+                    <div className="flex items-center justify-between text-xs text-foreground/70">
+                      <span>Generate product description</span>
+                      <button
+                        type="button"
+                        onClick={() => setDescEnabled((v) => !v)}
+                        className={`relative inline-flex h-6 w-12 items-center rounded-full transition ${
+                          descEnabled ? "bg-foreground" : "bg-foreground/30"
+                        }`}
+                        aria-pressed={descEnabled}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-background transition ${
+                            descEnabled ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    {descEnabled && (
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <input
+                          type="text"
+                          className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
+                          placeholder="Brand (e.g., Nike, Zara)"
+                          value={desc.brand}
+                          onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
+                        />
+                        <input
+                          type="text"
+                          className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
+                          placeholder="Model (e.g., Air Max 90)"
+                          value={desc.productModel}
+                          onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
+                        />
+                        <div className="col-span-2 flex flex-wrap gap-2">
+                          {["Brand new", "Very good", "Good"].map((condition) => (
+                            <button
+                              key={condition}
+                              type="button"
+                              onClick={() => setProductCondition(condition)}
+                              className={`h-8 rounded-full border px-3 text-xs ${
+                                productCondition === condition ? "border-foreground" : "border-foreground/20"
+                              }`}
+                            >
+                              {condition}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="col-span-2 flex flex-wrap gap-2">
+                          {["xs", "s", "m", "l", "xl"].map((size) => (
+                            <button
+                              key={size}
+                              type="button"
+                              onClick={() => setDesc((d) => ({ ...d, size }))}
+                              className={`h-8 rounded-full border px-3 text-xs uppercase ${
+                                desc.size === size ? "border-foreground" : "border-foreground/20"
+                              }`}
+                            >
+                              {size}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="p-3 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm truncate">
-                    {selectedFile?.name || "Selected image"}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {(selectedFile?.size ? Math.round(selectedFile.size / 1024) : 0)} KB
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleTriggerPick}
-                    className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium active:translate-y-px"
-                  >
-                    Change
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    className="h-9 px-3 rounded-md border border-black/10 dark:border-white/15 text-sm font-medium active:translate-y-px"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="mt-3">
-            <label className="text-xs text-gray-500 inline-flex items-center gap-2">
-              Garment type
-              <InfoTooltip label="Garment type" description="Set to Top/Bottom/Full if you know it. Leave empty to auto-detect once and cache on the listing." />
-            </label>
-            <div className="mt-1 grid grid-cols-3 h-10 rounded-md border border-black/10 dark:border-white/15 overflow-hidden">
-              {['top','bottom','full'].map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setGarmentType((prev) => prev === t ? null : t)}
-                  className={`text-xs ${garmentType === t ? 'bg-foreground text-background' : 'text-foreground'}`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-            {!garmentType && (
-              <p className="mt-1 text-[10px] text-gray-500">Auto-detect if not set.</p>
             )}
           </div>
-        </section>
 
-        {/* Step 2 and Step 3 will render below */}
-
-        {/* Step 2 — Customize */}
-        <FlowStep
-          step={2}
-          title="Customize"
-          subtitle="Pick model, environment and poses. You can tweak the prompt later."
-          status={stepStatus(2)}
-          actions={
-            canContinueStep2 && (
-              <button
-                type="button"
-                onClick={() => setActiveStep(3)}
-                className="h-8 px-3 rounded-md bg-foreground text-background text-xs font-semibold"
-              >
-                Continue
-              </button>
-            )
-          }
-        >
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <OptionPicker
-                label="Gender"
-                options={genderOptions}
-                value={options.gender}
-                onChange={(v) => setOptions((o) => ({ ...o, gender: v }))}
-              />
-            </div>
-            <div className="col-span-2">
-              <OptionPicker
-                label="Model reference"
-                description="Use your default model photo from Studio, or send its description only."
-                options={modelReferenceOptions}
-                value={useModelImage ? 'image' : 'description'}
-                onChange={(v) => setUseModelImage(v === 'image')}
-              />
-              {!useModelImage && !((options.gender === 'woman' ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
-                <p className="mt-1 text-[10px] text-amber-600">No default description; falls back to gender hint.</p>
-              )}
-            </div>
-            <div className="col-span-2">
-              <OptionPicker
-                label="Generation flow"
-                options={flowOptions}
-                value={flowMode}
-                onChange={setFlowMode}
-              />
-            </div>
-            <div className="col-span-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold">Environment</label>
-                <span className="text-xs text-gray-400">{environmentSummary}</span>
-              </div>
-              {envDefaultsLoading ? (
-                <div className="mt-2 flex gap-2 overflow-x-auto">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="w-20 h-24 rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
-                  ))}
-                </div>
-              ) : envDefaults.length > 0 ? (
-                <div className="mt-2 flex gap-2 overflow-x-auto snap-x snap-mandatory">
-                  {envDefaults.map((d) => (
-                    <button
-                      key={d.s3_key}
-                      type="button"
-                      onClick={() => handleSelectEnvironmentDefault(d.s3_key)}
-                      className={`w-20 snap-start rounded-md border ${selectedEnvDefaultKey === d.s3_key ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}
-                      title={d.name || 'Environment'}
-                    >
-                      <div className="w-full aspect-[3/4] overflow-hidden rounded-t-md">
-                        {d.url ? (
-                          <img src={d.url} alt={d.name || 'Environment'} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-black/10 dark:bg-white/10" />
-                        )}
-                      </div>
-                      <div className="px-1 py-1 text-[10px] truncate">{d.name || 'Untitled'}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <OptionPicker
-                  options={environmentOptions}
-                  value={options.environment}
-                  onChange={(v) => setOptions((o) => ({ ...o, environment: v }))}
-                />
-              )}
-            </div>
-            <div className="col-span-2">
-              <OptionPicker
-                label={`Poses (up to 4)`}
-                description={`Selected: ${Math.min(options.poses?.length || 0, 4)}/4`}
-                options={poseOptions}
-                value={options.poses}
-                onChange={(next) => setOptions((o) => ({ ...o, poses: next }))}
-                multiple
-                maxSelections={4}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs text-gray-500">Extra instructions</label>
-              <textarea
-                rows={3}
-                className="mt-1 w-full rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 py-2 text-sm"
-                placeholder="Optional: add a style tweak, colors, or vibe"
-                value={options.extra}
-                onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="text-xs text-gray-500">Title</label>
-              <input
-                type="text"
-                placeholder="Give this generation a name"
-                className="mt-1 w-full h-10 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
-            <div className="col-span-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">Generate product description</span>
-                <button
-                  type="button"
-                  onClick={() => setDescEnabled((v) => !v)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${descEnabled ? 'bg-foreground' : 'bg-black/20 dark:bg-white/20'}`}
-                  aria-pressed={descEnabled}
-                >
-                  <span className={`inline-block h-5 w-5 transform rounded-full bg-background transition-transform ${descEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
-                </button>
-              </div>
-              {descEnabled && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <div className="col-span-2">
-                    <input
-                      type="text"
-                      className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                      placeholder="Brand (e.g., Nike, Zara)"
-                      value={desc.brand}
-                      onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <input
-                      type="text"
-                      className="w-full h-9 rounded-md border border-black/10 dark:border-white/15 bg-transparent px-3 text-sm"
-                      placeholder="Model (e.g., Air Max 90)"
-                      value={desc.productModel}
-                      onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
-                    />
-                  </div>
-                  <div className="col-span-2 flex items-center gap-2">
-                    {['Brand new','Very good','Good'].map((c) => (
-                      <button key={c} type="button" onClick={() => setProductCondition(c)} className={`h-8 px-2 rounded-md border text-xs ${productCondition === c ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{c}</button>
-                    ))}
-                  </div>
-                  <div className="col-span-2 flex items-center gap-2">
-                    {['xs','s','m','l','xl'].map((s) => (
-                      <button key={s} type="button" onClick={() => setDesc((d) => ({ ...d, size: s }))} className={`h-8 px-2 rounded-md border text-xs ${desc.size === s ? 'border-foreground' : 'border-black/10 dark:border-white/15'}`}>{s.toUpperCase()}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </FlowStep>
-
-        {/* Step 3 — Review */}
-        <FlowStep
-          step={3}
-          title="Review & generate"
-          subtitle="Check the prompt and start the generation."
-          status={stepStatus(3)}
-        >
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2 text-xs">
-              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">{options.gender}</span>
-              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Env: {environmentSummary}</span>
-              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Poses: {poseSummary || '—'}</span>
-              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Model: {modelSummary}</span>
-              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Flow: {flowMode}</span>
-              <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Type: {garmentSummary}</span>
+          <div className="space-y-4 rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full border border-foreground/15 px-3 py-1">{options.gender}</span>
+              <span className="rounded-full border border-foreground/15 px-3 py-1">Env: {environmentSummary}</span>
+              <span className="rounded-full border border-foreground/15 px-3 py-1">Poses: {poseSummary || "–"}</span>
+              <span className="rounded-full border border-foreground/15 px-3 py-1">Model: {modelSummary}</span>
+              <span className="rounded-full border border-foreground/15 px-3 py-1">Flow: {flowMode}</span>
+              <span className="rounded-full border border-foreground/15 px-3 py-1">Type: {garmentSummary}</span>
             </div>
             <PromptPreviewCard
               prompt={promptInput}
               dirty={promptDirty}
-              onChange={(v) => { setPromptDirty(true); setPromptInput(v); }}
-              onReset={() => { setPromptDirty(false); setPromptInput(computeEffectivePrompt()); }}
+              onChange={(v) => {
+                setPromptDirty(true);
+                setPromptInput(v);
+              }}
+              onReset={() => {
+                setPromptDirty(false);
+                setPromptInput(computeEffectivePrompt());
+              }}
             />
-            <div className="flex items-center justify-end">
+            {poseStatusList.length > 0 && (
+              <div className="rounded-xl border border-foreground/10 bg-background/40 p-4">
+                <h3 className="text-sm font-semibold">Generation status</h3>
+                <ul className="mt-2 space-y-2 text-xs">
+                  {poseStatusList.map(({ pose, status, error }) => (
+                    <li key={pose} className="flex items-start justify-between gap-3">
+                      <span className="font-medium">{pose}</span>
+                      <span className={status === "error" ? "text-red-500" : status === "done" ? "text-green-400" : "text-foreground/60"}>
+                        {status === "running" ? "Generating…" : status === "done" ? "Ready" : status === "error" ? error || "Failed" : "Queued"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  clearSelection();
+                  setPoseStatus({});
+                  setPoseErrors({});
+                  setLastListingId(null);
+                }}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm"
+              >
+                Reset
+              </button>
               <button
                 type="button"
                 onClick={handleGenerate}
-                disabled={!selectedFile || isGenerating}
-                className={`h-10 px-4 rounded-lg text-sm font-semibold ${
-                  !selectedFile || isGenerating ? 'opacity-60 cursor-not-allowed border' : 'bg-foreground text-background'
+                disabled={!canGenerate}
+                className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                  canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
                 }`}
               >
-                {isGenerating ? 'Generating…' : 'Generate'}
+                {isGenerating ? "Generating…" : "Generate listing"}
               </button>
             </div>
           </div>
-        </FlowStep>
+        </section>
 
-        {/* Listings History (server-backed, auth only) */}
-        <section className="mt-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium">Your Listings</h2>
-          </div>
-          {listingsLoading ? (
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="aspect-square rounded-md bg-black/10 dark:bg-white/10 animate-pulse" />
-              ))}
+        <aside className="space-y-3">
+          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Recent listings</h2>
+              <Link href="/studio" className="text-xs text-foreground/60 underline">
+                Studio
+              </Link>
             </div>
-          ) : (!listings || listings.length === 0) ? (
-            <p className="text-xs text-gray-500 mt-2">No listings yet. Visit <a className="underline" href="/studio">Studio</a> to set defaults and then generate your first listing.</p>
-          ) : (
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {listings.map((l) => {
-                const when = new Date(l.created_at);
-                const settings = l.settings || {};
-                return (
-                  <Link
-                    key={l.id}
-                    className="relative rounded-md overflow-hidden border border-black/10 dark:border-white/15 aspect-square"
-                    href={`/listing/${l.id}`}
-                    title={when.toLocaleString()}
-                    prefetch
-                  >
-                    {l.cover_url ? (
-                      <Image src={l.cover_url} alt="Listing cover" fill sizes="(max-width: 768px) 33vw, 200px" className="object-cover" />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">No image yet</div>
-                    )}
-                    <div className="absolute top-1 left-1 flex items-center gap-1">
-                      {typeof l.images_count === 'number' && l.images_count > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15">{l.images_count} images</span>
-                      )}
-                    </div>
-                    <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between gap-1 px-1">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{when.toLocaleDateString()}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{settings.gender || ''} {settings.environment || ''}</span>
-                      {settings.garment_type && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 border border-black/10 dark:border-white/15 truncate">{settings.garment_type}</span>
-                      )}
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-          <div className="mt-4">
-            <a
-              href="/studio"
-              className="inline-flex items-center gap-2 text-sm font-medium underline underline-offset-4"
-            >
-              Open Studio (Environment & Model)
-            </a>
+            {listingsLoading ? (
+              <div className="mt-3 space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-24 animate-pulse rounded-xl bg-foreground/10" />
+                ))}
+              </div>
+            ) : !listings || listings.length === 0 ? (
+              <p className="mt-3 text-xs text-foreground/60">No listings yet. Generate your first one to see it here.</p>
+            ) : (
+              <ul className="mt-3 space-y-3 text-sm">
+                {listings.map((l) => {
+                  const when = new Date(l.created_at);
+                  const settings = l.settings || {};
+                  return (
+                    <li key={l.id} className="rounded-xl border border-foreground/15 bg-background/40">
+                      <Link href={`/listing/${l.id}`} className="flex gap-3 p-3">
+                        <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-foreground/15">
+                          {l.cover_url ? (
+                            <Image src={l.cover_url} alt="Listing cover" fill sizes="64px" className="object-cover" />
+                          ) : (
+                            <div className="h-full w-full bg-foreground/10" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{l.title || when.toLocaleString()}</p>
+                          <p className="text-xs text-foreground/60">{when.toLocaleDateString()} · {settings.gender || ""} {settings.environment || ""}</p>
+                          {typeof l.images_count === "number" && (
+                            <p className="text-[11px] text-foreground/50">{l.images_count} image{l.images_count === 1 ? "" : "s"}</p>
+                          )}
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             {isAdmin && (
               <button
                 type="button"
                 onClick={handleInitDb}
                 disabled={initDbBusy}
-                className={`ml-3 inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border ${initDbBusy ? "opacity-60 cursor-not-allowed" : ""}`}
-                title="Create all backend tables (admin)"
+                className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                  initDbBusy ? "opacity-60" : ""
+                }`}
               >
                 {initDbBusy ? (
                   <>
@@ -1068,74 +1083,33 @@ export default function Home() {
               </button>
             )}
           </div>
-        </section>
-      </main>
-
-      <div className="sticky bottom-0 z-10 w-full bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t border-black/10 dark:border-white/15 pb-[env(safe-area-inset-bottom)]">
-        <div className="max-w-md mx-auto p-4 flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-xs overflow-x-auto">
-            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">{options.gender}</span>
-            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Env: {envDefaults.length > 0 ? (selectedEnvDefaultKey ? 'Default' : 'Default (first)') : options.environment}</span>
-            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Poses: {Array.isArray(options.poses) ? options.poses.length : 0}</span>
-            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Model: {useModelImage ? 'Image' : 'Desc'}</span>
-            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Flow: {flowMode}</span>
-            <span className="px-2 py-1 rounded-md border border-black/10 dark:border-white/15">Type: {garmentType || 'auto'}</span>
+          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs text-foreground/60 dark:border-white/15 dark:bg-white/5">
+            <p className="font-semibold text-foreground">Pro tips</p>
+            <ul className="mt-2 space-y-1">
+              <li>Set model and environment defaults in Studio for faster runs.</li>
+              <li>Use up to four poses per listing for a complete set.</li>
+              <li>Regenerate specific poses inside each listing page.</li>
+            </ul>
+            <Link href="/settings" className="mt-3 inline-flex text-xs underline">
+              Manage preferences →
+            </Link>
           </div>
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={!selectedFile || isGenerating}
-            className={`flex-1 h-12 rounded-xl text-base font-semibold active:translate-y-px transition-opacity ${
-              !selectedFile || isGenerating
-                ? "bg-foreground/30 text-background/60 cursor-not-allowed"
-                : "bg-foreground text-background"
-            }`}
-          >
-            {isGenerating ? (
-              <span className="inline-flex items-center gap-2">
-                <svg
-                  className="size-5 animate-spin"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                  ></path>
-                </svg>
-                Generating…
-              </span>
-            ) : (
-              "Generate"
-            )}
-          </button>
-      </div>
+        </aside>
       </div>
 
-      {/* First-run walkthrough */}
       {showWalkthrough && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5">
-          <div className="max-w-md w-full rounded-2xl border border-white/15 bg-background p-5">
+          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-background p-5">
             <h2 className="text-lg font-semibold">How VintedBoost works</h2>
-            <ol className="mt-3 space-y-2 text-sm text-gray-300 list-decimal list-inside">
+            <ol className="mt-3 list-inside list-decimal space-y-2 text-sm text-foreground/80">
               <li>Upload a clear photo of your garment.</li>
-              <li>Pick model, environment and up to 4 poses.</li>
+              <li>Pick model, environment, and up to four poses.</li>
               <li>Review the prompt and generate mirror-selfie images.</li>
             </ol>
-            <p className="mt-3 text-xs text-gray-400">Defaults for model and environment live in Studio. Set them once and reuse here.</p>
+            <p className="mt-3 text-xs text-foreground/60">Defaults for model and environment live in Studio. Set them once and reuse here.</p>
             <div className="mt-4 flex items-center justify-between">
-              <a href="/studio" className="text-sm underline">Open Studio</a>
-              <button onClick={dismissWalkthrough} className="h-9 px-3 rounded-md bg-foreground text-background text-sm font-medium">Got it</button>
+              <Link href="/studio" className="text-sm underline">Open Studio</Link>
+              <button onClick={dismissWalkthrough} className="h-9 rounded-md bg-foreground px-3 text-sm font-semibold text-background">Got it</button>
             </div>
           </div>
         </div>
