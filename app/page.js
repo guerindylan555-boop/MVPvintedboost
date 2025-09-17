@@ -50,7 +50,7 @@ export default function Home() {
   const [listingsLoading, setListingsLoading] = useState(true);
   const [optionsCollapsed, setOptionsCollapsed] = useState(false);
   // Flow mode: classic | sequential | both
-  const [flowMode, setFlowMode] = useState("classic");
+  const [flowMode, setFlowMode] = useState("both");
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
@@ -111,24 +111,35 @@ export default function Home() {
   }, []);
   // Load/persist flow mode selection
   useEffect(() => {
+    if (!isAdmin) return;
     try {
       const saved = localStorage.getItem(VB_FLOW_MODE);
       if (saved === "classic" || saved === "sequential" || saved === "both") setFlowMode(saved);
     } catch {}
-  }, []);
+  }, [isAdmin]);
   useEffect(() => {
+    if (!isAdmin) return;
     try { localStorage.setItem(VB_FLOW_MODE, flowMode); } catch {}
-  }, [flowMode]);
+  }, [isAdmin, flowMode]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     try {
       const stored = localStorage.getItem(VB_MODEL_REFERENCE_PREF);
       if (stored === "image" || stored === "description") setUseModelImage(stored === "image");
     } catch {}
-  }, []);
+  }, [isAdmin]);
   useEffect(() => {
+    if (!isAdmin) return;
     try { localStorage.setItem(VB_MODEL_REFERENCE_PREF, useModelImage ? "image" : "description"); } catch {}
-  }, [useModelImage]);
+  }, [isAdmin, useModelImage]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setUseModelImage(true);
+      setFlowMode("both");
+    }
+  }, [isAdmin]);
 
   // Load environment defaults to reflect in UI label
   useEffect(() => {
@@ -181,6 +192,21 @@ export default function Home() {
       } catch {}
     })();
   }, []);
+
+  const modelDefaultList = useMemo(() => {
+    const list = [];
+    if (modelDefaults?.woman) list.push({ gender: "woman", ...modelDefaults.woman });
+    if (modelDefaults?.man) list.push({ gender: "man", ...modelDefaults.man });
+    return list;
+  }, [modelDefaults]);
+
+  useEffect(() => {
+    if (modelDefaultList.length === 0) return;
+    const hasCurrent = modelDefaultList.some((item) => item.gender === options.gender);
+    if (!hasCurrent) {
+      setOptions((prev) => ({ ...prev, gender: modelDefaultList[0].gender }));
+    }
+  }, [modelDefaultList, options.gender]);
 
   // Load saved studio default selection
   useEffect(() => {
@@ -591,7 +617,10 @@ export default function Home() {
   const environmentSummary = envDefaults.length > 0
     ? selectedEnvironment?.name || "Saved default"
     : options.environment;
-  const modelSummary = useModelImage ? "Default image" : "Description";
+  const selectedModelDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
+  const modelSummary = useModelImage
+    ? (selectedModelDefault?.name || "Default image")
+    : "Description";
   const garmentSummary = garmentType || "auto";
   const poseSummary = Array.isArray(options.poses) ? options.poses.join(", ") : "";
   const poseStatusList = Array.isArray(options.poses)
@@ -601,18 +630,6 @@ export default function Home() {
       error: poseErrors[pose],
     }))
     : [];
-  const genderOptions = useMemo(() => [
-    {
-      value: "woman",
-      label: "Woman",
-      description: "Mirror selfie defaults crafted for womenswear listings.",
-    },
-    {
-      value: "man",
-      label: "Man",
-      description: "Tailors body shape and casing for menswear drops.",
-    },
-  ], []);
   const modelReferenceOptions = useMemo(() => [
     {
       value: "image",
@@ -641,16 +658,6 @@ export default function Home() {
       label: "Run both",
       description: "Fire both pathways; we keep whichever returns an image first.",
     },
-  ], []);
-  const garmentTypeOptions = useMemo(() => [
-    {
-      value: "auto",
-      label: "Auto detect",
-      description: "Let the backend classify top/bottom/full from the upload.",
-    },
-    { value: "top", label: "Top", description: "Use when you want the upper body focus locked." },
-    { value: "bottom", label: "Bottom", description: "Prioritize trousers, shorts, or skirts." },
-    { value: "full", label: "Full outfit", description: "For dresses, jumpsuits, or two-piece sets." },
   ], []);
   const poseOptions = useMemo(
     () => allowedPoses.map((pose) => ({ value: pose, label: pose })),
@@ -744,6 +751,71 @@ export default function Home() {
                 </div>
               )}
             </div>
+            <div className="mt-4 space-y-3 rounded-xl border border-foreground/15 bg-background/40 p-4">
+              <div className="flex items-center justify-between text-xs text-foreground/70">
+                <span>Generate product description</span>
+                <button
+                  type="button"
+                  onClick={() => setDescEnabled((v) => !v)}
+                  className={`relative inline-flex h-6 w-12 items-center rounded-full transition ${
+                    descEnabled ? "bg-foreground" : "bg-foreground/30"
+                  }`}
+                  aria-pressed={descEnabled}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-background transition ${
+                      descEnabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              {descEnabled && (
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <input
+                    type="text"
+                    className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
+                    placeholder="Brand (e.g., Nike, Zara)"
+                    value={desc.brand}
+                    onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
+                  />
+                  <input
+                    type="text"
+                    className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
+                    placeholder="Model (e.g., Air Max 90)"
+                    value={desc.productModel}
+                    onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
+                  />
+                  <div className="col-span-2 flex flex-wrap gap-2">
+                    {["Brand new", "Very good", "Good"].map((condition) => (
+                      <button
+                        key={condition}
+                        type="button"
+                        onClick={() => setProductCondition(condition)}
+                        className={`h-8 rounded-full border px-3 text-xs ${
+                          productCondition === condition ? "border-foreground" : "border-foreground/20"
+                        }`}
+                      >
+                        {condition}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="col-span-2 flex flex-wrap gap-2">
+                    {["xs", "s", "m", "l", "xl"].map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => setDesc((d) => ({ ...d, size }))}
+                        className={`h-8 rounded-full border px-3 text-xs uppercase ${
+                          desc.size === size ? "border-foreground" : "border-foreground/20"
+                        }`}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="mt-4">
               <label className="inline-flex items-center gap-2 text-xs font-medium text-foreground/80">
                 Garment type
@@ -780,33 +852,88 @@ export default function Home() {
               <div className="border-t border-foreground/10 px-4 py-5">
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <div className="sm:col-span-2">
-                    <OptionPicker
-                      label="Gender"
-                      options={genderOptions}
-                      value={options.gender}
-                      onChange={(v) => setOptions((o) => ({ ...o, gender: v }))}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <OptionPicker
-                      label="Model reference"
-                      description="Use your default model photo from Studio, or send its description only."
-                      options={modelReferenceOptions}
-                      value={useModelImage ? "image" : "description"}
-                      onChange={(v) => setUseModelImage(v === "image")}
-                    />
-                    {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
-                      <p className="mt-1 text-[11px] text-amber-500">No default description stored yet. Add one from Studio.</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">Model defaults</p>
+                        <p className="mt-1 text-xs text-foreground/60">Pick a Studio default image to set the person and gender.</p>
+                      </div>
+                      <Link href="/studio" className="text-xs text-foreground/60 underline">
+                        Manage
+                      </Link>
+                    </div>
+                    {modelDefaultList.length > 0 ? (
+                      <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                        {modelDefaultList.map((model) => {
+                          const selected = options.gender === model.gender;
+                          const genderLabel = model.gender === "woman" ? "Woman" : "Man";
+                          return (
+                            <button
+                              key={model.gender}
+                              type="button"
+                              onClick={() => setOptions((prev) => ({ ...prev, gender: model.gender }))}
+                              className={`w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
+                                selected ? "border-foreground bg-foreground/5" : "border-foreground/15 hover:border-foreground/40"
+                              }`}
+                            >
+                              <div className="relative aspect-[3/4] w-full">
+                                {model.url ? (
+                                  <Image
+                                    src={model.url}
+                                    alt={`${genderLabel} default`}
+                                    fill
+                                    sizes="128px"
+                                    className="object-cover"
+                                    unoptimized
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-[11px] uppercase tracking-wide text-foreground/50">
+                                    No photo
+                                  </div>
+                                )}
+                                {selected && (
+                                  <span className="absolute right-2 top-2 rounded-full bg-background/90 px-2 py-1 text-[11px] font-semibold text-foreground shadow">
+                                    Selected
+                                  </span>
+                                )}
+                              </div>
+                              <div className="px-3 py-2">
+                                <p className="text-sm font-semibold capitalize">{model.name || genderLabel}</p>
+                                <p className="text-[11px] text-foreground/60">{genderLabel} fit</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-lg border border-foreground/15 bg-background/40 p-3 text-xs text-foreground/60">
+                        No Studio defaults yet. <Link href="/studio" className="underline">Add one</Link> to unlock a quicker flow.
+                      </div>
                     )}
                   </div>
-                  <div className="sm:col-span-2">
-                    <OptionPicker
-                      label="Generation flow"
-                      options={flowOptions}
-                      value={flowMode}
-                      onChange={setFlowMode}
-                    />
-                  </div>
+                  {isAdmin && (
+                    <div className="sm:col-span-2">
+                      <OptionPicker
+                        label="Model reference"
+                        description="Use your default model photo from Studio, or send its description only."
+                        options={modelReferenceOptions}
+                        value={useModelImage ? "image" : "description"}
+                        onChange={(v) => setUseModelImage(v === "image")}
+                      />
+                      {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
+                        <p className="mt-1 text-[11px] text-amber-500">No default description stored yet. Add one from Studio.</p>
+                      )}
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <div className="sm:col-span-2">
+                      <OptionPicker
+                        label="Generation flow"
+                        options={flowOptions}
+                        value={flowMode}
+                        onChange={setFlowMode}
+                      />
+                    </div>
+                  )}
                   <div className="sm:col-span-2">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-semibold">Environment</label>
@@ -887,137 +1014,101 @@ export default function Home() {
                       onChange={(e) => setTitle(e.target.value)}
                     />
                   </div>
-                  <div className="sm:col-span-2 space-y-3">
-                    <div className="flex items-center justify-between text-xs text-foreground/70">
-                      <span>Generate product description</span>
-                      <button
-                        type="button"
-                        onClick={() => setDescEnabled((v) => !v)}
-                        className={`relative inline-flex h-6 w-12 items-center rounded-full transition ${
-                          descEnabled ? "bg-foreground" : "bg-foreground/30"
-                        }`}
-                        aria-pressed={descEnabled}
-                      >
-                        <span
-                          className={`inline-block h-5 w-5 transform rounded-full bg-background transition ${
-                            descEnabled ? "translate-x-6" : "translate-x-1"
-                          }`}
-                        />
-                      </button>
-                    </div>
-                    {descEnabled && (
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <input
-                          type="text"
-                          className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
-                          placeholder="Brand (e.g., Nike, Zara)"
-                          value={desc.brand}
-                          onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
-                        />
-                        <input
-                          type="text"
-                          className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
-                          placeholder="Model (e.g., Air Max 90)"
-                          value={desc.productModel}
-                          onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
-                        />
-                        <div className="col-span-2 flex flex-wrap gap-2">
-                          {["Brand new", "Very good", "Good"].map((condition) => (
-                            <button
-                              key={condition}
-                              type="button"
-                              onClick={() => setProductCondition(condition)}
-                              className={`h-8 rounded-full border px-3 text-xs ${
-                                productCondition === condition ? "border-foreground" : "border-foreground/20"
-                              }`}
-                            >
-                              {condition}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="col-span-2 flex flex-wrap gap-2">
-                          {["xs", "s", "m", "l", "xl"].map((size) => (
-                            <button
-                              key={size}
-                              type="button"
-                              onClick={() => setDesc((d) => ({ ...d, size }))}
-                              className={`h-8 rounded-full border px-3 text-xs uppercase ${
-                                desc.size === size ? "border-foreground" : "border-foreground/20"
-                              }`}
-                            >
-                              {size}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="space-y-4 rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded-full border border-foreground/15 px-3 py-1">{options.gender}</span>
-              <span className="rounded-full border border-foreground/15 px-3 py-1">Env: {environmentSummary}</span>
-              <span className="rounded-full border border-foreground/15 px-3 py-1">Poses: {poseSummary || "–"}</span>
-              <span className="rounded-full border border-foreground/15 px-3 py-1">Model: {modelSummary}</span>
-              <span className="rounded-full border border-foreground/15 px-3 py-1">Flow: {flowMode}</span>
-              <span className="rounded-full border border-foreground/15 px-3 py-1">Type: {garmentSummary}</span>
-            </div>
-            <PromptPreviewCard
-              prompt={promptInput}
-              dirty={promptDirty}
-              onChange={(v) => {
-                setPromptDirty(true);
-                setPromptInput(v);
-              }}
-              onReset={() => {
-                setPromptDirty(false);
-                setPromptInput(computeEffectivePrompt());
-              }}
-            />
-            {poseStatusList.length > 0 && (
-              <div className="rounded-xl border border-foreground/10 bg-background/40 p-4">
-                <h3 className="text-sm font-semibold">Generation status</h3>
-                <ul className="mt-2 space-y-2 text-xs">
-                  {poseStatusList.map(({ pose, status, error }) => (
-                    <li key={pose} className="flex items-start justify-between gap-3">
-                      <span className="font-medium">{pose}</span>
-                      <span className={status === "error" ? "text-red-500" : status === "done" ? "text-green-400" : "text-foreground/60"}>
-                        {status === "running" ? "Generating…" : status === "done" ? "Ready" : status === "error" ? error || "Failed" : "Queued"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+          {isAdmin ? (
+            <div className="space-y-4 rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full border border-foreground/15 px-3 py-1">{options.gender}</span>
+                <span className="rounded-full border border-foreground/15 px-3 py-1">Env: {environmentSummary}</span>
+                <span className="rounded-full border border-foreground/15 px-3 py-1">Poses: {poseSummary || "–"}</span>
+                <span className="rounded-full border border-foreground/15 px-3 py-1">Model: {modelSummary}</span>
+                <span className="rounded-full border border-foreground/15 px-3 py-1">Flow: {flowMode}</span>
+                <span className="rounded-full border border-foreground/15 px-3 py-1">Type: {garmentSummary}</span>
               </div>
-            )}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  clearSelection();
-                  setPoseStatus({});
-                  setPoseErrors({});
-                  setLastListingId(null);
+              <PromptPreviewCard
+                prompt={promptInput}
+                dirty={promptDirty}
+                onChange={(v) => {
+                  setPromptDirty(true);
+                  setPromptInput(v);
                 }}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm"
-              >
-                Reset
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                  canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
-                }`}
-              >
-                {isGenerating ? "Generating…" : "Generate listing"}
-              </button>
+                onReset={() => {
+                  setPromptDirty(false);
+                  setPromptInput(computeEffectivePrompt());
+                }}
+              />
+              {poseStatusList.length > 0 && (
+                <div className="rounded-xl border border-foreground/10 bg-background/40 p-4">
+                  <h3 className="text-sm font-semibold">Generation status</h3>
+                  <ul className="mt-2 space-y-2 text-xs">
+                    {poseStatusList.map(({ pose, status, error }) => (
+                      <li key={pose} className="flex items-start justify-between gap-3">
+                        <span className="font-medium">{pose}</span>
+                        <span className={status === "error" ? "text-red-500" : status === "done" ? "text-green-400" : "text-foreground/60"}>
+                          {status === "running" ? "Generating…" : status === "done" ? "Ready" : status === "error" ? error || "Failed" : "Queued"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSelection();
+                    setPoseStatus({});
+                    setPoseErrors({});
+                    setLastListingId(null);
+                  }}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                    canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
+                  }`}
+                >
+                  {isGenerating ? "Generating…" : "Generate listing"}
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSelection();
+                    setPoseStatus({});
+                    setPoseErrors({});
+                    setLastListingId(null);
+                  }}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                    canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
+                  }`}
+                >
+                  {isGenerating ? "Generating…" : "Generate listing"}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <aside className="space-y-3">
