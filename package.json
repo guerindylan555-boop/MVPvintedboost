@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "api": "./.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000",
     "dev:full": "concurrently -n web,api -c auto \"next dev --turbopack\" \"./.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000\"",
-    "build": "next build --turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
