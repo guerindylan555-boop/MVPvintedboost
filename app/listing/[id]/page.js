@@ -98,6 +98,16 @@ export default function ListingPage() {
   const gallerySize = galleryImages.length;
   const activeImage = galleryImages[activeImageIndex] || null;
 
+  const handleViewerNext = useCallback(() => {
+    if (gallerySize === 0) return;
+    setViewerIndex((prev) => (prev + 1) % gallerySize);
+  }, [gallerySize]);
+
+  const handleViewerPrev = useCallback(() => {
+    if (gallerySize === 0) return;
+    setViewerIndex((prev) => (prev - 1 + gallerySize) % gallerySize);
+  }, [gallerySize]);
+
   useEffect(() => {
     if (!viewerOpen) return undefined;
     const onKey = (event) => {
@@ -222,16 +232,6 @@ export default function ListingPage() {
   function closeViewer() {
     setViewerOpen(false);
   }
-
-  const handleViewerNext = useCallback(() => {
-    if (gallerySize === 0) return;
-    setViewerIndex((prev) => (prev + 1) % gallerySize);
-  }, [gallerySize]);
-
-  const handleViewerPrev = useCallback(() => {
-    if (gallerySize === 0) return;
-    setViewerIndex((prev) => (prev - 1 + gallerySize) % gallerySize);
-  }, [gallerySize]);
 
   if (!id) return <div className="p-5">Invalid listing id</div>;
   if (loading) return <div className="p-5 text-sm text-foreground/60">Loading…</div>;
