@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import Link from "next/link";
 import Image from "next/image";
@@ -11,7 +11,9 @@ import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY, VB_MODEL_REFERENCE_PREF } from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
 import { preprocessImage } from "@/app/lib/image-preprocess";
+
 const authClient = createAuthClient();
+const POSE_MAX = 10;
 
 export default function Home() {
   const { data: session } = authClient.useSession();
@@ -26,12 +28,12 @@ export default function Home() {
   const [isPreprocessing, setIsPreprocessing] = useState(false);
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   // Pose choices for mirror selfie flow
-  const allowedPoses = useMemo(() => ["Face", "three-quarter pose", "from the side", "random"], []);
   const [options, setOptions] = useState({
     gender: "woman",
     environment: "studio",
-    poses: ["random"],
     extra: "",
+    poseCount: 3,
+    poseTexts: Array.from({ length: POSE_MAX }, () => ""),
   });
   // Toggle to choose whether to send the model default image (true) or
   // only its stored textual description (false) with the prompt
@@ -61,7 +63,10 @@ export default function Home() {
   const [randomPosePick, setRandomPosePick] = useState(null); // one chosen description at load
   // Garment type override: null (auto), or 'top'|'bottom'|'full'
   const [garmentType, setGarmentType] = useState(null);
-  const plannedImagesCount = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses.length : 1;
+  const [poseRandomCache, setPoseRandomCache] = useState(Array.from({ length: POSE_MAX }, () => null));
+  const plannedImagesCount = Number.isFinite(options.poseCount) && options.poseCount > 0
+    ? Math.min(Math.max(Math.round(options.poseCount), 1), POSE_MAX)
+    : 1;
 
   useEffect(() => {
     return () => {
@@ -162,12 +167,32 @@ export default function Home() {
       if (raw) {
         const saved = JSON.parse(raw);
         if (saved && typeof saved === "object") {
-          setOptions((o) => ({
-            gender: saved.gender || o.gender,
-            environment: saved.environment || o.environment,
-            poses: Array.isArray(saved.poses) && saved.poses.length > 0 ? saved.poses : o.poses,
-            extra: typeof saved.extra === "string" ? saved.extra : o.extra,
-          }));
+          setOptions((o) => {
+            const next = {
+              ...o,
+              gender: saved.gender || o.gender,
+              environment: saved.environment || o.environment,
+              extra: typeof saved.extra === "string" ? saved.extra : o.extra,
+            };
+            const savedCount = Number.isFinite(saved.poseCount) ? Number(saved.poseCount) : (Array.isArray(saved.poses) ? saved.poses.length : o.poseCount);
+            if (savedCount && Number.isFinite(savedCount)) {
+              const clamped = Math.min(Math.max(Math.round(savedCount), 1), POSE_MAX);
+              next.poseCount = clamped;
+            }
+            const empty = Array.from({ length: POSE_MAX }, () => "");
+            if (Array.isArray(saved.poseTexts)) {
+              saved.poseTexts.slice(0, POSE_MAX).forEach((txt, idx) => {
+                empty[idx] = typeof txt === "string" ? txt : "";
+              });
+              next.poseTexts = empty;
+            } else if (Array.isArray(saved.poseInstructions)) {
+              saved.poseInstructions.slice(0, POSE_MAX).forEach((txt, idx) => {
+                empty[idx] = typeof txt === "string" ? txt : "";
+              });
+              next.poseTexts = empty;
+            }
+            return next;
+          });
         }
       }
     } catch {}
@@ -272,7 +297,29 @@ export default function Home() {
     try { localStorage.setItem("vb_walkthrough_seen", "1"); } catch {}
   }
 
-  function computeEffectivePrompt(poseOverride, forPreview = true) {
+  const getRandomPoseDescription = useCallback(() => {
+    const items = Array.isArray(poseDescs) ? poseDescs : [];
+    if (items.length > 0) {
+      const pick = items[Math.floor(Math.random() * items.length)];
+      if (pick?.description) return pick.description;
+    }
+    if (randomPosePick?.description) return randomPosePick.description;
+    return "";
+  }, [poseDescs, randomPosePick]);
+
+  function resolvePoseInstruction(index = 0) {
+    const idx = Math.max(0, Math.min(index, POSE_MAX - 1));
+    const texts = Array.isArray(options.poseTexts) ? options.poseTexts : [];
+    const custom = typeof texts[idx] === "string" ? texts[idx].trim() : "";
+    const randomFallback = typeof poseRandomCache[idx] === "string" ? poseRandomCache[idx] : "";
+    if (custom) {
+      return { mode: "custom", poseValue: custom, description: custom };
+    }
+    const fallback = randomFallback || getRandomPoseDescription();
+    return { mode: "random", poseValue: "random", description: fallback };
+  }
+
+  function computeEffectivePrompt(index = 0, forPreview = true) {
     const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
       ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
       : undefined;
@@ -280,22 +327,49 @@ export default function Home() {
     const personDefaultKey = personDefault?.s3_key;
     const personDesc = personDefault?.description;
     const usingPersonImage = !!(useModelImage && personDefaultKey);
-    const selectedPose = poseOverride != null ? poseOverride : (Array.isArray(options.poses) && options.poses.length > 0 ? options.poses[0] : "");
-    const rndDesc = (selectedPose === "random") ? (forPreview ? (randomPosePick?.description || "") : (randomPosePick?.description || "")) : "";
+    const { mode, poseValue, description } = resolvePoseInstruction(index);
     return buildMirrorSelfiePreview({
       gender: options.gender,
       environment: options.environment,
-      pose: selectedPose,
+      pose: poseValue,
       extra: options.extra || "",
       usingPersonImage,
       personDesc: useModelImage ? "" : (personDesc || ""),
       envDefaultKey,
-      randomPoseDescription: rndDesc,
+      randomPoseDescription: mode === "random" ? description : undefined,
       forPreview,
     });
   }
 
-  const poseKey = useMemo(() => (Array.isArray(options.poses) ? options.poses.join("|") : ""), [options.poses]);
+  useEffect(() => {
+    setPoseRandomCache((prev) => {
+      const next = [...prev];
+      let changed = false;
+      for (let i = 0; i < POSE_MAX; i += 1) {
+        if (i >= plannedImagesCount) {
+          if (next[i] !== null) {
+            next[i] = null;
+            changed = true;
+          }
+          continue;
+        }
+        const custom = options.poseTexts?.[i]?.trim();
+        if (custom) {
+          if (next[i] !== null) {
+            next[i] = null;
+            changed = true;
+          }
+        } else if (!next[i]) {
+          const randomDesc = getRandomPoseDescription();
+          if (randomDesc) {
+            next[i] = randomDesc;
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [options.poseCount, options.poseTexts, getRandomPoseDescription, plannedImagesCount]);
   const envDefaultsKey = useMemo(
     () => (Array.isArray(envDefaults) ? envDefaults.map((d) => d.s3_key).join("|") : ""),
     [envDefaults]
@@ -314,21 +388,21 @@ export default function Home() {
   // Keep prompt preview in sync unless user edited it
   useEffect(() => {
     if (!promptDirty) {
-      const firstPose = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses[0] : "";
-      setPromptInput(computeEffectivePrompt(firstPose, true));
+      setPromptInput(computeEffectivePrompt(0, true));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     options.gender,
     options.environment,
-    poseKey,
+    options.poseCount,
+    options.poseTexts,
     options.extra,
     selectedEnvDefaultKey,
     envDefaultsKey,
     modelDefaultsKey,
     useModelImage,
     promptDirty,
-    randomPosePick?.description,
+    poseRandomCache,
   ]);
 
   function togglePose(pose) {
@@ -411,14 +485,54 @@ export default function Home() {
     await setImageFile(file);
   }
 
+  function handlePoseCountChange(next) {
+    const parsed = Number(next);
+    const numeric = Number.isFinite(parsed) ? Math.round(parsed) : plannedImagesCount;
+    const clamped = Math.min(Math.max(numeric, 1), POSE_MAX);
+    setOptions((prev) => {
+      if (prev.poseCount === clamped) return prev;
+      return { ...prev, poseCount: clamped };
+    });
+  }
+
+  function adjustPoseCount(delta) {
+    handlePoseCountChange((options.poseCount || 1) + delta);
+  }
+
+  function handlePoseTextChange(index, value) {
+    setOptions((prev) => {
+      const texts = Array.isArray(prev.poseTexts) ? [...prev.poseTexts] : Array.from({ length: POSE_MAX }, () => "");
+      const idx = Math.max(0, Math.min(index, POSE_MAX - 1));
+      texts[idx] = value;
+      return { ...prev, poseTexts: texts };
+    });
+  }
+
+  function handleClearPoseText(index) {
+    handlePoseTextChange(index, "");
+  }
+
+  function handleShufflePose(index) {
+    setPoseRandomCache((prev) => {
+      const randomDesc = getRandomPoseDescription();
+      if (!randomDesc) return prev;
+      const next = [...prev];
+      const idx = Math.max(0, Math.min(index, POSE_MAX - 1));
+      if (next[idx] === randomDesc) return prev;
+      next[idx] = randomDesc;
+      return next;
+    });
+  }
+
   async function handleGenerate() {
     if (!selectedFile) return;
     try {
       setIsGenerating(true);
       const baseUrl = getApiBase();
 
-      // Ensure at least one pose
-      const poses = Array.isArray(options.poses) && options.poses.length > 0 ? options.poses : ["standing"];
+      // Ensure at least one pose slot
+      const imageCount = plannedImagesCount;
+      const poseSlots = Array.from({ length: imageCount }, (_, idx) => ({ key: `slot-${idx + 1}`, index: idx }));
 
       // Resolve environment default for main request
       const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
@@ -430,7 +544,13 @@ export default function Home() {
       lform.append("image", selectedFile);
       lform.append("gender", options.gender);
       lform.append("environment", options.environment);
-      for (const p of poses) lform.append("poses", p);
+      for (const slot of poseSlots) {
+        const { mode, description } = resolvePoseInstruction(slot.index);
+        const snapshot = mode === "custom"
+          ? description
+          : (description || "random pose");
+        lform.append("poses", snapshot);
+      }
       lform.append("extra", options.extra || "");
       if (envDefaultKey) lform.append("env_default_s3_key", envDefaultKey);
       const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
@@ -452,8 +572,9 @@ export default function Home() {
 
       // 2) Generate per pose according to flowMode (classic | sequential | both)
       let done = 0; // count poses done (first variant finished)
-      toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId });
-      const initialStatus = {}; for (const p of poses) initialStatus[p] = 'running';
+      toast.loading(`Generating images ${done}/${poseSlots.length}…`, { id: toastId });
+      const initialStatus = {};
+      for (const slot of poseSlots) initialStatus[slot.key] = "running";
       setPoseStatus(initialStatus); setPoseErrors({});
 
       // concurrency limiter
@@ -470,12 +591,12 @@ export default function Home() {
         next();
       });
 
-      const buildCommonForm = (pose) => {
+      const buildCommonForm = (slotIndex) => {
         const form = new FormData();
         form.append("image", selectedFile);
         form.append("gender", options.gender);
         form.append("environment", options.environment);
-        form.append("poses", pose);
+        form.append("poses", "standing");
         form.append("extra", options.extra || "");
         if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
         if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
@@ -485,25 +606,19 @@ export default function Home() {
         return form;
       };
       const cloneForm = (fd) => { const f = new FormData(); fd.forEach((v, k) => f.append(k, v)); return f; };
-      const buildPrompt = (pose) => {
+      const buildPrompt = (slotIndex) => {
         if (promptDirty) {
           let effective = promptInput.trim();
-          if (pose === "random") {
-            const items = Array.isArray(poseDescs) ? poseDescs : [];
-            const pick = items.length > 0 ? items[Math.floor(Math.random() * items.length)] : null;
-            if (pick?.description) effective += `\nPose description: ${pick.description}`;
-          } else if (pose === "face trois quart") {
-            effective += "\n- Orientation: three-quarter face; body slightly angled; shoulders subtly rotated.";
-          } else if (pose === "from the side") {
-            effective += "\n- Orientation: side/profile view; ensure torso and garment remain visible.";
-          }
+          const { mode, description } = resolvePoseInstruction(slotIndex);
+          if (mode === "random" && description) effective += `\nPose description: ${description}`;
+          if (mode === "custom" && description) effective += `\nPose direction: ${description}`;
           return effective;
         }
-        return computeEffectivePrompt(pose, false);
+        return computeEffectivePrompt(slotIndex, false);
       };
-      const runPose = (pose) => async () => {
-        const common = buildCommonForm(pose);
-        const prompt = buildPrompt(pose);
+      const runPose = ({ key, index: slotIndex }) => async () => {
+        const common = buildCommonForm(slotIndex);
+        const prompt = buildPrompt(slotIndex);
         const classicReq = async () => {
           const f = cloneForm(common);
           f.append("prompt_override", prompt);
@@ -522,17 +637,24 @@ export default function Home() {
         else if (flowMode === 'sequential') seqP = seqReq();
         else { classicP = classicReq(); seqP = seqReq(); }
         let firstDone = false;
-        const markDone = () => { if (!firstDone) { firstDone = true; done += 1; toast.loading(`Generating images ${done}/${poses.length}…`, { id: toastId }); setPoseStatus((s) => ({ ...s, [pose]: 'done' })); } };
+        const markDone = () => {
+          if (!firstDone) {
+            firstDone = true;
+            done += 1;
+            toast.loading(`Generating images ${done}/${poseSlots.length}…`, { id: toastId });
+            setPoseStatus((s) => ({ ...s, [key]: 'done' }));
+          }
+        };
         if (classicP) classicP.then(() => markDone()).catch(() => {});
         if (seqP) seqP.then(() => markDone()).catch(() => {});
         const results = await Promise.all([classicP, seqP].filter(Boolean).map((p) => p.then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e }))));
         const ok = results.find((r) => r.ok);
         if (ok) { return ok.v; }
-        setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
-        setPoseErrors((e) => ({ ...e, [pose]: results.map((r) => r.e?.message || 'Failed').join('; ') }));
-        throw new Error(`Pose ${pose} failed`);
+        setPoseStatus((s) => ({ ...s, [key]: 'error' }));
+        setPoseErrors((e) => ({ ...e, [key]: results.map((r) => r.e?.message || 'Failed').join('; ') }));
+        throw new Error(`Pose ${slotIndex + 1} failed`);
       };
-      const tasks = poses.map((p) => runPose(p));
+      const tasks = poseSlots.map((slot) => runPose(slot));
       const settled = await limit(2, tasks);
       const okAny = settled.some((r) => r && r.status === 'fulfilled');
       if (!okAny) throw new Error("All generations failed");
@@ -565,44 +687,6 @@ export default function Home() {
     }
   }
 
-  async function retryPose(pose) {
-    if (!selectedFile || !lastListingId) return;
-    const baseUrl = getApiBase();
-    try {
-      setPoseStatus((s) => ({ ...s, [pose]: 'running' }));
-      const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
-        ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
-        : undefined;
-      const form = new FormData();
-      form.append("image", selectedFile);
-      form.append("gender", options.gender);
-      form.append("environment", options.environment);
-      form.append("poses", pose);
-      form.append("extra", options.extra || "");
-      if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
-      const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
-      const personDefaultKey = personDefault?.s3_key;
-      const personDesc = personDefault?.description;
-      if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
-      else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
-      if (garmentType) form.append("garment_type_override", garmentType);
-      let effective = "";
-      if (promptDirty) { effective = promptInput.trim(); } else { effective = computeEffectivePrompt(pose, false); }
-      form.append("listing_id", lastListingId);
-      let url = `${baseUrl}/edit/json`;
-      if (flowMode === 'sequential') url = `${baseUrl}/edit/sequential/json`;
-      else form.append("prompt_override", effective);
-      const res = await fetch(url, { method: "POST", body: form, headers: withUserId({}, userId) });
-      if (!res.ok) throw new Error(await res.text());
-      await res.json();
-      setPoseStatus((s) => ({ ...s, [pose]: 'done' }));
-      setPoseErrors((e) => ({ ...e, [pose]: undefined }));
-    } catch (e) {
-      setPoseStatus((s) => ({ ...s, [pose]: 'error' }));
-      setPoseErrors((er) => ({ ...er, [pose]: e?.message || 'Failed' }));
-    }
-  }
-
   function clearSelection() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSelectedFile(null);
@@ -622,14 +706,19 @@ export default function Home() {
     ? (selectedModelDefault?.name || "Default image")
     : "Description";
   const garmentSummary = garmentType || "auto";
-  const poseSummary = Array.isArray(options.poses) ? options.poses.join(", ") : "";
-  const poseStatusList = Array.isArray(options.poses)
-    ? options.poses.map((pose) => ({
-      pose,
-      status: poseStatus[pose] || (isGenerating ? "running" : "pending"),
-      error: poseErrors[pose],
-    }))
-    : [];
+  const poseSummary = `${plannedImagesCount} image${plannedImagesCount > 1 ? "s" : ""}`;
+  const poseStatusList = Array.from({ length: plannedImagesCount }, (_, idx) => {
+    const key = `slot-${idx + 1}`;
+    const custom = options.poseTexts?.[idx]?.trim();
+    const randomLabel = typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]?.trim() ? poseRandomCache[idx] : "Random pose";
+    return {
+      key,
+      index: idx,
+      label: custom || randomLabel || `Image ${idx + 1}`,
+      status: poseStatus[key] || (isGenerating ? "running" : "pending"),
+      error: poseErrors[key],
+    };
+  });
   const modelReferenceOptions = useMemo(() => [
     {
       value: "image",
@@ -659,10 +748,6 @@ export default function Home() {
       description: "Fire both pathways; we keep whichever returns an image first.",
     },
   ], []);
-  const poseOptions = useMemo(
-    () => allowedPoses.map((pose) => ({ value: pose, label: pose })),
-    [allowedPoses]
-  );
   const environmentOptions = useMemo(() => [
     { value: "studio", label: "Studio", description: "Use your saved defaults or a clean neutral room." },
     { value: "street", label: "Street", description: "Outdoor mirror moment with natural light." },
@@ -935,64 +1020,154 @@ export default function Home() {
                     </div>
                   )}
                   <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-semibold">Environment</label>
-                      <span className="text-xs text-foreground/60">{environmentSummary}</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">Environment defaults</p>
+                        <p className="mt-1 text-xs text-foreground/60">Pick from your saved backgrounds. Add more in Studio to build a library.</p>
+                      </div>
+                      <Link href="/studio" className="text-xs text-foreground/60 underline">
+                        Manage
+                      </Link>
                     </div>
                     {envDefaultsLoading ? (
-                      <div className="mt-2 flex gap-2 overflow-x-auto">
+                      <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
                         {Array.from({ length: 4 }).map((_, i) => (
-                          <div key={i} className="h-28 w-20 animate-pulse rounded-lg bg-foreground/10" />
+                          <div key={i} className="h-32 w-32 flex-shrink-0 animate-pulse rounded-xl bg-foreground/10" />
                         ))}
                       </div>
                     ) : envDefaults.length > 0 ? (
-                      <div className="mt-2 flex gap-2 overflow-x-auto">
-                        {envDefaults.map((d) => (
-                          <button
-                            key={d.s3_key}
-                            type="button"
-                            onClick={() => handleSelectEnvironmentDefault(d.s3_key)}
-                            className={`w-24 flex-shrink-0 overflow-hidden rounded-lg border ${
-                              selectedEnvDefaultKey === d.s3_key ? "border-foreground" : "border-foreground/15"
-                            }`}
-                            title={d.name || "Environment"}
-                          >
-                            <div className="relative aspect-[3/4] w-full overflow-hidden">
-                              {d.url ? (
-                                <Image
-                                  src={d.url}
-                                  alt={d.name || "Environment"}
-                                  fill
-                                  sizes="96px"
-                                  className="object-cover"
-                                  unoptimized
-                                />
-                              ) : (
-                                <div className="h-full w-full bg-foreground/10" />
-                              )}
-                            </div>
-                            <div className="px-2 py-1 text-[11px] text-foreground/70">{d.name || "Untitled"}</div>
-                          </button>
-                        ))}
+                      <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                        {envDefaults.map((env) => {
+                          const selected = selectedEnvDefaultKey === env.s3_key;
+                          return (
+                            <button
+                              key={env.s3_key}
+                              type="button"
+                              onClick={() => handleSelectEnvironmentDefault(env.s3_key)}
+                              className={`w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
+                                selected ? "border-foreground bg-foreground/5" : "border-foreground/15 hover:border-foreground/40"
+                              }`}
+                            >
+                              <div className="relative aspect-[3/4] w-full">
+                                {env.url ? (
+                                  <Image
+                                    src={env.url}
+                                    alt={env.name || "Environment"}
+                                    fill
+                                    sizes="128px"
+                                    className="object-cover"
+                                    unoptimized
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-[11px] uppercase tracking-wide text-foreground/50">
+                                    No photo
+                                  </div>
+                                )}
+                                {selected && (
+                                  <span className="absolute right-2 top-2 rounded-full bg-background/90 px-2 py-1 text-[11px] font-semibold text-foreground shadow">
+                                    Selected
+                                  </span>
+                                )}
+                              </div>
+                              <div className="px-3 py-2">
+                                <p className="text-sm font-semibold">{env.name || "Untitled"}</p>
+                                <p className="text-[11px] text-foreground/60">{selected ? "In use" : "Tap to select"}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     ) : (
-                      <OptionPicker
-                        options={environmentOptions}
-                        value={options.environment}
-                        onChange={(v) => setOptions((o) => ({ ...o, environment: v }))}
-                      />
+                      <div className="mt-3 space-y-3">
+                        <OptionPicker
+                          options={environmentOptions}
+                          value={options.environment}
+                          onChange={(v) => setOptions((o) => ({ ...o, environment: v }))}
+                        />
+                        <p className="text-[11px] text-foreground/50">Save environment photos in Studio to see them here.</p>
+                      </div>
                     )}
                   </div>
                   <div className="sm:col-span-2">
-                    <OptionPicker
-                      label="Poses"
-                      description={`Selected ${Math.min(options.poses?.length || 0, 4)}/4`}
-                      options={poseOptions}
-                      value={options.poses}
-                      onChange={(next) => setOptions((o) => ({ ...o, poses: next }))}
-                      multiple
-                      maxSelections={4}
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">Images & poses</p>
+                        <p className="mt-1 text-xs text-foreground/60">Choose up to 10 outputs. Leave blanks to auto-pick pose ideas.</p>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-foreground/70">
+                        <button
+                          type="button"
+                          onClick={() => adjustPoseCount(-1)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-foreground/30"
+                          aria-label="Decrease images"
+                        >
+                          -
+                        </button>
+                        <span className="min-w-[2ch] text-center font-semibold">{plannedImagesCount}</span>
+                        <button
+                          type="button"
+                          onClick={() => adjustPoseCount(1)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-foreground/30"
+                          aria-label="Increase images"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={POSE_MAX}
+                      value={plannedImagesCount}
+                      onChange={(e) => handlePoseCountChange(e.target.value)}
+                      className="mt-3 w-full"
                     />
+                    <div className="mt-4 space-y-3">
+                      {Array.from({ length: plannedImagesCount }).map((_, idx) => {
+                        const custom = options.poseTexts?.[idx] || "";
+                        const randomLabel = typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]?.trim()
+                          ? poseRandomCache[idx]
+                          : "Random pose";
+                        return (
+                          <div key={`pose-slot-${idx}`} className="rounded-xl border border-foreground/15 bg-background/40 p-3">
+                            <div className="flex items-center justify-between text-xs text-foreground/70">
+                              <span className="font-semibold text-foreground">Image {idx + 1}</span>
+                              <div className="flex items-center gap-2">
+                                {!custom && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleShufflePose(idx)}
+                                    className="underline"
+                                  >
+                                    Shuffle
+                                  </button>
+                                )}
+                                {custom && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClearPoseText(idx)}
+                                    className="underline"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <textarea
+                              rows={2}
+                              className="mt-2 w-full rounded-lg border border-foreground/15 bg-background/60 px-3 py-2 text-sm"
+                              placeholder={`e.g., ${randomLabel}`}
+                              value={custom}
+                              onChange={(e) => handlePoseTextChange(idx, e.target.value)}
+                            />
+                            {!custom && randomLabel && (
+                              <p className="mt-2 text-[11px] text-foreground/50">Using random: {randomLabel}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] text-foreground/60">Add pose instructions to lock a specific look, or leave blank for automatic variety.</p>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs text-foreground/70">Extra instructions</label>
@@ -1045,9 +1220,9 @@ export default function Home() {
                 <div className="rounded-xl border border-foreground/10 bg-background/40 p-4">
                   <h3 className="text-sm font-semibold">Generation status</h3>
                   <ul className="mt-2 space-y-2 text-xs">
-                    {poseStatusList.map(({ pose, status, error }) => (
-                      <li key={pose} className="flex items-start justify-between gap-3">
-                        <span className="font-medium">{pose}</span>
+                    {poseStatusList.map(({ key, label, status, error }) => (
+                      <li key={key} className="flex items-start justify-between gap-3">
+                        <span className="font-medium">{label}</span>
                         <span className={status === "error" ? "text-red-500" : status === "done" ? "text-green-400" : "text-foreground/60"}>
                           {status === "running" ? "Generating…" : status === "done" ? "Ready" : status === "error" ? error || "Failed" : "Queued"}
                         </span>
