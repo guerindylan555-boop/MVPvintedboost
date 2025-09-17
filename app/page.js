@@ -269,6 +269,22 @@ export default function Home() {
     });
   }
 
+  const poseKey = useMemo(() => (Array.isArray(options.poses) ? options.poses.join("|") : ""), [options.poses]);
+  const envDefaultsKey = useMemo(
+    () => (Array.isArray(envDefaults) ? envDefaults.map((d) => d.s3_key).join("|") : ""),
+    [envDefaults]
+  );
+  const modelDefaultsKey = useMemo(() => {
+    if (!modelDefaults) return "";
+    const woman = modelDefaults?.woman
+      ? `${modelDefaults.woman.s3_key || ""}:${modelDefaults.woman.description || ""}`
+      : "";
+    const man = modelDefaults?.man
+      ? `${modelDefaults.man.s3_key || ""}:${modelDefaults.man.description || ""}`
+      : "";
+    return `${woman}|${man}`;
+  }, [modelDefaults]);
+
   // Keep prompt preview in sync unless user edited it
   useEffect(() => {
     if (!promptDirty) {
@@ -578,21 +594,6 @@ export default function Home() {
   const modelSummary = useModelImage ? "Default image" : "Description";
   const garmentSummary = garmentType || "auto";
   const poseSummary = Array.isArray(options.poses) ? options.poses.join(", ") : "";
-  const poseKey = useMemo(() => (Array.isArray(options.poses) ? options.poses.join("|") : ""), [options.poses]);
-  const envDefaultsKey = useMemo(
-    () => (Array.isArray(envDefaults) ? envDefaults.map((d) => d.s3_key).join("|") : ""),
-    [envDefaults]
-  );
-  const modelDefaultsKey = useMemo(() => {
-    if (!modelDefaults) return "";
-    const woman = modelDefaults?.woman
-      ? `${modelDefaults.woman.s3_key || ""}:${modelDefaults.woman.description || ""}`
-      : "";
-    const man = modelDefaults?.man
-      ? `${modelDefaults.man.s3_key || ""}:${modelDefaults.man.description || ""}`
-      : "";
-    return `${woman}|${man}`;
-  }, [modelDefaults]);
   const poseStatusList = Array.isArray(options.poses)
     ? options.poses.map((pose) => ({
       pose,
