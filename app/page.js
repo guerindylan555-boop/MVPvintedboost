@@ -33,7 +33,6 @@ export default function Home() {
     environment: "studio",
     extra: "",
     poseCount: 3,
-    poseTexts: Array.from({ length: POSE_MAX }, () => ""),
   });
   // Toggle to choose whether to send the model default image (true) or
   // only its stored textual description (false) with the prompt
@@ -64,7 +63,6 @@ export default function Home() {
   // Garment type override: null (auto), or 'top'|'bottom'|'full'
   const [garmentType, setGarmentType] = useState(null);
   const [poseRandomCache, setPoseRandomCache] = useState(Array.from({ length: POSE_MAX }, () => null));
-  const [activePoseEditor, setActivePoseEditor] = useState(null);
   const plannedImagesCount = Number.isFinite(options.poseCount) && options.poseCount > 0
     ? Math.min(Math.max(Math.round(options.poseCount), 1), POSE_MAX)
     : 1;
@@ -175,22 +173,12 @@ export default function Home() {
               environment: saved.environment || o.environment,
               extra: typeof saved.extra === "string" ? saved.extra : o.extra,
             };
-            const savedCount = Number.isFinite(saved.poseCount) ? Number(saved.poseCount) : (Array.isArray(saved.poses) ? saved.poses.length : o.poseCount);
+            const savedCount = Number.isFinite(saved.poseCount)
+              ? Number(saved.poseCount)
+              : (Array.isArray(saved.poses) ? saved.poses.length : o.poseCount);
             if (savedCount && Number.isFinite(savedCount)) {
               const clamped = Math.min(Math.max(Math.round(savedCount), 1), POSE_MAX);
               next.poseCount = clamped;
-            }
-            const empty = Array.from({ length: POSE_MAX }, () => "");
-            if (Array.isArray(saved.poseTexts)) {
-              saved.poseTexts.slice(0, POSE_MAX).forEach((txt, idx) => {
-                empty[idx] = typeof txt === "string" ? txt : "";
-              });
-              next.poseTexts = empty;
-            } else if (Array.isArray(saved.poseInstructions)) {
-              saved.poseInstructions.slice(0, POSE_MAX).forEach((txt, idx) => {
-                empty[idx] = typeof txt === "string" ? txt : "";
-              });
-              next.poseTexts = empty;
             }
             return next;
           });
@@ -310,14 +298,8 @@ export default function Home() {
 
   function resolvePoseInstruction(index = 0) {
     const idx = Math.max(0, Math.min(index, POSE_MAX - 1));
-    const texts = Array.isArray(options.poseTexts) ? options.poseTexts : [];
-    const custom = typeof texts[idx] === "string" ? texts[idx].trim() : "";
-    const randomFallback = typeof poseRandomCache[idx] === "string" ? poseRandomCache[idx] : "";
-    if (custom) {
-      return { mode: "custom", poseValue: custom, description: custom };
-    }
-    const fallback = randomFallback || getRandomPoseDescription();
-    return { mode: "random", poseValue: "random", description: fallback };
+    const fallback = (typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]) || getRandomPoseDescription();
+    return { poseValue: "random", description: fallback };
   }
 
   function computeEffectivePrompt(index = 0, forPreview = true) {
@@ -328,7 +310,7 @@ export default function Home() {
     const personDefaultKey = personDefault?.s3_key;
     const personDesc = personDefault?.description;
     const usingPersonImage = !!(useModelImage && personDefaultKey);
-    const { mode, poseValue, description } = resolvePoseInstruction(index);
+    const { poseValue, description } = resolvePoseInstruction(index);
     return buildMirrorSelfiePreview({
       gender: options.gender,
       environment: options.environment,
@@ -337,7 +319,7 @@ export default function Home() {
       usingPersonImage,
       personDesc: useModelImage ? "" : (personDesc || ""),
       envDefaultKey,
-      randomPoseDescription: mode === "random" ? description : undefined,
+      randomPoseDescription: description,
       forPreview,
     });
   }
@@ -354,13 +336,7 @@ export default function Home() {
           }
           continue;
         }
-        const custom = options.poseTexts?.[i]?.trim();
-        if (custom) {
-          if (next[i] !== null) {
-            next[i] = null;
-            changed = true;
-          }
-        } else if (!next[i]) {
+        if (!next[i]) {
           const randomDesc = getRandomPoseDescription();
           if (randomDesc) {
             next[i] = randomDesc;
@@ -370,7 +346,7 @@ export default function Home() {
       }
       return changed ? next : prev;
     });
-  }, [options.poseCount, options.poseTexts, getRandomPoseDescription, plannedImagesCount]);
+  }, [options.poseCount, getRandomPoseDescription, plannedImagesCount]);
   const envDefaultsKey = useMemo(
     () => (Array.isArray(envDefaults) ? envDefaults.map((d) => d.s3_key).join("|") : ""),
     [envDefaults]
@@ -396,7 +372,6 @@ export default function Home() {
     options.gender,
     options.environment,
     options.poseCount,
-    options.poseTexts,
     options.extra,
     selectedEnvDefaultKey,
     envDefaultsKey,
@@ -406,11 +381,6 @@ export default function Home() {
     poseRandomCache,
   ]);
 
-  useEffect(() => {
-    if (activePoseEditor != null && activePoseEditor >= plannedImagesCount) {
-      setActivePoseEditor(null);
-    }
-  }, [activePoseEditor, plannedImagesCount]);
 
   function togglePose(pose) {
     setOptions((o) => {
@@ -506,19 +476,6 @@ export default function Home() {
     handlePoseCountChange((options.poseCount || 1) + delta);
   }
 
-  function handlePoseTextChange(index, value) {
-    setOptions((prev) => {
-      const texts = Array.isArray(prev.poseTexts) ? [...prev.poseTexts] : Array.from({ length: POSE_MAX }, () => "");
-      const idx = Math.max(0, Math.min(index, POSE_MAX - 1));
-      texts[idx] = value;
-      return { ...prev, poseTexts: texts };
-    });
-  }
-
-  function handleClearPoseText(index) {
-    handlePoseTextChange(index, "");
-  }
-
   function handleShufflePose(index) {
     setPoseRandomCache((prev) => {
       const randomDesc = getRandomPoseDescription();
@@ -552,10 +509,8 @@ export default function Home() {
       lform.append("gender", options.gender);
       lform.append("environment", options.environment);
       for (const slot of poseSlots) {
-        const { mode, description } = resolvePoseInstruction(slot.index);
-        const snapshot = mode === "custom"
-          ? description
-          : (description || "random pose");
+        const { description } = resolvePoseInstruction(slot.index);
+        const snapshot = description || "random pose";
         lform.append("poses", snapshot);
       }
       lform.append("extra", options.extra || "");
@@ -616,9 +571,8 @@ export default function Home() {
       const buildPrompt = (slotIndex) => {
         if (promptDirty) {
           let effective = promptInput.trim();
-          const { mode, description } = resolvePoseInstruction(slotIndex);
-          if (mode === "random" && description) effective += `\nPose description: ${description}`;
-          if (mode === "custom" && description) effective += `\nPose direction: ${description}`;
+          const { description } = resolvePoseInstruction(slotIndex);
+          if (description) effective += `\nPose description: ${description}`;
           return effective;
         }
         return computeEffectivePrompt(slotIndex, false);
@@ -716,12 +670,11 @@ export default function Home() {
   const poseSummary = `${plannedImagesCount} image${plannedImagesCount > 1 ? "s" : ""}`;
   const poseStatusList = Array.from({ length: plannedImagesCount }, (_, idx) => {
     const key = `slot-${idx + 1}`;
-    const custom = options.poseTexts?.[idx]?.trim();
     const randomLabel = typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]?.trim() ? poseRandomCache[idx] : "Random pose";
     return {
       key,
       index: idx,
-      label: custom || randomLabel || `Image ${idx + 1}`,
+      label: randomLabel || `Image ${idx + 1}`,
       status: poseStatus[key] || (isGenerating ? "running" : "pending"),
       error: poseErrors[key],
     };
@@ -907,6 +860,16 @@ export default function Home() {
                   </div>
                 </div>
               )}
+            </div>
+            <div className="mt-4">
+              <label className="text-xs text-foreground/70">Listing title</label>
+              <input
+                type="text"
+                placeholder="Give this generation a name"
+                className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
             </div>
             <div className="mt-4">
               <label className="inline-flex items-center gap-2 text-xs font-medium text-foreground/80">
@@ -1131,66 +1094,27 @@ export default function Home() {
                     />
                     <div className="mt-4 space-y-3">
                       {Array.from({ length: plannedImagesCount }).map((_, idx) => {
-                        const custom = options.poseTexts?.[idx] || "";
                         const randomLabel = typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]?.trim()
                           ? poseRandomCache[idx]
                           : "Random pose";
-                        const summary = custom || randomLabel;
-                        const isActive = activePoseEditor === idx;
                         return (
-                          <div key={`pose-slot-${idx}`} className="rounded-xl border border-foreground/15 bg-background/40">
-                            <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs text-foreground/70">
-                              <div className="min-w-0">
-                                <p className="font-semibold text-foreground">Image {idx + 1}</p>
-                                <p className="mt-1 truncate text-[11px] text-foreground/60">{summary}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {!custom && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleShufflePose(idx)}
-                                    className="underline"
-                                  >
-                                    Shuffle
-                                  </button>
-                                )}
-                                {custom && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleClearPoseText(idx)}
-                                    className="underline"
-                                  >
-                                    Clear
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => setActivePoseEditor((prev) => (prev === idx ? null : idx))}
-                                  className="inline-flex items-center gap-1 rounded-full border border-foreground/20 px-3 py-1 text-[11px] text-foreground"
-                                >
-                                  {isActive ? "Hide" : custom ? "Edit" : "Add"} instructions
-                                </button>
-                              </div>
+                          <div key={`pose-slot-${idx}`} className="flex items-center justify-between gap-3 rounded-xl border border-foreground/15 bg-background/40 px-3 py-2 text-xs text-foreground/70">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground">Image {idx + 1}</p>
+                              <p className="mt-1 truncate text-[11px] text-foreground/60">{randomLabel}</p>
                             </div>
-                            {isActive && (
-                              <div className="border-t border-foreground/10 px-3 py-3">
-                                <textarea
-                                  rows={3}
-                                  className="w-full rounded-lg border border-foreground/15 bg-background/60 px-3 py-2 text-sm"
-                                  placeholder={`Describe the pose… e.g., ${randomLabel}`}
-                                  value={custom}
-                                  onChange={(e) => handlePoseTextChange(idx, e.target.value)}
-                                />
-                                {!custom && randomLabel && (
-                                  <p className="mt-2 text-[11px] text-foreground/50">Current random idea: {randomLabel}</p>
-                                )}
-                              </div>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleShufflePose(idx)}
+                              className="underline"
+                            >
+                              Shuffle
+                            </button>
                           </div>
                         );
                       })}
                     </div>
-                    <p className="mt-2 text-[11px] text-foreground/60">Add pose instructions to lock a specific look, or leave blank for automatic variety.</p>
+                    <p className="mt-2 text-[11px] text-foreground/60">We’ll randomize poses for each image automatically. Shuffle any slot for a new idea.</p>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs text-foreground/70">Extra instructions</label>
@@ -1200,16 +1124,6 @@ export default function Home() {
                       placeholder="Optional: add a style tweak, colours, or vibe"
                       value={options.extra}
                       onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="text-xs text-foreground/70">Listing title</label>
-                    <input
-                      type="text"
-                      placeholder="Give this generation a name"
-                      className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
                     />
                   </div>
                 </div>
