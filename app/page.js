@@ -476,18 +476,6 @@ export default function Home() {
     handlePoseCountChange((options.poseCount || 1) + delta);
   }
 
-  function handleShufflePose(index) {
-    setPoseRandomCache((prev) => {
-      const randomDesc = getRandomPoseDescription();
-      if (!randomDesc) return prev;
-      const next = [...prev];
-      const idx = Math.max(0, Math.min(index, POSE_MAX - 1));
-      if (next[idx] === randomDesc) return prev;
-      next[idx] = randomDesc;
-      return next;
-    });
-  }
-
   async function handleGenerate() {
     if (!selectedFile) return;
     try {
@@ -1092,29 +1080,7 @@ export default function Home() {
                       onChange={(e) => handlePoseCountChange(e.target.value)}
                       className="mt-3 w-full"
                     />
-                    <div className="mt-4 space-y-3">
-                      {Array.from({ length: plannedImagesCount }).map((_, idx) => {
-                        const randomLabel = typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]?.trim()
-                          ? poseRandomCache[idx]
-                          : "Random pose";
-                        return (
-                          <div key={`pose-slot-${idx}`} className="flex items-center justify-between gap-3 rounded-xl border border-foreground/15 bg-background/40 px-3 py-2 text-xs text-foreground/70">
-                            <div className="min-w-0">
-                              <p className="font-semibold text-foreground">Image {idx + 1}</p>
-                              <p className="mt-1 truncate text-[11px] text-foreground/60">{randomLabel}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleShufflePose(idx)}
-                              className="underline"
-                            >
-                              Shuffle
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-2 text-[11px] text-foreground/60">We’ll randomize poses for each image automatically. Shuffle any slot for a new idea.</p>
+                    <p className="mt-4 text-[11px] text-foreground/60">We’ll pick varied poses automatically for each image.</p>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs text-foreground/70">Extra instructions</label>
