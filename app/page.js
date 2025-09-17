@@ -64,6 +64,7 @@ export default function Home() {
   // Garment type override: null (auto), or 'top'|'bottom'|'full'
   const [garmentType, setGarmentType] = useState(null);
   const [poseRandomCache, setPoseRandomCache] = useState(Array.from({ length: POSE_MAX }, () => null));
+  const [activePoseEditor, setActivePoseEditor] = useState(null);
   const plannedImagesCount = Number.isFinite(options.poseCount) && options.poseCount > 0
     ? Math.min(Math.max(Math.round(options.poseCount), 1), POSE_MAX)
     : 1;
@@ -404,6 +405,12 @@ export default function Home() {
     promptDirty,
     poseRandomCache,
   ]);
+
+  useEffect(() => {
+    if (activePoseEditor != null && activePoseEditor >= plannedImagesCount) {
+      setActivePoseEditor(null);
+    }
+  }, [activePoseEditor, plannedImagesCount]);
 
   function togglePose(pose) {
     setOptions((o) => {
@@ -1128,10 +1135,15 @@ export default function Home() {
                         const randomLabel = typeof poseRandomCache[idx] === "string" && poseRandomCache[idx]?.trim()
                           ? poseRandomCache[idx]
                           : "Random pose";
+                        const summary = custom || randomLabel;
+                        const isActive = activePoseEditor === idx;
                         return (
-                          <div key={`pose-slot-${idx}`} className="rounded-xl border border-foreground/15 bg-background/40 p-3">
-                            <div className="flex items-center justify-between text-xs text-foreground/70">
-                              <span className="font-semibold text-foreground">Image {idx + 1}</span>
+                          <div key={`pose-slot-${idx}`} className="rounded-xl border border-foreground/15 bg-background/40">
+                            <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs text-foreground/70">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-foreground">Image {idx + 1}</p>
+                                <p className="mt-1 truncate text-[11px] text-foreground/60">{summary}</p>
+                              </div>
                               <div className="flex items-center gap-2">
                                 {!custom && (
                                   <button
@@ -1151,17 +1163,28 @@ export default function Home() {
                                     Clear
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={() => setActivePoseEditor((prev) => (prev === idx ? null : idx))}
+                                  className="inline-flex items-center gap-1 rounded-full border border-foreground/20 px-3 py-1 text-[11px] text-foreground"
+                                >
+                                  {isActive ? "Hide" : custom ? "Edit" : "Add"} instructions
+                                </button>
                               </div>
                             </div>
-                            <textarea
-                              rows={2}
-                              className="mt-2 w-full rounded-lg border border-foreground/15 bg-background/60 px-3 py-2 text-sm"
-                              placeholder={`e.g., ${randomLabel}`}
-                              value={custom}
-                              onChange={(e) => handlePoseTextChange(idx, e.target.value)}
-                            />
-                            {!custom && randomLabel && (
-                              <p className="mt-2 text-[11px] text-foreground/50">Using random: {randomLabel}</p>
+                            {isActive && (
+                              <div className="border-t border-foreground/10 px-3 py-3">
+                                <textarea
+                                  rows={3}
+                                  className="w-full rounded-lg border border-foreground/15 bg-background/60 px-3 py-2 text-sm"
+                                  placeholder={`Describe the pose… e.g., ${randomLabel}`}
+                                  value={custom}
+                                  onChange={(e) => handlePoseTextChange(idx, e.target.value)}
+                                />
+                                {!custom && randomLabel && (
+                                  <p className="mt-2 text-[11px] text-foreground/50">Current random idea: {randomLabel}</p>
+                                )}
+                              </div>
                             )}
                           </div>
                         );
