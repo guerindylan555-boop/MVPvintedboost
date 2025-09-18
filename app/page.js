@@ -46,9 +46,6 @@ export default function Home() {
   const [productCondition, setProductCondition] = useState("");
   const [poseStatus, setPoseStatus] = useState({}); // { [pose]: 'pending'|'running'|'done'|'error' }
   const [poseErrors, setPoseErrors] = useState({}); // { [pose]: string }
-  const [lastListingId, setLastListingId] = useState(null);
-  const [listings, setListings] = useState([]); // [{id, cover_url, created_at, images_count, settings}]
-  const [listingsLoading, setListingsLoading] = useState(true);
   const [optionsCollapsed, setOptionsCollapsed] = useState(false);
   // Flow mode: classic | sequential | both
   const [flowMode, setFlowMode] = useState("both");
@@ -79,22 +76,6 @@ export default function Home() {
       if (!seen) setShowWalkthrough(true);
     } catch {}
   }, []);
-
-  useEffect(() => {
-    (async () => {
-      if (!userId) return;
-      setListingsLoading(true);
-      const baseUrl = getApiBase();
-      try {
-        const res = await fetch(`${baseUrl}/listings`, { headers: withUserId({}, userId) });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data?.items)) setListings(data.items);
-        }
-      } catch {}
-      setListingsLoading(false);
-    })();
-  }, [userId]);
 
   // Load pose descriptions from Studio for random selection
   useEffect(() => {
@@ -249,21 +230,6 @@ export default function Home() {
       setOptions((o) => ({ ...o, environment: "studio" }));
     }
   }, [envDefaults, options.environment]);
-
-  function refreshListingsSoon(delay = 800) {
-    // Simple refetch helper to reflect new cover/images soon after generation
-    setTimeout(async () => {
-      if (!userId) return;
-      const baseUrl = getApiBase();
-      try {
-        const res = await fetch(`${baseUrl}/listings`, { headers: withUserId({}, userId) });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data?.items)) setListings(data.items);
-        }
-      } catch {}
-    }, delay);
-  }
 
   async function handleInitDb() {
     if (!isAdmin || initDbBusy) return;
@@ -518,7 +484,6 @@ export default function Home() {
       const listing = await lres.json();
       const listingId = listing?.id;
       if (!listingId) throw new Error("No listing id");
-      setLastListingId(listingId);
 
       // 2) Generate per pose according to flowMode (classic | sequential | both)
       let done = 0; // count poses done (first variant finished)
@@ -624,7 +589,6 @@ export default function Home() {
         } catch {}
       }
       toast.success("Listing ready!", { id: toastId });
-      refreshListingsSoon();
 
       // 4) Navigate to the listing detail page
       window.location.href = `/listing/${listingId}`;
@@ -1143,55 +1107,24 @@ export default function Home() {
         </section>
 
         <aside className="space-y-3">
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Recent listings</h2>
-              <Link href="/studio" className="text-xs text-foreground/60 underline">
-                Studio
-              </Link>
-            </div>
-            {listingsLoading ? (
-              <div className="mt-3 space-y-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-24 animate-pulse rounded-xl bg-foreground/10" />
-                ))}
-              </div>
-            ) : !listings || listings.length === 0 ? (
-              <p className="mt-3 text-xs text-foreground/60">No listings yet. Generate your first one to see it here.</p>
-            ) : (
-              <ul className="mt-3 space-y-3 text-sm">
-                {listings.map((l) => {
-                  const when = new Date(l.created_at);
-                  const settings = l.settings || {};
-                  return (
-                    <li key={l.id} className="rounded-xl border border-foreground/15 bg-background/40">
-                      <Link href={`/listing/${l.id}`} className="flex gap-3 p-3">
-                        <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-foreground/15">
-                          {l.cover_url ? (
-                            <Image src={l.cover_url} alt="Listing cover" fill sizes="64px" className="object-cover" />
-                          ) : (
-                            <div className="h-full w-full bg-foreground/10" />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{l.title || when.toLocaleString()}</p>
-                          <p className="text-xs text-foreground/60">{when.toLocaleDateString()} · {settings.gender || ""} {settings.environment || ""}</p>
-                          {typeof l.images_count === "number" && (
-                            <p className="text-[11px] text-foreground/50">{l.images_count} image{l.images_count === 1 ? "" : "s"}</p>
-                          )}
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {isAdmin && (
+          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/15 dark:bg-white/5">
+            <h2 className="text-sm font-semibold">Manage listings</h2>
+            <p className="mt-2 text-xs text-foreground/60">Review every generation, regenerate poses, and copy descriptions from the dedicated listings hub.</p>
+            <Link
+              href="/listings"
+              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-foreground/20 px-3 text-sm font-semibold hover:border-foreground"
+            >
+              Open listings
+            </Link>
+          </div>
+          {isAdmin && (
+            <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/15 dark:bg-white/5">
+              <h2 className="text-sm font-semibold">Admin tools</h2>
               <button
                 type="button"
                 onClick={handleInitDb}
                 disabled={initDbBusy}
-                className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+                className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
                   initDbBusy ? "opacity-60" : ""
                 }`}
               >
@@ -1204,8 +1137,8 @@ export default function Home() {
                   <>Init DB</>
                 )}
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </aside>
       </div>
 

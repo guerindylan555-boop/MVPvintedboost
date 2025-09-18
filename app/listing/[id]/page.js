@@ -189,7 +189,7 @@ export default function ListingPage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <section className="space-y-4">
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+          <div id="description" className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Generated gallery</h2>
               {activeImage && (

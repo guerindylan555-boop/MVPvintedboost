@@ -5,11 +5,11 @@ import TopNav from "./top-nav";
 
 export default function AppShell({ children }) {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <TopNav />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-10 pt-6">
+    <div className="min-h-screen bg-background text-foreground">
+      <main className="mx-auto w-full max-w-5xl px-4 pb-28 pt-6">
         {children}
       </main>
+      <TopNav />
       <Toaster position="top-center" toastOptions={{ duration: 4000 }} />
     </div>
   );
