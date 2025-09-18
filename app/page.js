@@ -711,14 +711,6 @@ export default function Home() {
           <h1 className="text-2xl font-semibold tracking-tight">Create a listing</h1>
           <p className="text-sm text-foreground/70">Upload a garment photo, tweak the scene, and generate Vinted-ready imagery in seconds.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/studio" className="hidden sm:inline-flex h-9 items-center rounded-full border border-black/15 px-4 text-sm font-medium">
-            Open Studio
-          </Link>
-          <Link href="/settings" className="hidden sm:inline-flex h-9 items-center rounded-full border border-black/15 px-4 text-sm font-medium">
-            Preferences
-          </Link>
-        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -783,6 +775,16 @@ export default function Home() {
                   </div>
                 </div>
               )}
+            </div>
+            <div className="mt-4">
+              <label className="text-xs text-foreground/70">Listing title</label>
+              <input
+                type="text"
+                placeholder="Give this generation a name"
+                className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
             </div>
             <div className="mt-4 space-y-3 rounded-xl border border-foreground/15 bg-background/40 p-4">
               <div className="flex items-center justify-between text-xs text-foreground/70">
@@ -850,16 +852,6 @@ export default function Home() {
               )}
             </div>
             <div className="mt-4">
-              <label className="text-xs text-foreground/70">Listing title</label>
-              <input
-                type="text"
-                placeholder="Give this generation a name"
-                className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
-            <div className="mt-4">
               <label className="inline-flex items-center gap-2 text-xs font-medium text-foreground/80">
                 Garment type
                 <InfoTooltip label="Garment type" description="Set to Top/Bottom/Full if you know it. Leave empty to auto-detect once and cache on the listing." />
@@ -879,6 +871,18 @@ export default function Home() {
                 ))}
               </div>
               {!garmentType && <p className="mt-1 text-[11px] text-foreground/50">Auto-detect if not set.</p>}
+            </div>
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+                className={`inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                  canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
+                }`}
+              >
+                {isGenerating ? "Generating…" : "Generate listing"}
+              </button>
             </div>
           </div>
 
@@ -1097,7 +1101,7 @@ export default function Home() {
             )}
           </div>
 
-          {isAdmin ? (
+          {isAdmin && (
             <div className="space-y-4 rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full border border-foreground/15 px-3 py-1">{options.gender}</span>
@@ -1134,57 +1138,6 @@ export default function Home() {
                   </ul>
                 </div>
               )}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearSelection();
-                    setPoseStatus({});
-                    setPoseErrors({});
-                    setLastListingId(null);
-                  }}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm"
-                >
-                  Reset
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={!canGenerate}
-                  className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                    canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
-                  }`}
-                >
-                  {isGenerating ? "Generating…" : "Generate listing"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearSelection();
-                    setPoseStatus({});
-                    setPoseErrors({});
-                    setLastListingId(null);
-                  }}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-foreground/20 px-4 text-sm"
-                >
-                  Reset
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={!canGenerate}
-                  className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                    canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
-                  }`}
-                >
-                  {isGenerating ? "Generating…" : "Generate listing"}
-                </button>
-              </div>
             </div>
           )}
         </section>
@@ -1252,17 +1205,6 @@ export default function Home() {
                 )}
               </button>
             )}
-          </div>
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs text-foreground/60 dark:border-white/15 dark:bg-white/5">
-            <p className="font-semibold text-foreground">Pro tips</p>
-            <ul className="mt-2 space-y-1">
-              <li>Set model and environment defaults in Studio for faster runs.</li>
-              <li>Use up to four poses per listing for a complete set.</li>
-              <li>Regenerate specific poses inside each listing page.</li>
-            </ul>
-            <Link href="/settings" className="mt-3 inline-flex text-xs underline">
-              Manage preferences →
-            </Link>
           </div>
         </aside>
       </div>
