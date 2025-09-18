@@ -16,14 +16,13 @@ export default function StudioPage() {
   const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
   const isAdmin = Boolean(session?.user?.isAdmin);
 
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState("environment");
   const [envLibraryView, setEnvLibraryView] = useState("generated");
   const [modelLibraryView, setModelLibraryView] = useState("generated");
   const [modelGalleryFilter, setModelGalleryFilter] = useState("all");
 
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState(null);
   const [bulkFiles, setBulkFiles] = useState([]);
   const [sources, setSources] = useState([]);
   const [generated, setGenerated] = useState([]);
@@ -54,9 +53,10 @@ export default function StudioPage() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(VB_STUDIO_ACTIVE_TAB);
-      const allowed = ["overview", "environment", "model", "pose"];
-      if (stored && allowed.includes(stored)) {
-        setActiveSection(stored);
+      const allowed = ["environment", "model", "pose"];
+      const target = stored === "overview" ? "environment" : stored;
+      if (target && allowed.includes(target)) {
+        setActiveSection(target);
       }
     } catch {}
     try {
@@ -75,12 +75,11 @@ export default function StudioPage() {
 
   useEffect(() => {
     return () => {
-      if (previewUrl && previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
       if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
       if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
       if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
     };
-  }, [previewUrl, modelPreviewUrl, malePreview, femalePreview]);
+  }, [modelPreviewUrl, malePreview, femalePreview]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -99,7 +98,7 @@ export default function StudioPage() {
 
   useEffect(() => {
     if (!isAdmin && activeSection === "pose") {
-      setActiveSection("overview");
+      setActiveSection("environment");
     }
   }, [isAdmin, activeSection]);
 
@@ -137,29 +136,7 @@ export default function StudioPage() {
         res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", headers: withUserId({}, userId) });
       }
       if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (previewUrl && previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(url);
-      await refreshGenerated();
-    } catch (err) {
-      console.error(err);
-      alert("Environment generation failed.");
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function handleRandomGenerate() {
-    try {
-      setIsGenerating(true);
-      const baseUrl = getApiBase();
-      const res = await fetch(`${baseUrl}/env/random`, { method: "POST", headers: withUserId({}, userId) });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (previewUrl && previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(url);
+      await res.blob();
       await refreshGenerated();
     } catch (err) {
       console.error(err);
@@ -434,7 +411,6 @@ export default function StudioPage() {
 
   const navItems = useMemo(() => {
     const items = [
-      { key: "overview", label: "Overview" },
       { key: "environment", label: "Environments" },
       { key: "model", label: "Models" },
     ];
@@ -444,10 +420,6 @@ export default function StudioPage() {
 
   const sectionCopy = useMemo(
     () => ({
-      overview: {
-        title: "Studio overview",
-        description: "Track defaults, generated assets, and jump into detailed workflows.",
-      },
       environment: {
         title: "Environment studio",
         description: "Generate mirror-scene backdrops and manage saved defaults.",
@@ -470,82 +442,17 @@ export default function StudioPage() {
 
   const currentCopy = sectionCopy[activeSection] || sectionCopy.environment;
 
-  const environmentDefaultCount = defaults.length;
   const environmentGeneratedCount = generated.length;
-  const modelDefaultCount = [defaultsModel?.man, defaultsModel?.woman].filter(Boolean).length;
   const modelGeneratedCount = modelGenerated.length;
   const poseDescriptionCount = poseDescs.length;
 
-  const overviewStats = useMemo(() => {
-    const stats = [
-      { label: "Environment defaults", value: environmentDefaultCount },
-      { label: "Generated environments", value: environmentGeneratedCount },
-      { label: "Model defaults", value: modelDefaultCount },
-      { label: "Generated models", value: modelGeneratedCount },
-    ];
-    if (isAdmin) stats.push({ label: "Pose descriptions", value: poseDescriptionCount });
-    return stats;
-  }, [environmentDefaultCount, environmentGeneratedCount, modelDefaultCount, modelGeneratedCount, poseDescriptionCount, isAdmin]);
-
   const navCounts = useMemo(
     () => ({
-      overview: overviewStats.reduce((sum, stat) => sum + (Number(stat.value) || 0), 0),
       environment: environmentGeneratedCount,
       model: modelGeneratedCount,
-      pose: poseDescriptionCount,
+      ...(isAdmin ? { pose: poseDescriptionCount } : {}),
     }),
-    [overviewStats, environmentGeneratedCount, modelGeneratedCount, poseDescriptionCount]
-  );
-
-  const renderOverview = () => (
-    <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {overviewStats.map((stat) => (
-          <div key={stat.label} className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-            <p className="text-xs text-foreground/60">{stat.label}</p>
-            <p className="mt-3 text-3xl font-semibold">{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-          <h3 className="text-lg font-semibold">Environment workspace</h3>
-          <p className="mt-1 text-sm text-foreground/60">Generate new mirror scenes and curate up to five defaults for quick reuse.</p>
-          <button
-            type="button"
-            onClick={() => setActiveSection("environment")}
-            className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-semibold text-background"
-          >
-            Open environments
-          </button>
-        </div>
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-          <h3 className="text-lg font-semibold">Model workspace</h3>
-          <p className="mt-1 text-sm text-foreground/60">Manage gender-specific model references and promote the best variants.</p>
-          <button
-            type="button"
-            onClick={() => setActiveSection("model")}
-            className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-semibold text-background"
-          >
-            Open models
-          </button>
-        </div>
-        {isAdmin && (
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-            <h3 className="text-lg font-semibold">Pose catalog</h3>
-            <p className="mt-1 text-sm text-foreground/60">Upload pose references and auto-generate descriptions used for random prompts.</p>
-            <button
-              type="button"
-              onClick={() => setActiveSection("pose")}
-              className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-semibold text-background"
-            >
-              Open pose library
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+    [environmentGeneratedCount, modelGeneratedCount, poseDescriptionCount, isAdmin]
   );
 
   const renderEnvironmentLibrary = () => {
@@ -776,68 +683,27 @@ export default function StudioPage() {
 
   const renderEnvironmentSection = () => (
     <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-          <h3 className="text-lg font-semibold">Generate environment</h3>
-          <p className="mt-1 text-xs text-foreground/60">Describe a backdrop or leave blank for a random mirror scene.</p>
-          <textarea
-            rows={4}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="e.g. sunlit loft apartment with a full-length mirror and wooden floors"
-            className="mt-3 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
-          />
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                isGenerating ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
-              }`}
-            >
-              {isGenerating ? "Generating…" : prompt.trim() ? "Generate environment" : "Generate random"}
-            </button>
-            <button
-              type="button"
-              onClick={handleRandomGenerate}
-              disabled={isGenerating}
-              className="inline-flex h-10 items-center justify-center rounded-lg border border-black/10 px-4 text-sm font-semibold dark:border-white/15"
-            >
-              Surprise me
-            </button>
-            <button
-              type="button"
-              onClick={refreshGenerated}
-              className="inline-flex h-10 items-center justify-center rounded-lg border border-black/10 px-4 text-sm font-semibold dark:border-white/15"
-            >
-              Refresh library
-            </button>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Preview</h3>
-            {previewUrl && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (previewUrl && previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
-                  setPreviewUrl(null);
-                }}
-                className="text-xs text-foreground/60 underline"
-              >
-                Clear preview
-              </button>
-            )}
-          </div>
-          <div className="mt-3 aspect-video overflow-hidden rounded-xl border border-black/10 bg-black/10 dark:border-white/15">
-            {previewUrl ? (
-              <img src={previewUrl} alt="Environment preview" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-foreground/50">Generate a scene to preview it here.</div>
-            )}
-          </div>
+      <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+        <h3 className="text-lg font-semibold">Generate environment</h3>
+        <p className="mt-1 text-xs text-foreground/60">Describe a backdrop or leave blank for a random mirror scene.</p>
+        <textarea
+          rows={4}
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="e.g. sunlit loft apartment with a full-length mirror and wooden floors"
+          className="mt-3 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
+        />
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+              isGenerating ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
+            }`}
+          >
+            {isGenerating ? "Generating…" : prompt.trim() ? "Generate environment" : "Generate random"}
+          </button>
         </div>
       </div>
 
@@ -1433,7 +1299,6 @@ export default function StudioPage() {
         </header>
         <main className="flex-1 overflow-y-auto px-4 py-6 lg:px-6">
           <div className="space-y-6">
-            {activeSection === "overview" && renderOverview()}
             {activeSection === "environment" && renderEnvironmentSection()}
             {activeSection === "model" && renderModelSection()}
             {activeSection === "pose" && isAdmin && renderPoseSection()}
