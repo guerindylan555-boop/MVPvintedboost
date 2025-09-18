@@ -302,7 +302,7 @@ export default function ListingPage() {
             </dl>
           </div>
 
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+          <div id="description" className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Description</h3>
               {hasDescription && (
