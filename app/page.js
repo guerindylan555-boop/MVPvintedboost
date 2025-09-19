@@ -5,7 +5,7 @@ import { toast } from "react-hot-toast";
 import Link from "next/link";
 import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
-import { Camera, Loader2 } from "lucide-react";
+import { Camera, ImageOff, Loader2 } from "lucide-react";
 import { InfoTooltip, OptionPicker, PromptPreviewCard } from "@/app/components";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY, VB_MODEL_REFERENCE_PREF } from "@/app/lib/storage-keys";
@@ -425,10 +425,6 @@ export default function Home() {
       if (prev.poseCount === clamped) return prev;
       return { ...prev, poseCount: clamped };
     });
-  }
-
-  function adjustPoseCount(delta) {
-    handlePoseCountChange((options.poseCount || 1) + delta);
   }
 
   async function handleGenerate() {
@@ -865,29 +861,27 @@ export default function Home() {
                               key={model.gender}
                               type="button"
                               onClick={() => setOptions((prev) => ({ ...prev, gender: model.gender }))}
-                              className={`w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
-                                selected ? "border-foreground bg-foreground/5" : "border-foreground/15 hover:border-foreground/40"
+                              className={`group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
+                                selected
+                                  ? "border-foreground ring-2 ring-foreground/40 bg-foreground/5 shadow-lg"
+                                  : "border-foreground/15 hover:border-foreground/50"
                               }`}
+                              aria-pressed={selected}
                             >
-                              <div className="relative aspect-[3/4] w-full">
+                              <div className="relative aspect-[3/4] w-full overflow-hidden">
                                 {model.url ? (
                                   <Image
                                     src={model.url}
                                     alt={`${genderLabel} default`}
                                     fill
                                     sizes="128px"
-                                    className="object-cover"
+                                    className="object-cover transition duration-300 group-hover:scale-[1.02]"
                                     unoptimized
                                   />
                                 ) : (
-                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-[11px] uppercase tracking-wide text-foreground/50">
-                                    No photo
+                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-foreground/50">
+                                    <ImageOff className="size-6" aria-hidden="true" />
                                   </div>
-                                )}
-                                {selected && (
-                                  <span className="absolute right-2 top-2 rounded-full bg-background/90 px-2 py-1 text-[11px] font-semibold text-foreground shadow">
-                                    Selected
-                                  </span>
                                 )}
                               </div>
                               <div className="px-3 py-2">
@@ -953,34 +947,32 @@ export default function Home() {
                               key={env.s3_key}
                               type="button"
                               onClick={() => handleSelectEnvironmentDefault(env.s3_key)}
-                              className={`w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
-                                selected ? "border-foreground bg-foreground/5" : "border-foreground/15 hover:border-foreground/40"
+                              className={`group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
+                                selected
+                                  ? "border-foreground ring-2 ring-foreground/40 bg-foreground/5 shadow-lg"
+                                  : "border-foreground/15 hover:border-foreground/50"
                               }`}
+                              aria-pressed={selected}
                             >
-                              <div className="relative aspect-[3/4] w-full">
+                              <div className="relative aspect-[3/4] w-full overflow-hidden">
                                 {env.url ? (
                                   <Image
                                     src={env.url}
                                     alt={env.name || "Environment"}
                                     fill
                                     sizes="128px"
-                                    className="object-cover"
+                                    className="object-cover transition duration-300 group-hover:scale-[1.02]"
                                     unoptimized
                                   />
                                 ) : (
-                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-[11px] uppercase tracking-wide text-foreground/50">
-                                    No photo
+                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-foreground/50">
+                                    <ImageOff className="size-6" aria-hidden="true" />
                                   </div>
-                                )}
-                                {selected && (
-                                  <span className="absolute right-2 top-2 rounded-full bg-background/90 px-2 py-1 text-[11px] font-semibold text-foreground shadow">
-                                    Selected
-                                  </span>
                                 )}
                               </div>
                               <div className="px-3 py-2">
                                 <p className="text-sm font-semibold">{env.name || "Untitled"}</p>
-                                <p className="text-[11px] text-foreground/60">{selected ? "In use" : "Tap to select"}</p>
+                                <p className="text-[11px] text-foreground/60">{selected ? "Current selection" : "Tap to select"}</p>
                               </div>
                             </button>
                           );
@@ -998,40 +990,39 @@ export default function Home() {
                     )}
                   </div>
                   <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">Image count</p>
-                        <p className="mt-1 text-xs text-foreground/60">Pick how many images to generate (max 10).</p>
+                    <div className="rounded-2xl border border-foreground/15 bg-background/60 p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">Image count</p>
+                          <p className="mt-1 text-xs text-foreground/60">Pick how many images to generate (max 10).</p>
+                        </div>
+                        <div className="inline-flex items-baseline gap-2 rounded-xl bg-foreground px-4 py-2 text-background shadow">
+                          <span className="text-2xl font-semibold leading-none">{plannedImagesCount}</span>
+                          <span className="text-[11px] uppercase tracking-wide text-background/70">images</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-foreground/70">
-                        <button
-                          type="button"
-                          onClick={() => adjustPoseCount(-1)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-foreground/30"
-                          aria-label="Decrease images"
-                        >
-                          -
-                        </button>
-                        <span className="min-w-[2ch] text-center font-semibold">{plannedImagesCount}</span>
-                        <button
-                          type="button"
-                          onClick={() => adjustPoseCount(1)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-foreground/30"
-                          aria-label="Increase images"
-                        >
-                          +
-                        </button>
+                      <div className="mt-4 grid grid-cols-5 gap-2">
+                        {Array.from({ length: POSE_MAX }, (_, idx) => idx + 1).map((count) => {
+                          const checked = plannedImagesCount === count;
+                          return (
+                            <button
+                              key={count}
+                              type="button"
+                              onClick={() => handlePoseCountChange(count)}
+                              className={`group flex h-10 items-center justify-center rounded-lg border text-sm font-semibold transition ${
+                                checked
+                                  ? "border-foreground bg-foreground text-background shadow"
+                                  : "border-foreground/20 bg-background/80 text-foreground/70 hover:border-foreground/60 hover:text-foreground"
+                              }`}
+                              aria-pressed={checked}
+                            >
+                              {count}
+                            </button>
+                          );
+                        })}
                       </div>
+                      <p className="mt-3 text-[11px] text-foreground/60">We’ll pick varied poses automatically for each image.</p>
                     </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={POSE_MAX}
-                      value={plannedImagesCount}
-                      onChange={(e) => handlePoseCountChange(e.target.value)}
-                      className="mt-3 w-full"
-                    />
-                    <p className="mt-4 text-[11px] text-foreground/60">We’ll pick varied poses automatically for each image.</p>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs text-foreground/70">Extra instructions</label>
