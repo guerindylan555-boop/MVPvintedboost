@@ -1,12 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "react-hot-toast";
 import Link from "next/link";
-import Image from "next/image";
+import { toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
-import { Camera, ImageOff, Loader2 } from "lucide-react";
-import { InfoTooltip, OptionPicker, PromptPreviewCard } from "@/app/components";
+
+import {
+  AdminReviewPanel,
+  AdminToolsCard,
+  DescriptionSettings,
+  GarmentTypeSelector,
+  SceneModelOptions,
+  UploadPanel,
+} from "@/app/components";
+import { useListingGenerator } from "@/app/hooks/use-listing-generator";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY, VB_MODEL_REFERENCE_PREF } from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
@@ -25,7 +32,6 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isPreprocessing, setIsPreprocessing] = useState(false);
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   // Pose choices for mirror selfie flow
@@ -45,8 +51,6 @@ export default function Home() {
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
-  const [poseStatus, setPoseStatus] = useState({}); // { [pose]: 'pending'|'running'|'done'|'error' }
-  const [poseErrors, setPoseErrors] = useState({}); // { [pose]: string }
   const [optionsCollapsed, setOptionsCollapsed] = useState(false);
   // Flow mode: classic | sequential | both
   const [flowMode, setFlowMode] = useState("both");
@@ -348,6 +352,27 @@ export default function Home() {
     poseRandomCache,
   ]);
 
+  const { isGenerating, poseStatus, poseErrors, handleGenerate } = useListingGenerator({
+    selectedFile,
+    options,
+    plannedImagesCount,
+    selectedEnvDefaultKey,
+    envDefaults,
+    modelDefaults,
+    useModelImage,
+    promptDirty,
+    promptInput,
+    garmentType,
+    title,
+    descEnabled,
+    desc,
+    productCondition,
+    userId,
+    flowMode,
+    resolvePoseInstruction,
+    computeEffectivePrompt,
+  });
+
   async function setImageFile(file) {
     if (!file) return;
     if (!file.type?.startsWith("image/")) {
@@ -413,165 +438,6 @@ export default function Home() {
       if (prev.poseCount === clamped) return prev;
       return { ...prev, poseCount: clamped };
     });
-  }
-
-  async function handleGenerate() {
-    if (!selectedFile) return;
-    try {
-      setIsGenerating(true);
-      const baseUrl = getApiBase();
-
-      // Ensure at least one pose slot
-      const imageCount = plannedImagesCount;
-      const poseSlots = Array.from({ length: imageCount }, (_, idx) => ({ key: `slot-${idx + 1}`, index: idx }));
-
-      // Resolve environment default for main request
-      const envDefaultKey = options.environment === "studio" && (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
-        ? (selectedEnvDefaultKey || envDefaults[0]?.s3_key)
-        : undefined;
-
-      // 1) Create listing first
-      const lform = new FormData();
-      lform.append("image", selectedFile);
-      lform.append("gender", options.gender);
-      lform.append("environment", options.environment);
-      for (const slot of poseSlots) {
-        const { description } = resolvePoseInstruction(slot.index);
-        const snapshot = description || "random pose";
-        lform.append("poses", snapshot);
-      }
-      lform.append("extra", options.extra || "");
-      if (envDefaultKey) lform.append("env_default_s3_key", envDefaultKey);
-      const personDefault = options.gender === "woman" ? modelDefaults?.woman : modelDefaults?.man;
-      const personDefaultKey = personDefault?.s3_key;
-      const personDesc = personDefault?.description;
-      if (useModelImage && personDefaultKey) lform.append("model_default_s3_key", personDefaultKey);
-      if (!useModelImage && personDesc) lform.append("model_description_text", personDesc);
-      lform.append("use_model_image", String(!!useModelImage));
-      if (promptDirty) lform.append("prompt_override", promptInput.trim());
-      if (garmentType) lform.append("garment_type_override", garmentType);
-      if (title) lform.append("title", title);
-      const toastId = toast.loading("Creating listing…");
-      const lres = await fetch(`${baseUrl}/listing`, { method: "POST", body: lform, headers: withUserId({}, userId) });
-      if (!lres.ok) throw new Error(await lres.text());
-      const listing = await lres.json();
-      const listingId = listing?.id;
-      if (!listingId) throw new Error("No listing id");
-      broadcastListingsUpdated();
-
-      // 2) Generate per pose according to flowMode (classic | sequential | both)
-      let done = 0; // count poses done (first variant finished)
-      toast.loading(`Generating images ${done}/${poseSlots.length}…`, { id: toastId });
-      const initialStatus = {};
-      for (const slot of poseSlots) initialStatus[slot.key] = "running";
-      setPoseStatus(initialStatus); setPoseErrors({});
-
-      // concurrency limiter
-      const limit = (n, fns) => new Promise((resolve) => {
-        const out = new Array(fns.length);
-        let i = 0, running = 0, finished = 0;
-        const next = () => {
-          if (finished >= fns.length) return resolve(out);
-          while (running < n && i < fns.length) {
-            const idx = i++; running++;
-            fns[idx]().then((v) => out[idx] = { status: 'fulfilled', value: v }).catch((e) => out[idx] = { status: 'rejected', reason: e }).finally(() => { running--; finished++; next(); });
-          }
-        };
-        next();
-      });
-
-      const buildCommonForm = (slotIndex) => {
-        const form = new FormData();
-        form.append("image", selectedFile);
-        form.append("gender", options.gender);
-        form.append("environment", options.environment);
-        form.append("poses", "standing");
-        form.append("extra", options.extra || "");
-        if (envDefaultKey) form.append("env_default_s3_key", envDefaultKey);
-        if (useModelImage && personDefaultKey) form.append("model_default_s3_key", personDefaultKey);
-        else if (!useModelImage && personDesc) form.append("model_description_text", personDesc);
-        form.append("listing_id", listingId);
-        if (garmentType) form.append("garment_type_override", garmentType);
-        return form;
-      };
-      const cloneForm = (fd) => { const f = new FormData(); fd.forEach((v, k) => f.append(k, v)); return f; };
-      const buildPrompt = (slotIndex) => {
-        if (promptDirty) {
-          let effective = promptInput.trim();
-          const { description } = resolvePoseInstruction(slotIndex);
-          if (description) effective += `\nPose description: ${description}`;
-          return effective;
-        }
-        return computeEffectivePrompt(slotIndex, false);
-      };
-      const runPose = ({ key, index: slotIndex }) => async () => {
-        const common = buildCommonForm(slotIndex);
-        const prompt = buildPrompt(slotIndex);
-        const classicReq = async () => {
-          const f = cloneForm(common);
-          f.append("prompt_override", prompt);
-          const res = await fetch(`${baseUrl}/edit/json`, { method: "POST", body: f, headers: withUserId({}, userId) });
-          if (!res.ok) throw new Error(await res.text());
-          return res.json();
-        };
-        const seqReq = async () => {
-          const f = cloneForm(common);
-          const res = await fetch(`${baseUrl}/edit/sequential/json`, { method: "POST", body: f, headers: withUserId({}, userId) });
-          if (!res.ok) throw new Error(await res.text());
-          return res.json();
-        };
-        let classicP = null, seqP = null;
-        if (flowMode === 'classic') classicP = classicReq();
-        else if (flowMode === 'sequential') seqP = seqReq();
-        else { classicP = classicReq(); seqP = seqReq(); }
-        let firstDone = false;
-        const markDone = () => {
-          if (!firstDone) {
-            firstDone = true;
-            done += 1;
-            toast.loading(`Generating images ${done}/${poseSlots.length}…`, { id: toastId });
-            setPoseStatus((s) => ({ ...s, [key]: 'done' }));
-          }
-        };
-        if (classicP) classicP.then(() => markDone()).catch(() => {});
-        if (seqP) seqP.then(() => markDone()).catch(() => {});
-        const results = await Promise.all([classicP, seqP].filter(Boolean).map((p) => p.then((v) => ({ ok: true, v })).catch((e) => ({ ok: false, e }))));
-        const ok = results.find((r) => r.ok);
-        if (ok) { return ok.v; }
-        setPoseStatus((s) => ({ ...s, [key]: 'error' }));
-        setPoseErrors((e) => ({ ...e, [key]: results.map((r) => r.e?.message || 'Failed').join('; ') }));
-        throw new Error(`Pose ${slotIndex + 1} failed`);
-      };
-      const tasks = poseSlots.map((slot) => runPose(slot));
-      const settled = await limit(2, tasks);
-      const okAny = settled.some((r) => r && r.status === 'fulfilled');
-      if (!okAny) throw new Error("All generations failed");
-
-      // 3) Optionally generate description attached to listing
-      if (descEnabled) {
-        try {
-          const dform = new FormData();
-          dform.append("image", selectedFile);
-          dform.append("gender", options.gender);
-          if (desc.brand) dform.append("brand", desc.brand);
-          if (desc.productModel) dform.append("model_name", desc.productModel);
-          if (desc.size) dform.append("size", desc.size);
-          if (productCondition) dform.append("condition", productCondition);
-          dform.append("listing_id", listingId);
-          toast.loading("Generating description…", { id: toastId });
-          await fetch(`${baseUrl}/describe`, { method: "POST", body: dform, headers: withUserId({}, userId) });
-        } catch {}
-      }
-      toast.success("Listing ready!", { id: toastId });
-
-      // 4) Navigate to the listing detail page
-      window.location.href = `/listing/${listingId}`;
-    } catch (err) {
-      console.error(err);
-      toast.error("Generation failed. Check backend/API key.");
-    } finally {
-      setIsGenerating(false);
-    }
   }
 
   function clearSelection() {
@@ -653,419 +519,80 @@ export default function Home() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section className="space-y-6">
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">Upload garment</h2>
-                <p className="text-xs text-foreground/60">Drop a clear photo of the item you want the model to wear.</p>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <button
-                  type="button"
-                  onClick={handleTriggerCamera}
-                  className="inline-flex items-center gap-2 rounded-full border border-foreground/20 px-3 py-1.5 font-semibold text-foreground transition hover:border-foreground/40"
-                >
-                  <Camera className="size-4" aria-hidden="true" />
-                  <span>Take photo</span>
-                </button>
-              </div>
-            </div>
-            <div className="mt-4">
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
-              {!previewUrl ? (
-                <button
-                  type="button"
-                  onClick={handleTriggerPick}
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  className={`flex aspect-[4/5] w-full items-center justify-center rounded-xl border border-dashed px-4 text-center transition-colors ${
-                    isDragging ? "border-blue-500 bg-blue-500/10" : "border-foreground/20 hover:border-foreground/40"
-                  }`}
-                >
-                  <div className="flex flex-col items-center gap-2 text-foreground/70">
-                    <div className="size-14 rounded-full border border-dashed border-current/30 flex items-center justify-center">
-                      <Camera className="size-6" />
-                    </div>
-                    <div className="text-sm"><span className="font-medium text-foreground">Tap to upload</span> or drop an image</div>
-                    <div className="text-xs">PNG, JPG, HEIC up to ~10MB</div>
-                    {isPreprocessing && <div className="mt-1 text-xs">Optimizing photo…</div>}
-                  </div>
-                </button>
-              ) : (
-                <div className="w-full overflow-hidden rounded-xl border border-foreground/15 bg-background/40">
-                  <div className="relative w-full aspect-[4/5]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={previewUrl} alt="Selected garment" className="h-full w-full object-cover" />
-                    {isPreprocessing && (
-                      <div className="absolute bottom-2 right-2 rounded-md border border-black/10 bg-background/80 px-2 py-1 text-[11px] dark:border-white/15">
-                        Optimizing…
-                      </div>
-                    )}
-                    <div className="absolute top-2 right-2 rounded-md border border-black/10 bg-background/80 px-2 py-1 text-[11px] dark:border-white/15">
-                      {plannedImagesCount} image{plannedImagesCount > 1 ? "s" : ""}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-foreground/10 p-3 text-sm">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{selectedFile?.name || "Selected image"}</p>
-                      <p className="text-xs text-foreground/60">{selectedFile?.size ? `${Math.round(selectedFile.size / 1024)} KB` : ""}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={handleTriggerPick} className="h-9 rounded-lg bg-foreground px-3 text-sm font-medium text-background">Change</button>
-                      <button type="button" onClick={clearSelection} className="h-9 rounded-lg border border-foreground/20 px-3 text-sm font-medium">Remove</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="mt-4">
-              <label className="text-xs text-foreground/70">Listing title</label>
-              <input
-                type="text"
-                placeholder="Give this generation a name"
-                className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </div>
-            <div className="mt-4 space-y-3 rounded-xl border border-foreground/15 bg-background/40 p-4">
-              <div className="flex items-center justify-between text-xs text-foreground/70">
-                <span>Generate product description</span>
-                <button
-                  type="button"
-                  onClick={() => setDescEnabled((v) => !v)}
-                  className={`relative inline-flex h-6 w-12 items-center rounded-full transition ${
-                    descEnabled ? "bg-foreground" : "bg-foreground/30"
-                  }`}
-                  aria-pressed={descEnabled}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-background transition ${
-                      descEnabled ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </div>
-              {descEnabled && (
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <input
-                    type="text"
-                    className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
-                    placeholder="Brand (e.g., Nike, Zara)"
-                    value={desc.brand}
-                    onChange={(e) => setDesc((d) => ({ ...d, brand: e.target.value }))}
-                  />
-                  <input
-                    type="text"
-                    className="col-span-2 h-9 rounded-lg border border-foreground/15 bg-background/40 px-3"
-                    placeholder="Model (e.g., Air Max 90)"
-                    value={desc.productModel}
-                    onChange={(e) => setDesc((d) => ({ ...d, productModel: e.target.value }))}
-                  />
-                  <div className="col-span-2 flex flex-wrap gap-2">
-                    {["Brand new", "Very good", "Good"].map((condition) => (
-                      <button
-                        key={condition}
-                        type="button"
-                        onClick={() => setProductCondition(condition)}
-                        className={`h-8 rounded-full border px-3 text-xs ${
-                          productCondition === condition ? "border-foreground" : "border-foreground/20"
-                        }`}
-                      >
-                        {condition}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="col-span-2 flex flex-wrap gap-2">
-                    {["xs", "s", "m", "l", "xl"].map((size) => (
-                      <button
-                        key={size}
-                        type="button"
-                        onClick={() => setDesc((d) => ({ ...d, size }))}
-                        className={`h-8 rounded-full border px-3 text-xs uppercase ${
-                          desc.size === size ? "border-foreground" : "border-foreground/20"
-                        }`}
-                      >
-                        {size}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="mt-4">
-              <label className="inline-flex items-center gap-2 text-xs font-medium text-foreground/80">
-                Garment type
-                <InfoTooltip label="Garment type" description="Set to Top/Bottom/Full if you know it. Leave empty to auto-detect once and cache on the listing." />
-              </label>
-              <div className="mt-2 grid grid-cols-3 overflow-hidden rounded-lg border border-foreground/15">
-                {["top", "bottom", "full"].map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setGarmentType((prev) => (prev === t ? null : t))}
-                    className={`h-10 text-xs font-medium uppercase tracking-wide transition ${
-                      garmentType === t ? "bg-foreground text-background" : "text-foreground/70"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-              {!garmentType && <p className="mt-1 text-[11px] text-foreground/50">Auto-detect if not set.</p>}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-black/10 bg-black/5 dark:border-white/15 dark:bg-white/5">
-            <button
-              type="button"
-              onClick={() => setOptionsCollapsed((v) => !v)}
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold"
-            >
-              <span>Scene & model options</span>
-              <span className="text-xs text-foreground/60">{optionsCollapsed ? "Show" : "Hide"}</span>
-            </button>
-            {!optionsCollapsed && (
-              <div className="border-t border-foreground/10 px-4 py-5">
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">Model defaults</p>
-                        <p className="mt-1 text-xs text-foreground/60">Pick a Studio default image to set the person and gender.</p>
-                      </div>
-                      <Link href="/studio" className="text-xs text-foreground/60 underline">
-                        Manage
-                      </Link>
-                    </div>
-                    {modelDefaultList.length > 0 ? (
-                      <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                        {modelDefaultList.map((model) => {
-                          const selected = options.gender === model.gender;
-                          const genderLabel = model.gender === "woman" ? "Woman" : "Man";
-                          return (
-                            <button
-                              key={model.gender}
-                              type="button"
-                              onClick={() => setOptions((prev) => ({ ...prev, gender: model.gender }))}
-                              className={`group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
-                                selected
-                                  ? "border-foreground ring-2 ring-foreground/40 bg-foreground/5 shadow-lg"
-                                  : "border-foreground/15 hover:border-foreground/50"
-                              }`}
-                              aria-pressed={selected}
-                            >
-                              <div className="relative aspect-[3/4] w-full overflow-hidden">
-                                {model.url ? (
-                                  <Image
-                                    src={model.url}
-                                    alt={`${genderLabel} default`}
-                                    fill
-                                    sizes="128px"
-                                    className="object-cover transition duration-300 group-hover:scale-[1.02]"
-                                    unoptimized
-                                  />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-foreground/50">
-                                    <ImageOff className="size-6" aria-hidden="true" />
-                                  </div>
-                                )}
-                              </div>
-                              <div className="px-3 py-2">
-                                <p className="text-sm font-semibold capitalize">{model.name || genderLabel}</p>
-                                <p className="text-[11px] text-foreground/60">{genderLabel} fit</p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mt-3 rounded-lg border border-foreground/15 bg-background/40 p-3 text-xs text-foreground/60">
-                        No Studio defaults yet. <Link href="/studio" className="underline">Add one</Link> to unlock a quicker flow.
-                      </div>
-                    )}
-                  </div>
-                  {isAdmin && (
-                    <div className="sm:col-span-2">
-                      <OptionPicker
-                        label="Model reference"
-                        description="Use your default model photo from Studio, or send its description only."
-                        options={modelReferenceOptions}
-                        value={useModelImage ? "image" : "description"}
-                        onChange={(v) => setUseModelImage(v === "image")}
-                      />
-                      {!useModelImage && !((options.gender === "woman" ? modelDefaults?.woman?.description : modelDefaults?.man?.description)) && (
-                        <p className="mt-1 text-[11px] text-amber-500">No default description stored yet. Add one from Studio.</p>
-                      )}
-                    </div>
-                  )}
-                  {isAdmin && (
-                    <div className="sm:col-span-2">
-                      <OptionPicker
-                        label="Generation flow"
-                        options={flowOptions}
-                        value={flowMode}
-                        onChange={setFlowMode}
-                      />
-                    </div>
-                  )}
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">Environment defaults</p>
-                        <p className="mt-1 text-xs text-foreground/60">Pick from your saved backgrounds. Add more in Studio to build a library.</p>
-                      </div>
-                      <Link href="/studio" className="text-xs text-foreground/60 underline">
-                        Manage
-                      </Link>
-                    </div>
-                    {envDefaultsLoading ? (
-                      <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                          <div key={i} className="h-32 w-32 flex-shrink-0 animate-pulse rounded-xl bg-foreground/10" />
-                        ))}
-                      </div>
-                    ) : envDefaults.length > 0 ? (
-                      <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                        {envDefaults.map((env) => {
-                          const selected = selectedEnvDefaultKey === env.s3_key;
-                          return (
-                            <button
-                              key={env.s3_key}
-                              type="button"
-                              onClick={() => handleSelectEnvironmentDefault(env.s3_key)}
-                              className={`group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
-                                selected
-                                  ? "border-foreground ring-2 ring-foreground/40 bg-foreground/5 shadow-lg"
-                                  : "border-foreground/15 hover:border-foreground/50"
-                              }`}
-                              aria-pressed={selected}
-                            >
-                              <div className="relative aspect-[3/4] w-full overflow-hidden">
-                                {env.url ? (
-                                  <Image
-                                    src={env.url}
-                                    alt={env.name || "Environment"}
-                                    fill
-                                    sizes="128px"
-                                    className="object-cover transition duration-300 group-hover:scale-[1.02]"
-                                    unoptimized
-                                  />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-foreground/50">
-                                    <ImageOff className="size-6" aria-hidden="true" />
-                                  </div>
-                                )}
-                              </div>
-                              <div className="px-3 py-2">
-                                <p className="text-sm font-semibold">{env.name || "Untitled"}</p>
-                                <p className="text-[11px] text-foreground/60">{selected ? "Current selection" : "Tap to select"}</p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mt-3 space-y-3">
-                        <OptionPicker
-                          options={environmentOptions}
-                          value={options.environment}
-                          onChange={(v) => setOptions((o) => ({ ...o, environment: v }))}
-                        />
-                        <p className="text-[11px] text-foreground/50">Save environment photos in Studio to see them here.</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="sm:col-span-2">
-                    <div className="rounded-2xl border border-foreground/15 bg-background/60 p-4 shadow-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold">Image count</p>
-                          <p className="mt-1 text-xs text-foreground/60">Pick how many images to generate (max 10).</p>
-                        </div>
-                        <div className="inline-flex items-baseline gap-2 rounded-xl bg-foreground px-4 py-2 text-background shadow">
-                          <span className="text-2xl font-semibold leading-none">{plannedImagesCount}</span>
-                          <span className="text-[11px] uppercase tracking-wide text-background/70">images</span>
-                        </div>
-                      </div>
-                      <div className="mt-4 grid grid-cols-5 gap-2">
-                        {Array.from({ length: POSE_MAX }, (_, idx) => idx + 1).map((count) => {
-                          const checked = plannedImagesCount === count;
-                          return (
-                            <button
-                              key={count}
-                              type="button"
-                              onClick={() => handlePoseCountChange(count)}
-                              className={`group flex h-10 items-center justify-center rounded-lg border text-sm font-semibold transition ${
-                                checked
-                                  ? "border-foreground bg-foreground text-background shadow"
-                                  : "border-foreground/20 bg-background/80 text-foreground/70 hover:border-foreground/60 hover:text-foreground"
-                              }`}
-                              aria-pressed={checked}
-                            >
-                              {count}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p className="mt-3 text-[11px] text-foreground/60">We’ll pick varied poses automatically for each image.</p>
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="text-xs text-foreground/70">Extra instructions</label>
-                    <textarea
-                      rows={3}
-                      className="mt-2 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 py-2 text-sm"
-                      placeholder="Optional: add a style tweak, colours, or vibe"
-                      value={options.extra}
-                      onChange={(e) => setOptions((o) => ({ ...o, extra: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
+          <UploadPanel
+            fileInputRef={fileInputRef}
+            cameraInputRef={cameraInputRef}
+            previewUrl={previewUrl}
+            selectedFile={selectedFile}
+            isDragging={isDragging}
+            isPreprocessing={isPreprocessing}
+            plannedImagesCount={plannedImagesCount}
+            title={title}
+            onTitleChange={setTitle}
+            onTriggerPick={handleTriggerPick}
+            onTriggerCamera={handleTriggerCamera}
+            onFileChange={handleFileChange}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClearSelection={clearSelection}
+          />
+          <DescriptionSettings
+            enabled={descEnabled}
+            onToggle={setDescEnabled}
+            desc={desc}
+            onDescFieldChange={(field, value) => setDesc((d) => ({ ...d, [field]: value }))}
+            productCondition={productCondition}
+            onConditionChange={setProductCondition}
+          />
+          <GarmentTypeSelector value={garmentType} onChange={setGarmentType} />
+          <SceneModelOptions
+            collapsed={optionsCollapsed}
+            onToggleCollapsed={() => setOptionsCollapsed((v) => !v)}
+            modelDefaultList={modelDefaultList}
+            selectedGender={options.gender}
+            onSelectGender={(gender) => setOptions((prev) => ({ ...prev, gender }))}
+            modelDefaults={modelDefaults}
+            isAdmin={isAdmin}
+            useModelImage={useModelImage}
+            onUseModelImageChange={setUseModelImage}
+            modelReferenceOptions={modelReferenceOptions}
+            flowOptions={flowOptions}
+            flowMode={flowMode}
+            onFlowModeChange={setFlowMode}
+            envDefaults={envDefaults}
+            envDefaultsLoading={envDefaultsLoading}
+            selectedEnvDefaultKey={selectedEnvDefaultKey}
+            onSelectEnvironmentDefault={handleSelectEnvironmentDefault}
+            environmentOptions={environmentOptions}
+            onEnvironmentChange={(value) => setOptions((o) => ({ ...o, environment: value }))}
+            environmentValue={options.environment}
+            plannedImagesCount={plannedImagesCount}
+            poseMax={POSE_MAX}
+            onPoseCountChange={handlePoseCountChange}
+            extraInstructions={options.extra}
+            onExtraChange={(value) => setOptions((o) => ({ ...o, extra: value }))}
+          />
           {isAdmin && (
-            <div className="space-y-4 rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full border border-foreground/15 px-3 py-1">{options.gender}</span>
-                <span className="rounded-full border border-foreground/15 px-3 py-1">Env: {environmentSummary}</span>
-                <span className="rounded-full border border-foreground/15 px-3 py-1">Poses: {poseSummary || "–"}</span>
-                <span className="rounded-full border border-foreground/15 px-3 py-1">Model: {modelSummary}</span>
-                <span className="rounded-full border border-foreground/15 px-3 py-1">Flow: {flowMode}</span>
-                <span className="rounded-full border border-foreground/15 px-3 py-1">Type: {garmentSummary}</span>
-              </div>
-              <PromptPreviewCard
-                prompt={promptInput}
-                dirty={promptDirty}
-                onChange={(v) => {
-                  setPromptDirty(true);
-                  setPromptInput(v);
-                }}
-                onReset={() => {
-                  setPromptDirty(false);
-                  setPromptInput(computeEffectivePrompt());
-                }}
-              />
-              {poseStatusList.length > 0 && (
-                <div className="rounded-xl border border-foreground/10 bg-background/40 p-4">
-                  <h3 className="text-sm font-semibold">Generation status</h3>
-                  <ul className="mt-2 space-y-2 text-xs">
-                    {poseStatusList.map(({ key, label, status, error }) => (
-                      <li key={key} className="flex items-start justify-between gap-3">
-                        <span className="font-medium">{label}</span>
-                        <span className={status === "error" ? "text-red-500" : status === "done" ? "text-green-400" : "text-foreground/60"}>
-                          {status === "running" ? "Generating…" : status === "done" ? "Ready" : status === "error" ? error || "Failed" : "Queued"}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <AdminReviewPanel
+              gender={options.gender}
+              environmentSummary={environmentSummary}
+              poseSummary={poseSummary}
+              modelSummary={modelSummary}
+              flowMode={flowMode}
+              garmentSummary={garmentSummary}
+              prompt={promptInput}
+              promptDirty={promptDirty}
+              onPromptChange={(v) => {
+                setPromptDirty(true);
+                setPromptInput(v);
+              }}
+              onPromptReset={() => {
+                setPromptDirty(false);
+                setPromptInput(computeEffectivePrompt());
+              }}
+              poseStatusItems={poseStatusList}
+            />
           )}
           <div className="pt-2">
             <button
@@ -1082,28 +609,7 @@ export default function Home() {
         </section>
 
         <aside className="space-y-3">
-          {isAdmin && (
-            <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/15 dark:bg-white/5">
-              <h2 className="text-sm font-semibold">Admin tools</h2>
-              <button
-                type="button"
-                onClick={handleInitDb}
-                disabled={initDbBusy}
-                className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
-                  initDbBusy ? "opacity-60" : ""
-                }`}
-              >
-                {initDbBusy ? (
-                  <>
-                    <Loader2 className="size-3 animate-spin" />
-                    Initializing…
-                  </>
-                ) : (
-                  <>Init DB</>
-                )}
-              </button>
-            </div>
-          )}
+          {isAdmin && <AdminToolsCard busy={initDbBusy} onInitDb={handleInitDb} />}
         </aside>
       </div>
 
