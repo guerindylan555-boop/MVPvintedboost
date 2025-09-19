@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f2f8f9;
+  --foreground: #0f1d21;
+  --foreground-muted: rgba(15, 29, 33, 0.68);
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-strong: rgba(255, 255, 255, 0.9);
+  --border-subtle: rgba(0, 119, 130, 0.16);
+  --accent: #007782;
+  --accent-soft: rgba(0, 119, 130, 0.18);
+  --glass-blur: 18px;
+  --shadow-soft: 0 28px 68px rgba(2, 44, 52, 0.16);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-border-subtle: var(--border-subtle);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --blur-surface: var(--glass-blur);
+  --shadow-surface: var(--shadow-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #051417;
+    --foreground: #e6f5f7;
+    --foreground-muted: rgba(220, 238, 241, 0.72);
+    --surface: rgba(8, 34, 38, 0.78);
+    --surface-strong: rgba(6, 28, 33, 0.88);
+    --border-subtle: rgba(0, 119, 130, 0.35);
+    --accent: #007782;
+    --accent-soft: rgba(0, 160, 176, 0.32);
+    --glass-blur: 20px;
+    --shadow-soft: 0 32px 80px rgba(0, 24, 29, 0.38);
+  }
+
+  body::before {
+    background:
+      radial-gradient(120% 120% at 18% 12%, rgba(0, 160, 176, 0.36), transparent 55%),
+      radial-gradient(160% 160% at 82% 88%, rgba(0, 120, 130, 0.28), transparent 62%);
+    opacity: 0.6;
   }
 }
 
 body {
-  background: var(--background);
+  position: relative;
+  min-height: 100dvh;
+  background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(120% 120% at 18% 10%, var(--accent-soft), transparent 60%),
+    radial-gradient(150% 150% at 85% 90%, rgba(0, 119, 130, 0.22), transparent 65%);
+  filter: blur(120px);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: -1;
 }
