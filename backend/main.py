@@ -199,6 +199,22 @@ def _hash_bytes(data: bytes) -> str:
     return h.hexdigest()
 
 
+def _first_inline_image_bytes(response: Any) -> bytes | None:
+    """Return the first inline image payload from a Gemini response."""
+
+    for candidate in getattr(response, "candidates", []) or []:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) if content is not None else None
+        if not parts:
+            continue
+        for part in parts:
+            inline_data = getattr(part, "inline_data", None)
+            data = getattr(inline_data, "data", None) if inline_data is not None else None
+            if data:
+                return data
+    return None
+
+
 def _cache_key(image_hash: str) -> str:
     return f"{GARMENT_TYPE_CACHE_PREFIX}:{GARMENT_TYPE_CACHE_VERSION}:{image_hash}"
 
@@ -849,17 +865,52 @@ async def edit(
                 env_key_used = None
 
         resp = await _genai_generate_with_retries(parts, attempts=2)
-        for c in getattr(resp, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            parts = getattr(content, "parts", None) if content is not None else None
-            if not parts:
-                continue
-            for p in parts:
-                if getattr(p, "inline_data", None):
-                    png_bytes = p.inline_data.data
-                    # Upload to S3
-                    bucket, key = upload_image(png_bytes, pose=norm_poses[0])
-                    # Persist to DB
+        png_bytes = _first_inline_image_bytes(resp)
+        if png_bytes:
+            # Upload to S3
+            bucket, key = upload_image(png_bytes, pose=norm_poses[0])
+            # Persist to DB
+            async with db_session() as session:
+                rec = Generation(
+                    s3_key=key,
+                    pose=norm_poses[0],
+                    prompt=prompt_text,
+                    options_json={
+                        "gender": gender,
+                        "environment": environment,
+                        "poses": norm_poses,
+                        "extra": extra,
+                        "env_default_s3_key": env_key_used,
+                        "model_default_s3_key": person_key_used,
+                        "model_description_text": (model_description_text if not person_key_used else None),
+                        "garment_type": garment_type,
+                        "garment_type_override": (garment_type_override if garment_type_override else None),
+                        "user_id": x_user_id,
+                        "prompt_variant": prompt_variant,
+                    },
+                    model=MODEL,
+                )
+                session.add(rec)
+            # Stream bytes back for current UI
+            return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+        # Fallback to concise variant if no image and no explicit override
+        if not (prompt_override and prompt_override.strip()):
+            try:
+                prompt_variant = "concise"
+                prompt_text = classic_concise(
+                    gender=gender,
+                    environment=environment,
+                    pose=pose_str,
+                    use_person_image=use_person_image,
+                    use_env_image=use_env_image,
+                    person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                    garment_type=garment_type,
+                )
+                parts[0] = types.Part.from_text(text=prompt_text)
+                resp2 = await _genai_generate_with_retries(parts, attempts=1)
+                png_bytes2 = _first_inline_image_bytes(resp2)
+                if png_bytes2:
+                    bucket, key = upload_image(png_bytes2, pose=norm_poses[0])
                     async with db_session() as session:
                         rec = Generation(
                             s3_key=key,
@@ -881,54 +932,7 @@ async def edit(
                             model=MODEL,
                         )
                         session.add(rec)
-                    # Stream bytes back for current UI
-                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
-        # Fallback to concise variant if no image and no explicit override
-        if not (prompt_override and prompt_override.strip()):
-            try:
-                prompt_variant = "concise"
-                prompt_text = classic_concise(
-                    gender=gender,
-                    environment=environment,
-                    pose=pose_str,
-                    use_person_image=use_person_image,
-                    use_env_image=use_env_image,
-                    person_description=(model_description_text if (model_description_text and not use_person_image) else None),
-                    garment_type=garment_type,
-                )
-                parts[0] = types.Part.from_text(text=prompt_text)
-                resp2 = await _genai_generate_with_retries(parts, attempts=1)
-                for c in getattr(resp2, "candidates", []) or []:
-                    content = getattr(c, "content", None)
-                    prts = getattr(content, "parts", None) if content is not None else None
-                    if not prts:
-                        continue
-                    for p in prts:
-                        if getattr(p, "inline_data", None):
-                            png_bytes2 = p.inline_data.data
-                            bucket, key = upload_image(png_bytes2, pose=norm_poses[0])
-                            async with db_session() as session:
-                                rec = Generation(
-                                    s3_key=key,
-                                    pose=norm_poses[0],
-                                    prompt=prompt_text,
-                                    options_json={
-                                        "gender": gender,
-                                        "environment": environment,
-                                        "poses": norm_poses,
-                                        "extra": extra,
-                                        "env_default_s3_key": env_key_used,
-                                        "model_default_s3_key": person_key_used,
-                                        "model_description_text": (model_description_text if not person_key_used else None),
-                                        "garment_type": garment_type,
-                                        "garment_type_override": (garment_type_override if garment_type_override else None),
-                                        "user_id": x_user_id,
-                                        "prompt_variant": prompt_variant,
-                                    },
-                                    model=MODEL,
-                                )
-                                session.add(rec)
-                            return StreamingResponse(BytesIO(png_bytes2), media_type="image/png")
+                    return StreamingResponse(BytesIO(png_bytes2), media_type="image/png")
             except Exception:
                 pass
         try:
@@ -1002,53 +1006,51 @@ async def delete_env_sources():
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+async def _generate_env_with_random_source(prompt_text: str, *, options: dict[str, Any]):
+    """Shared helper for /env/random and /env/generate flows."""
+
+    async with db_session() as session:
+        stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
+        res = await session.execute(stmt)
+        row = res.first()
+    if not row:
+        return JSONResponse({"error": "no sources uploaded"}, status_code=400)
+
+    source_key = row[0]
+    src_bytes, mime = get_object_bytes(source_key)
+    parts = [
+        types.Part.from_text(text=prompt_text),
+        types.Part.from_bytes(data=src_bytes, mime_type=mime),
+    ]
+    resp = await _genai_generate_with_retries(parts, attempts=2)
+    png_bytes = _first_inline_image_bytes(resp)
+    if not png_bytes:
+        return JSONResponse({"error": "no image from model"}, status_code=502)
+
+    _, key = upload_image(png_bytes, pose="env")
+    payload = dict(options)
+    payload["source_s3_key"] = source_key
+    async with db_session() as session:
+        rec = Generation(
+            s3_key=key,
+            pose="env",
+            prompt=prompt_text,
+            options_json=payload,
+            model=MODEL,
+        )
+        session.add(rec)
+    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+
+
 @app.post("/env/random")
 async def generate_env_random(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     """Pick a random stored source and generate with strict instruction."""
     try:
-        # Fetch random one
-        async with db_session() as session:
-            # Using raw SQL with text() to avoid dialect differences
-            stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
-            res = await session.execute(stmt)
-            row = res.first()
-        if not row:
-            return JSONResponse({"error": "no sources uploaded"}, status_code=400)
-
-        # Build deterministic instruction to ensure mirror reflection coherence and tasteful randomization
         instruction = build_env_prompt()
-        # Load source image bytes from S3 and include as input
-        src_bytes, mime = get_object_bytes(row[0])
-        image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
-        resp = await _genai_generate_with_retries(
-            [types.Part.from_text(text=instruction), image_part],
-            attempts=2,
+        return await _generate_env_with_random_source(
+            instruction,
+            options={"mode": "random", "user_id": x_user_id},
         )
-        for c in getattr(resp, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            parts = getattr(content, "parts", None) if content is not None else None
-            if not parts:
-                continue
-            for p in parts:
-                if getattr(p, "inline_data", None):
-                    png_bytes = p.inline_data.data
-                    # persist result
-                    bucket, key = upload_image(png_bytes, pose="env")
-                    async with db_session() as session:
-                        rec = Generation(
-                            s3_key=key,
-                            pose="env",
-                            prompt=instruction,
-                            options_json={
-                                "mode": "random",
-                                "source_s3_key": row[0],
-                                "user_id": x_user_id,
-                            },
-                            model=MODEL,
-                        )
-                        session.add(rec)
-                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
-        return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
         logger.exception("env random failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1058,44 +1060,15 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
 async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
         full = build_env_prompt(prompt)
-        # Use a random uploaded source image
-        async with db_session() as session:
-            stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
-            res = await session.execute(stmt)
-            row = res.first()
-        if not row:
-            return JSONResponse({"error": "no sources uploaded"}, status_code=400)
-        src_bytes, mime = get_object_bytes(row[0])
-        image_part = types.Part.from_bytes(data=src_bytes, mime_type=mime)
-        resp = await _genai_generate_with_retries(
-            [types.Part.from_text(text=full), image_part],
-            attempts=2,
+        user_prompt = (prompt or "").strip()
+        return await _generate_env_with_random_source(
+            full,
+            options={
+                "mode": "prompt",
+                "user_prompt": user_prompt,
+                "user_id": x_user_id,
+            },
         )
-        for c in getattr(resp, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            parts = getattr(content, "parts", None) if content is not None else None
-            if not parts:
-                continue
-            for p in parts:
-                if getattr(p, "inline_data", None):
-                    png_bytes = p.inline_data.data
-                    bucket, key = upload_image(png_bytes, pose="env")
-                    async with db_session() as session:
-                        rec = Generation(
-                            s3_key=key,
-                            pose="env",
-                            prompt=full,
-                            options_json={
-                                "mode": "prompt",
-                                "user_prompt": prompt.strip(),
-                                "source_s3_key": row[0],
-                                "user_id": x_user_id,
-                            },
-                            model=MODEL,
-                        )
-                        session.add(rec)
-                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
-        return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
         logger.exception("env generate failed")
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1278,61 +1251,55 @@ async def model_generate(
             model=MODEL,
             contents=types.Content(role="user", parts=parts),
         )
-        for c in getattr(resp, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            cparts = getattr(content, "parts", None) if content is not None else None
-            if not cparts:
-                continue
-            for p in cparts:
-                if getattr(p, "inline_data", None):
-                    png_bytes = p.inline_data.data
-                    bucket, key = upload_image(png_bytes, pose=f"model-{gender}")
-                    async with db_session() as session:
-                        rec = Generation(
-                            s3_key=key,
-                            pose=f"model-{gender}",
-                            prompt=instruction,
-                            options_json={
-                                "mode": "model",
-                                "gender": gender,
-                                "user_prompt": user_prompt,
-                                "user_id": x_user_id,
-                            },
-                            model=MODEL,
-                        )
-                        session.add(rec)
-                    # Follow-up: generate a detailed identity description for this image
-                    try:
-                        describe_prompt = (
-                            "Describe this person precisely for identity reference (plain text, MINIMUM 500 words). "
-                            "Focus strictly on identity cues, not clothing or background. Include: perceived gender; approximate age range; height impression; build; posture; skin tone with nuance; undertone; face shape; forehead; hairline; hair color; highlights/lowlights; hair length; hair texture; parting; typical styles; eyebrows (shape, thickness, arch); eyes (color, shape, spacing, eyelids); eyelashes; nose (bridge, tip, width); cheeks; lips (shape, fullness, Cupid's bow); chin; jawline; ears; facial hair (if any, density and shape); teeth and smile; notable features (freckles, moles, scars, dimples, birthmarks); accessories (glasses, earrings, piercings). "
-                            "Use neutral, respectful language; avoid judgments; avoid clothing/brand/background mentions; no lists of instructions—write a cohesive, descriptive paragraph or two with at least 500 words."
-                        )
-                        desc_parts = [
-                            types.Part.from_text(text=describe_prompt),
-                            types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
-                        ]
-                        desc_resp = get_client().models.generate_content(
-                            model=MODEL,
-                            contents=types.Content(role="user", parts=desc_parts),
-                        )
-                        description_text = None
-                        for dc in getattr(desc_resp, "candidates", []) or []:
-                            dcontent = getattr(dc, "content", None)
-                            dparts = getattr(dcontent, "parts", None) if dcontent is not None else None
-                            if dparts:
-                                for part in dparts:
-                                    if getattr(part, "text", None):
-                                        description_text = part.text
-                                        break
-                            if description_text:
+        png_bytes = _first_inline_image_bytes(resp)
+        if png_bytes:
+            bucket, key = upload_image(png_bytes, pose=f"model-{gender}")
+            async with db_session() as session:
+                rec = Generation(
+                    s3_key=key,
+                    pose=f"model-{gender}",
+                    prompt=instruction,
+                    options_json={
+                        "mode": "model",
+                        "gender": gender,
+                        "user_prompt": user_prompt,
+                        "user_id": x_user_id,
+                    },
+                    model=MODEL,
+                )
+                session.add(rec)
+            # Follow-up: generate a detailed identity description for this image
+            try:
+                describe_prompt = (
+                    "Describe this person precisely for identity reference (plain text, MINIMUM 500 words). "
+                    "Focus strictly on identity cues, not clothing or background. Include: perceived gender; approximate age range; height impression; build; posture; skin tone with nuance; undertone; face shape; forehead; hairline; hair color; highlights/lowlights; hair length; hair texture; parting; typical styles; eyebrows (shape, thickness, arch); eyes (color, shape, spacing, eyelids); eyelashes; nose (bridge, tip, width); cheeks; lips (shape, fullness, Cupid's bow); chin; jawline; ears; facial hair (if any, density and shape); teeth and smile; notable features (freckles, moles, scars, dimples, birthmarks); accessories (glasses, earrings, piercings). "
+                    "Use neutral, respectful language; avoid judgments; avoid clothing/brand/background mentions; no lists of instructions—write a cohesive, descriptive paragraph or two with at least 500 words."
+                )
+                desc_parts = [
+                    types.Part.from_text(text=describe_prompt),
+                    types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
+                ]
+                desc_resp = get_client().models.generate_content(
+                    model=MODEL,
+                    contents=types.Content(role="user", parts=desc_parts),
+                )
+                description_text = None
+                for dc in getattr(desc_resp, "candidates", []) or []:
+                    dcontent = getattr(dc, "content", None)
+                    dparts = getattr(dcontent, "parts", None) if dcontent is not None else None
+                    if dparts:
+                        for part in dparts:
+                            if getattr(part, "text", None):
+                                description_text = part.text
                                 break
-                        if description_text:
-                            async with db_session() as session:
-                                session.add(ModelDescription(s3_key=key, description=description_text))
-                    except Exception:
-                        pass
-                    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+                    if description_text:
+                        break
+                if description_text:
+                    async with db_session() as session:
+                        session.add(ModelDescription(s3_key=key, description=description_text))
+            except Exception:
+                pass
+            return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as e:
         logger.exception("model generate failed")
@@ -1888,15 +1855,100 @@ async def edit_json(
                 env_key_used = None
 
         resp = await _genai_generate_with_retries(parts, attempts=2)
-        for c in getattr(resp, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            cparts = getattr(content, "parts", None) if content is not None else None
-            if not cparts:
-                continue
-            for p in cparts:
-                if getattr(p, "inline_data", None):
-                    png_bytes = p.inline_data.data
-                    # Upload and persist generation
+        png_bytes = _first_inline_image_bytes(resp)
+        if png_bytes:
+            # Upload and persist generation
+            _, key = upload_image(png_bytes, pose=pose_str or "pose")
+            async with db_session() as session:
+                session.add(
+                    Generation(
+                        s3_key=key,
+                        pose=pose_str or "pose",
+                        prompt=prompt_text,
+                        options_json={
+                            "gender": gender,
+                            "environment": environment,
+                            "poses": poses,
+                            "extra": extra,
+                            "env_default_s3_key": env_key_used,
+                            "model_default_s3_key": person_key_used,
+                            "model_description_text": (model_description_text if not person_key_used else None),
+                            "garment_type": garment_type,
+                            "garment_type_override": (garment_type_override if garment_type_override else None),
+                            "user_id": x_user_id,
+                            "prompt_variant": prompt_variant,
+                        },
+                        model=MODEL,
+                    )
+                )
+                # Attach to listing if provided and owned by user
+                if listing_id and x_user_id:
+                    owns = await session.execute(
+                        text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
+                        {"id": listing_id, "uid": x_user_id},
+                    )
+                    if owns.first():
+                        session.add(
+                            ListingImage(
+                                listing_id=listing_id,
+                                s3_key=key,
+                                pose=pose_str or "pose",
+                                prompt=prompt_text,
+                            )
+                        )
+                        # Set cover if not set yet
+                        await session.execute(
+                            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                            {"k": key, "id": listing_id},
+                        )
+                        # Update listing settings with garment type and origin
+                        try:
+                            lres = await session.execute(
+                                text("SELECT settings_json FROM listings WHERE id = :id"),
+                                {"id": listing_id},
+                            )
+                            lrow = lres.first()
+                            settings = (lrow[0] or {}) if lrow else {}
+                            origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
+                            settings.update({
+                                "garment_type": garment_type,
+                                "garment_type_origin": origin,
+                            })
+                            await session.execute(
+                                text("UPDATE listings SET settings_json = :j WHERE id = :id"),
+                                {"j": settings, "id": listing_id},
+                            )
+                        except Exception:
+                            pass
+            try:
+                url = generate_presigned_get_url(key)
+            except Exception:
+                url = None
+            return {
+                "ok": True,
+                "s3_key": key,
+                "url": url,
+                "pose": pose_str or "pose",
+                "prompt": prompt_text,
+                "listing_id": listing_id,
+            }
+        # Fallback to concise prompt if no image and no explicit override
+        if not (prompt_override and prompt_override.strip()):
+            try:
+                prompt_variant = "concise"
+                prompt_text = classic_concise(
+                    gender=gender,
+                    environment=environment,
+                    pose=pose_str,
+                    use_person_image=use_person_image,
+                    use_env_image=use_env_image,
+                    person_description=(model_description_text if (model_description_text and not use_person_image) else None),
+                    garment_type=garment_type,
+                )
+                parts[0] = types.Part.from_text(text=prompt_text)
+                resp2 = await _genai_generate_with_retries(parts, attempts=1)
+                png_bytes = _first_inline_image_bytes(resp2)
+                if png_bytes:
                     _, key = upload_image(png_bytes, pose=pose_str or "pose")
                     async with db_session() as session:
                         session.add(
@@ -1935,11 +1987,6 @@ async def edit_json(
                                         prompt=prompt_text,
                                     )
                                 )
-                                # Set cover if not set yet
-                                await session.execute(
-                                    text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
-                                    {"k": key, "id": listing_id},
-                                )
                                 # Update listing settings with garment type and origin
                                 try:
                                     lres = await session.execute(
@@ -1959,6 +2006,11 @@ async def edit_json(
                                     )
                                 except Exception:
                                     pass
+                                # Set cover if not set yet
+                                await session.execute(
+                                    text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                                    {"k": key, "id": listing_id},
+                                )
                     try:
                         url = generate_presigned_get_url(key)
                     except Exception:
@@ -1971,103 +2023,6 @@ async def edit_json(
                         "prompt": prompt_text,
                         "listing_id": listing_id,
                     }
-        # Fallback to concise prompt if no image and no explicit override
-        if not (prompt_override and prompt_override.strip()):
-            try:
-                prompt_variant = "concise"
-                prompt_text = classic_concise(
-                    gender=gender,
-                    environment=environment,
-                    pose=pose_str,
-                    use_person_image=use_person_image,
-                    use_env_image=use_env_image,
-                    person_description=(model_description_text if (model_description_text and not use_person_image) else None),
-                    garment_type=garment_type,
-                )
-                parts[0] = types.Part.from_text(text=prompt_text)
-                resp2 = await _genai_generate_with_retries(parts, attempts=1)
-                for c in getattr(resp2, "candidates", []) or []:
-                    content = getattr(c, "content", None)
-                    cparts = getattr(content, "parts", None) if content is not None else None
-                    if not cparts:
-                        continue
-                    for p in cparts:
-                        if getattr(p, "inline_data", None):
-                            png_bytes = p.inline_data.data
-                            _, key = upload_image(png_bytes, pose=pose_str or "pose")
-                            async with db_session() as session:
-                                session.add(
-                                    Generation(
-                                        s3_key=key,
-                                        pose=pose_str or "pose",
-                                        prompt=prompt_text,
-                                        options_json={
-                                            "gender": gender,
-                                            "environment": environment,
-                                            "poses": poses,
-                                            "extra": extra,
-                                            "env_default_s3_key": env_key_used,
-                                            "model_default_s3_key": person_key_used,
-                                            "model_description_text": (model_description_text if not person_key_used else None),
-                                            "garment_type": garment_type,
-                                            "garment_type_override": (garment_type_override if garment_type_override else None),
-                                            "user_id": x_user_id,
-                                            "prompt_variant": prompt_variant,
-                                        },
-                                        model=MODEL,
-                                    )
-                                )
-                                # Attach to listing if provided and owned by user
-                                if listing_id and x_user_id:
-                                    owns = await session.execute(
-                                        text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
-                                        {"id": listing_id, "uid": x_user_id},
-                                    )
-                                    if owns.first():
-                                        session.add(
-                                            ListingImage(
-                                                listing_id=listing_id,
-                                                s3_key=key,
-                                                pose=pose_str or "pose",
-                                                prompt=prompt_text,
-                                            )
-                                        )
-                                        # Update listing settings with garment type and origin
-                                        try:
-                                            lres = await session.execute(
-                                                text("SELECT settings_json FROM listings WHERE id = :id"),
-                                                {"id": listing_id},
-                                            )
-                                            lrow = lres.first()
-                                            settings = (lrow[0] or {}) if lrow else {}
-                                            origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
-                                            settings.update({
-                                                "garment_type": garment_type,
-                                                "garment_type_origin": origin,
-                                            })
-                                            await session.execute(
-                                                text("UPDATE listings SET settings_json = :j WHERE id = :id"),
-                                                {"j": settings, "id": listing_id},
-                                            )
-                                        except Exception:
-                                            pass
-                                        # Set cover if not set yet
-                                        await session.execute(
-                                            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
-                                            {"k": key, "id": listing_id},
-                                        )
-                            try:
-                                url = generate_presigned_get_url(key)
-                            except Exception:
-                                url = None
-                            return {
-                                "ok": True,
-                                "s3_key": key,
-                                "url": url,
-                                "pose": pose_str or "pose",
-                                "prompt": prompt_text,
-                                "listing_id": listing_id,
-                            }
             except Exception:
                 pass
         return JSONResponse({"error": "no edited image from model"}, status_code=502)
@@ -2174,18 +2129,7 @@ async def edit_sequential_json(
 
         # Call step 1
         resp1 = await _genai_generate_with_retries(parts1, attempts=2)
-        step1_png: bytes | None = None
-        for c in getattr(resp1, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            prts = getattr(content, "parts", None) if content is not None else None
-            if not prts:
-                continue
-            for p in prts:
-                if getattr(p, "inline_data", None):
-                    step1_png = p.inline_data.data
-                    break
-            if step1_png:
-                break
+        step1_png: bytes | None = _first_inline_image_bytes(resp1)
         if not step1_png:
             if not (prompt_override_step1 and prompt_override_step1.strip()):
                 try:
@@ -2198,17 +2142,7 @@ async def edit_sequential_json(
                     )
                     parts1[0] = types.Part.from_text(text=step1_prompt)
                     resp1b = await _genai_generate_with_retries(parts1, attempts=1)
-                    for c in getattr(resp1b, "candidates", []) or []:
-                        content = getattr(c, "content", None)
-                        prts = getattr(content, "parts", None) if content is not None else None
-                        if not prts:
-                            continue
-                        for p in prts:
-                            if getattr(p, "inline_data", None):
-                                step1_png = p.inline_data.data
-                                break
-                        if step1_png:
-                            break
+                    step1_png = _first_inline_image_bytes(resp1b)
                 except Exception:
                     step1_png = None
             if not step1_png:
@@ -2241,16 +2175,90 @@ async def edit_sequential_json(
         parts2.append(types.Part.from_bytes(data=step1_png, mime_type="image/png"))
 
         resp2 = await _genai_generate_with_retries(parts2, attempts=2)
-        for c in getattr(resp2, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            prts = getattr(content, "parts", None) if content is not None else None
-            if not prts:
-                continue
-            for p in prts:
-                if getattr(p, "inline_data", None):
-                    final_png = p.inline_data.data
-                    # Persist final
-                    # A/B: suffix pose with (seq) so UI can distinguish without schema changes
+        final_png: bytes | None = _first_inline_image_bytes(resp2)
+        if final_png:
+            # Persist final
+            pose_final = (pose_str or "pose").strip() or "pose"
+            pose_final = f"{pose_final} (seq)"  # A/B: suffix so UI can distinguish without schema changes
+            bucket, key = upload_image(final_png, pose=pose_final)
+            async with db_session() as session:
+                session.add(
+                    Generation(
+                        s3_key=key,
+                        pose=pose_final,
+                        prompt=step2_prompt,
+                        options_json={
+                            "flow": "sequential",
+                            "prompt_step1": step1_prompt,
+                            "prompt_step2": step2_prompt,
+                            "gender": gender,
+                            "environment": environment,
+                            "poses": poses,
+                            "extra": extra,
+                            "env_default_s3_key": env_key_used,
+                            "model_default_s3_key": person_key_used,
+                            "model_description_text": (model_description_text if not person_key_used else None),
+                            "garment_type": garment_type,
+                            "garment_type_override": (garment_type_override if garment_type_override else None),
+                            "user_id": x_user_id,
+                        },
+                        model=MODEL,
+                    )
+                )
+                if listing_id and x_user_id:
+                    owns = await session.execute(
+                        text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
+                        {"id": listing_id, "uid": x_user_id},
+                    )
+                    if owns.first():
+                        session.add(
+                            ListingImage(
+                                listing_id=listing_id,
+                                s3_key=key,
+                                pose=pose_final,
+                                prompt=step2_prompt,
+                            )
+                        )
+                        await session.execute(
+                            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                            {"k": key, "id": listing_id},
+                        )
+                        # Update listing settings with garment type and origin
+                        try:
+                            lres = await session.execute(
+                                text("SELECT settings_json FROM listings WHERE id = :id"),
+                                {"id": listing_id},
+                            )
+                            lrow = lres.first()
+                            settings = (lrow[0] or {}) if lrow else {}
+                            origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
+                            settings.update({
+                                "garment_type": garment_type,
+                                "garment_type_origin": origin,
+                            })
+                            await session.execute(
+                                text("UPDATE listings SET settings_json = :j WHERE id = :id"),
+                                {"j": settings, "id": listing_id},
+                            )
+                        except Exception:
+                            pass
+            try:
+                url = generate_presigned_get_url(key)
+            except Exception:
+                url = None
+            return {"ok": True, "s3_key": key, "url": url, "pose": pose_final, "prompt": step2_prompt, "listing_id": listing_id}
+        if not (prompt_override_step2 and prompt_override_step2.strip()):
+            try:
+                step2_variant = "concise"
+                step2_prompt = seq_step2_concise(
+                    use_env_image=use_env_image,
+                    environment=_normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio"),
+                    pose=pose_str,
+                )
+                parts2[0] = types.Part.from_text(text=step2_prompt)
+                resp2b = await _genai_generate_with_retries(parts2, attempts=1)
+                final_png = _first_inline_image_bytes(resp2b)
+                if final_png:
                     pose_final = (pose_str or "pose").strip() or "pose"
                     pose_final = f"{pose_final} (seq)"
                     bucket, key = upload_image(final_png, pose=pose_final)
@@ -2264,6 +2272,8 @@ async def edit_sequential_json(
                                     "flow": "sequential",
                                     "prompt_step1": step1_prompt,
                                     "prompt_step2": step2_prompt,
+                                    "prompt_step1_variant": step1_variant,
+                                    "prompt_step2_variant": step2_variant,
                                     "gender": gender,
                                     "environment": environment,
                                     "poses": poses,
@@ -2271,8 +2281,6 @@ async def edit_sequential_json(
                                     "env_default_s3_key": env_key_used,
                                     "model_default_s3_key": person_key_used,
                                     "model_description_text": (model_description_text if not person_key_used else None),
-                                    "garment_type": garment_type,
-                                    "garment_type_override": (garment_type_override if garment_type_override else None),
                                     "user_id": x_user_id,
                                 },
                                 model=MODEL,
@@ -2296,99 +2304,11 @@ async def edit_sequential_json(
                                     text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
                                     {"k": key, "id": listing_id},
                                 )
-                                # Update listing settings with garment type and origin
-                                try:
-                                    lres = await session.execute(
-                                        text("SELECT settings_json FROM listings WHERE id = :id"),
-                                        {"id": listing_id},
-                                    )
-                                    lrow = lres.first()
-                                    settings = (lrow[0] or {}) if lrow else {}
-                                    origin = "user" if (garment_type_override and garment_type_override.strip()) else "model"
-                                    settings.update({
-                                        "garment_type": garment_type,
-                                        "garment_type_origin": origin,
-                                    })
-                                    await session.execute(
-                                        text("UPDATE listings SET settings_json = :j WHERE id = :id"),
-                                        {"j": settings, "id": listing_id},
-                                    )
-                                except Exception:
-                                    pass
                     try:
                         url = generate_presigned_get_url(key)
                     except Exception:
                         url = None
                     return {"ok": True, "s3_key": key, "url": url, "pose": pose_final, "prompt": step2_prompt, "listing_id": listing_id}
-        if not (prompt_override_step2 and prompt_override_step2.strip()):
-            try:
-                step2_variant = "concise"
-                step2_prompt = seq_step2_concise(
-                    use_env_image=use_env_image,
-                    environment=_normalize_choice(environment, ["studio", "street", "bed", "beach", "indoor"], "studio"),
-                    pose=pose_str,
-                )
-                parts2[0] = types.Part.from_text(text=step2_prompt)
-                resp2b = await _genai_generate_with_retries(parts2, attempts=1)
-                for c in getattr(resp2b, "candidates", []) or []:
-                    content = getattr(c, "content", None)
-                    prts = getattr(content, "parts", None) if content is not None else None
-                    if not prts:
-                        continue
-                    for p in prts:
-                        if getattr(p, "inline_data", None):
-                            final_png = p.inline_data.data
-                            # Persist final
-                            pose_final = (pose_str or "pose").strip() or "pose"
-                            pose_final = f"{pose_final} (seq)"
-                            bucket, key = upload_image(final_png, pose=pose_final)
-                            async with db_session() as session:
-                                session.add(
-                                    Generation(
-                                        s3_key=key,
-                                        pose=pose_final,
-                                        prompt=step2_prompt,
-                                        options_json={
-                                            "flow": "sequential",
-                                            "prompt_step1": step1_prompt,
-                                            "prompt_step2": step2_prompt,
-                                            "prompt_step1_variant": step1_variant,
-                                            "prompt_step2_variant": step2_variant,
-                                            "gender": gender,
-                                            "environment": environment,
-                                            "poses": poses,
-                                            "extra": extra,
-                                            "env_default_s3_key": env_key_used,
-                                            "model_default_s3_key": person_key_used,
-                                            "model_description_text": (model_description_text if not person_key_used else None),
-                                            "user_id": x_user_id,
-                                        },
-                                        model=MODEL,
-                                    )
-                                )
-                                if listing_id and x_user_id:
-                                    owns = await session.execute(
-                                        text("SELECT 1 FROM listings WHERE id = :id AND user_id = :uid"),
-                                        {"id": listing_id, "uid": x_user_id},
-                                    )
-                                    if owns.first():
-                                        session.add(
-                                            ListingImage(
-                                                listing_id=listing_id,
-                                                s3_key=key,
-                                                pose=pose_final,
-                                                prompt=step2_prompt,
-                                            )
-                                        )
-                                        await session.execute(
-                                            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
-                                            {"k": key, "id": listing_id},
-                                        )
-                            try:
-                                url = generate_presigned_get_url(key)
-                            except Exception:
-                                url = None
-                            return {"ok": True, "s3_key": key, "url": url, "pose": pose_final, "prompt": step2_prompt, "listing_id": listing_id}
             except Exception:
                 pass
         return JSONResponse({"error": "no image from model (step2)"}, status_code=502)
