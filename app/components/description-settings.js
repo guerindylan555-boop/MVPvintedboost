@@ -46,33 +46,39 @@ export function DescriptionSettings({
             value={desc.productModel}
             onChange={(e) => onDescFieldChange("productModel", e.target.value)}
           />
-          <div className="col-span-2 flex flex-wrap gap-2">
-            {CONDITIONS.map((condition) => (
-              <button
-                key={condition}
-                type="button"
-                onClick={() => onConditionChange(condition)}
-                className={`h-8 rounded-full border px-3 text-xs ${
-                  productCondition === condition ? "border-foreground" : "border-foreground/20"
-                }`}
-              >
-                {condition}
-              </button>
-            ))}
+          <div className="col-span-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Condition">
+              {CONDITIONS.map((condition) => (
+                <button
+                  key={condition}
+                  type="button"
+                  onClick={() => onConditionChange(condition)}
+                  className={`h-8 rounded-full border px-3 text-xs ${
+                    productCondition === condition ? "border-foreground" : "border-foreground/20"
+                  }`}
+                  aria-pressed={productCondition === condition}
+                >
+                  {condition}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="col-span-2 flex flex-wrap gap-2">
-            {SIZES.map((size) => (
-              <button
-                key={size}
-                type="button"
-                onClick={() => onDescFieldChange("size", size)}
-                className={`h-8 rounded-full border px-3 text-xs uppercase ${
-                  desc.size === size ? "border-foreground" : "border-foreground/20"
-                }`}
-              >
-                {size}
-              </button>
-            ))}
+          <div className="col-span-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Size">
+              {SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => onDescFieldChange("size", size)}
+                  className={`h-8 rounded-full border px-3 text-xs uppercase ${
+                    desc.size === size ? "border-foreground" : "border-foreground/20"
+                  }`}
+                  aria-pressed={desc.size === size}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
