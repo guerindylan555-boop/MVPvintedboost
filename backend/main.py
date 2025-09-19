@@ -45,6 +45,7 @@ from .storage import (
     generate_presigned_get_url,
     upload_product_source_image,
 )
+from .tasks import enqueue_pose_descriptions
 from sqlalchemy import select, func, text
 import asyncio
 import uuid
@@ -1581,37 +1582,21 @@ async def generate_pose_descriptions():
         if not todo:
             return {"ok": True, "generated": 0}
 
-        client = get_client()
-        count = 0
-        for key in todo:
-            try:
-                img_bytes, mime = get_object_bytes(key)
-                instruction = (
-                    "Analyze this image and output a detailed pose description in plain text (AT LEAST 1000 WORDS, split into 2–4 paragraphs). "
-                    "Describe ONLY the person's body pose in a mirror-selfie context. Explicitly state that the subject is taking a mirror selfie with a smartphone; specify which hand holds the phone, where the phone is positioned relative to the face/torso, and how much of the face is occluded by it. "
-                    "Include: overall orientation toward the mirror/camera, stance (feet placement and weight distribution), center of gravity, torso rotation and tilt, shoulder alignment and elevation, spine curvature, neck alignment, head orientation/tilt, elbows/forearms/wrists angles, the non-phone hand visibility/gesture and any contact points (e.g., on hip, hanging relaxed), leg bends and knee angles, and approximate distance to the mirror if inferable. "
-                    "Do NOT describe clothing, identity, background, brand names, age, or ethnicity. Use neutral anatomical language. Output plain text only."
-                )
-                parts = [types.Part.from_text(text=instruction), types.Part.from_bytes(data=img_bytes, mime_type=mime or "image/png")]
-                resp = client.models.generate_content(model=MODEL, contents=types.Content(role="user", parts=parts))
-                desc_text = None
-                for c in getattr(resp, "candidates", []) or []:
-                    if getattr(c, "content", None) and getattr(c.content, "parts", None):
-                        for p in c.content.parts:
-                            if getattr(p, "text", None):
-                                desc_text = p.text
-                                break
-                    if desc_text:
-                        break
-                if not desc_text:
-                    continue
-                async with db_session() as session:
-                    session.add(PoseDescription(s3_key=key, description=desc_text))
-                count += 1
-            except Exception:
-                # Continue with others
-                continue
-        return {"ok": True, "generated": count}
+        outcome = enqueue_pose_descriptions(todo, wait=True)
+        results = outcome.get("results", [])
+        generated = sum(1 for item in results if isinstance(item, dict) and item.get("ok"))
+        payload = {
+            "ok": True,
+            "generated": generated,
+            "queued": len(todo),
+        }
+        if outcome.get("job_id"):
+            payload["job_id"] = outcome["job_id"]
+        if outcome.get("inline"):
+            payload["inline"] = True
+        if outcome.get("fallback"):
+            payload["fallback"] = True
+        return payload
     except Exception as e:
         logger.exception("Failed to generate pose descriptions")
         return JSONResponse({"error": str(e)}, status_code=500)

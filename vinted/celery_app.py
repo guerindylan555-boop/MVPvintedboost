@@ -1,4 +1,4 @@
-"""Compatibility package for Celery workers and public imports."""
+"""Expose the Celery application under the legacy import path."""
 
 from backend.celery_app import celery_app
 
