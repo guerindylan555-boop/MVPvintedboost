@@ -39,8 +39,16 @@ export function OptionPicker({
     <div className="flex flex-col gap-3">
       {(label || description) && (
         <div>
-          {label && <div className="text-sm font-semibold text-slate-100">{label}</div>}
-          {description && <p className="text-xs text-slate-400 mt-1">{description}</p>}
+          {label && (
+            <div className="text-sm font-semibold" style={{ color: palette.textPrimary }}>
+              {label}
+            </div>
+          )}
+          {description && (
+            <p className="text-xs mt-1" style={{ color: palette.textSecondary }}>
+              {description}
+            </p>
+          )}
         </div>
       )}
       <div className="grid gap-2 sm:grid-cols-2">
@@ -53,26 +61,27 @@ export function OptionPicker({
               onClick={() => toggle(option.value)}
               className={clsx(
                 "text-left px-4 py-3 rounded-lg border transition flex flex-col gap-1",
-                selected
-                  ? "border-transparent"
-                  : "border-white/10 hover:border-white/20"
+                selected && "shadow-[0_18px_45px_rgba(0,119,130,0.18)]"
               )}
               style={{
-                backgroundColor: selected ? `${palette.accentSoft}` : "rgba(15,23,42,0.5)",
+                backgroundColor: selected ? palette.accentSoft : palette.background,
                 color: palette.textPrimary,
                 borderRadius: radius.md,
+                borderColor: selected ? palette.accent : palette.cardBorder,
                 transition: transitions.base,
               }}
             >
               <span className="text-sm font-medium">{option.label}</span>
               {option.description && (
-                <span className="text-xs text-slate-400 leading-snug">{option.description}</span>
+                <span className="text-xs leading-snug" style={{ color: palette.textSecondary }}>
+                  {option.description}
+                </span>
               )}
               {option.badge && (
                 <span
                   className="text-[10px] uppercase tracking-wide mt-1 inline-flex self-start rounded-full px-2 py-0.5"
                   style={{
-                    backgroundColor: `${palette.accent}22`,
+                    backgroundColor: palette.accentSoft,
                     color: palette.accent,
                   }}
                 >

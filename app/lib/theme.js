@@ -5,20 +5,20 @@ export const radius = {
 };
 
 export const palette = {
-  background: "#0f172a",
-  card: "rgba(15, 23, 42, 0.8)",
-  cardBorder: "rgba(148, 163, 184, 0.2)",
-  accent: "#38bdf8",
-  accentSoft: "rgba(56, 189, 248, 0.2)",
+  background: "var(--color-surface)",
+  card: "var(--color-surface-strong)",
+  cardBorder: "var(--color-border-subtle)",
+  accent: "#007782",
+  accentSoft: "var(--color-accent-soft)",
   positive: "#22c55e",
   warning: "#f97316",
   danger: "#ef4444",
-  textPrimary: "#f8fafc",
-  textSecondary: "#cbd5f5",
+  textPrimary: "var(--color-foreground)",
+  textSecondary: "var(--color-foreground-muted)",
 };
 
 export const shadows = {
-  soft: "0 10px 50px rgba(15, 23, 42, 0.35)",
+  soft: "var(--shadow-surface)",
 };
 
 export const transitions = {
@@ -30,7 +30,8 @@ export function surfaceStyles() {
     borderRadius: radius.lg,
     border: `1px solid ${palette.cardBorder}`,
     background: palette.card,
-    backdropFilter: "blur(16px)",
+    backdropFilter: "blur(var(--blur-surface))",
+    WebkitBackdropFilter: "blur(var(--blur-surface))",
     boxShadow: shadows.soft,
   };
 }
