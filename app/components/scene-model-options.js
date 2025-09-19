@@ -76,8 +76,8 @@ export function SceneModelOptions({
                           "group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                           selected
-                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)] shadow-[0_18px_36px_rgba(12,23,37,0.16)]"
-                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
+                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-[0_18px_36px_rgba(12,23,37,0.24)]"
+                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] text-[color:var(--color-foreground)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
                         )}
                         aria-pressed={selected}
                       >
@@ -92,14 +92,37 @@ export function SceneModelOptions({
                               unoptimized
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-[color:var(--color-surface)] text-[color:var(--color-text-tertiary)]">
+                            <div
+                              className={clsx(
+                                "flex h-full w-full items-center justify-center bg-[color:var(--color-surface)]",
+                                selected
+                                  ? "text-[color:var(--color-accent-contrast)]/80"
+                                  : "text-[color:var(--color-text-tertiary)]"
+                              )}
+                            >
                               <ImageOff className="size-6" aria-hidden="true" />
                             </div>
                           )}
                         </div>
-                        <div className="px-3 py-2">
+                        <div
+                          className={clsx(
+                            "px-3 py-2",
+                            selected
+                              ? "text-[color:var(--color-accent-contrast)]"
+                              : "text-[color:var(--color-foreground)]"
+                          )}
+                        >
                           <p className="text-sm font-semibold capitalize">{model.name || genderLabel}</p>
-                          <p className="text-[11px] text-[color:var(--color-text-secondary)]">{genderLabel} fit</p>
+                          <p
+                            className={clsx(
+                              "text-[11px]",
+                              selected
+                                ? "text-[color:var(--color-accent-contrast)]/80"
+                                : "text-[color:var(--color-text-secondary)]"
+                            )}
+                          >
+                            {genderLabel} fit
+                          </p>
                         </div>
                       </button>
                     );
@@ -164,8 +187,8 @@ export function SceneModelOptions({
                           "group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                           selected
-                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)] shadow-[0_18px_36px_rgba(12,23,37,0.16)]"
-                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
+                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-[0_18px_36px_rgba(12,23,37,0.24)]"
+                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] text-[color:var(--color-foreground)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
                         )}
                         aria-pressed={selected}
                       >
@@ -180,14 +203,35 @@ export function SceneModelOptions({
                               unoptimized
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-[color:var(--color-surface)] text-[color:var(--color-text-tertiary)]">
+                            <div
+                              className={clsx(
+                                "flex h-full w-full items-center justify-center bg-[color:var(--color-surface)]",
+                                selected
+                                  ? "text-[color:var(--color-accent-contrast)]/80"
+                                  : "text-[color:var(--color-text-tertiary)]"
+                              )}
+                            >
                               <ImageOff className="size-6" aria-hidden="true" />
                             </div>
                           )}
                         </div>
-                        <div className="px-3 py-2">
+                        <div
+                          className={clsx(
+                            "px-3 py-2",
+                            selected
+                              ? "text-[color:var(--color-accent-contrast)]"
+                              : "text-[color:var(--color-foreground)]"
+                          )}
+                        >
                           <p className="text-sm font-semibold">{env.name || "Untitled"}</p>
-                          <p className="text-[11px] text-[color:var(--color-text-secondary)]">
+                          <p
+                            className={clsx(
+                              "text-[11px]",
+                              selected
+                                ? "text-[color:var(--color-accent-contrast)]/80"
+                                : "text-[color:var(--color-text-secondary)]"
+                            )}
+                          >
                             {selected ? "Current selection" : "Tap to select"}
                           </p>
                         </div>

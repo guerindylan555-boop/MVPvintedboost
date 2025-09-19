@@ -26,8 +26,9 @@ export function GarmentTypeSelector({ value, onChange }) {
               "h-10 text-xs font-medium uppercase tracking-wide transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
               value === t
                 ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
-                : "text-[color:var(--color-text-secondary)] hover:bg-[color:var(--color-surface-strong)]"
+                : "bg-[color:var(--color-surface)] text-[color:var(--color-text-secondary)] hover:bg-[color:var(--color-surface-strong)] hover:text-[color:var(--color-foreground)]"
             )}
+            aria-pressed={value === t}
           >
             {t}
           </button>

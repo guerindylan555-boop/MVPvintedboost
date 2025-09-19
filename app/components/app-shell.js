@@ -5,7 +5,7 @@ import TopNav from "./top-nav";
 
 export default function AppShell({ children }) {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-[color:var(--color-background)] text-[color:var(--color-foreground)]">
       <main className="mx-auto w-full max-w-5xl px-4 pb-28 pt-6">
         {children}
       </main>

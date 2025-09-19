@@ -598,7 +598,7 @@ export default function Home() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Create a listing</h1>
-          <p className="text-sm text-foreground/70">Upload a garment photo, tweak the scene, and generate Vinted-ready imagery in seconds.</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">Upload a garment photo, tweak the scene, and generate Vinted-ready imagery in seconds.</p>
         </div>
       </div>
 
@@ -684,8 +684,10 @@ export default function Home() {
               type="button"
               onClick={handleGenerate}
               disabled={!canGenerate}
-              className={`inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
+              className={`inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)] ${
+                canGenerate
+                  ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                  : "cursor-not-allowed bg-[color:var(--color-surface)] text-[color:var(--color-text-secondary)]"
               }`}
             >
               {isGenerating ? "Generating…" : "Generate listing"}
@@ -699,18 +701,23 @@ export default function Home() {
       </div>
 
       {showWalkthrough && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5">
-          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-background p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--color-overlay)] p-5">
+          <div className="w-full max-w-md rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5 shadow-lg">
             <h2 className="text-lg font-semibold">How VintedBoost works</h2>
-            <ol className="mt-3 list-inside list-decimal space-y-2 text-sm text-foreground/80">
+            <ol className="mt-3 list-inside list-decimal space-y-2 text-sm text-[color:var(--color-text-secondary)]">
               <li>Upload a clear photo of your garment.</li>
               <li>Pick model, environment, and up to four poses.</li>
               <li>Review the prompt and generate mirror-selfie images.</li>
             </ol>
-            <p className="mt-3 text-xs text-foreground/60">Defaults for model and environment live in Studio. Set them once and reuse here.</p>
+            <p className="mt-3 text-xs text-[color:var(--color-text-tertiary)]">Defaults for model and environment live in Studio. Set them once and reuse here.</p>
             <div className="mt-4 flex items-center justify-between">
               <Link href="/studio" className="text-sm underline">Open Studio</Link>
-              <button onClick={dismissWalkthrough} className="h-9 rounded-md bg-foreground px-3 text-sm font-semibold text-background">Got it</button>
+              <button
+                onClick={dismissWalkthrough}
+                className="h-9 rounded-md bg-[color:var(--color-accent)] px-3 text-sm font-semibold text-[color:var(--color-accent-contrast)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]"
+              >
+                Got it
+              </button>
             </div>
           </div>
         </div>

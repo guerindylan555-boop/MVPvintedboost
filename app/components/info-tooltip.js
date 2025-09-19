@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useFloating, offset, flip, shift, arrow, autoUpdate } from "@floating-ui/react";
 import { AnimatePresence, motion } from "framer-motion";
 import clsx from "clsx";
-import { palette, radius, transitions } from "@/app/lib/theme";
+import { palette, radius, shadows, transitions } from "@/app/lib/theme";
 
 export function InfoTooltip({ label, description, className, side = "top", children }) {
   const [open, setOpen] = useState(false);
@@ -52,10 +52,10 @@ export function InfoTooltip({ label, description, className, side = "top", child
               className="p-3"
               style={{
                 borderRadius: radius.md,
-                background: palette.background,
+                background: palette.card,
                 color: palette.textPrimary,
                 border: `1px solid ${palette.cardBorder}`,
-                boxShadow: "0 12px 40px rgba(15, 23, 42, 0.45)",
+                boxShadow: shadows.soft,
               }}
             >
               <p className="text-sm font-semibold mb-1">{label}</p>
@@ -67,7 +67,7 @@ export function InfoTooltip({ label, description, className, side = "top", child
               ref={setArrowEl}
               className="absolute h-2 w-2 rotate-45"
               style={{
-                background: palette.background,
+                background: palette.card,
                 borderLeft: `1px solid ${palette.cardBorder}`,
                 borderTop: `1px solid ${palette.cardBorder}`,
                 left: middlewareData.arrow?.x != null ? middlewareData.arrow.x : "",

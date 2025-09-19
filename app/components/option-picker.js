@@ -39,8 +39,12 @@ export function OptionPicker({
     <div className="flex flex-col gap-3">
       {(label || description) && (
         <div>
-          {label && <div className="text-sm font-semibold text-slate-100">{label}</div>}
-          {description && <p className="text-xs text-slate-400 mt-1">{description}</p>}
+          {label && (
+            <div className="text-sm font-semibold text-[color:var(--color-foreground)]">{label}</div>
+          )}
+          {description && (
+            <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">{description}</p>
+          )}
         </div>
       )}
       <div className="grid gap-2 sm:grid-cols-2">
@@ -56,18 +60,25 @@ export function OptionPicker({
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]",
                 "focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                 selected
-                  ? "border-transparent bg-[color:var(--color-accent-soft)] ring-[color:var(--color-accent)]"
-                  : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] ring-[color:var(--color-border-muted)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
+                  ? "border-transparent bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] ring-[color:var(--color-accent)] shadow-sm"
+                  : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] text-[color:var(--color-foreground)] ring-[color:var(--color-border-muted)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
               )}
               style={{
-                color: palette.textPrimary,
+                color: selected ? palette.accentContrast : palette.textPrimary,
                 borderRadius: radius.md,
                 transition: transitions.base,
               }}
             >
               <span className="text-sm font-medium">{option.label}</span>
               {option.description && (
-                <span className="text-xs leading-snug text-[color:var(--color-text-secondary)]">
+                <span
+                  className={clsx(
+                    "text-xs leading-snug",
+                    selected
+                      ? "text-[color:var(--color-accent-contrast)]/80"
+                      : "text-[color:var(--color-text-secondary)]"
+                  )}
+                >
                   {option.description}
                 </span>
               )}

@@ -54,7 +54,9 @@
     --border-muted: rgba(226, 232, 240, 0.12);
     --border: rgba(226, 232, 240, 0.2);
     --border-strong: rgba(226, 232, 240, 0.28);
+    --accent: #1ca4b8;
     --accent-soft: rgba(28, 164, 184, 0.28);
+    --accent-contrast: #ffffff;
     --text-secondary: rgba(242, 245, 249, 0.72);
     --text-tertiary: rgba(242, 245, 249, 0.56);
     --overlay: rgba(2, 6, 12, 0.82);

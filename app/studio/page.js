@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
@@ -472,7 +473,7 @@ export default function StudioPage() {
             >
               <div className="relative aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                 <img src={item.url} alt={item.name || "Environment default"} className="h-full w-full object-cover" />
-                <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
+                <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]">
                   <CheckCircle2 className="size-4" aria-hidden="true" />
                   <span className="sr-only">Default environment</span>
                 </div>
@@ -582,7 +583,7 @@ export default function StudioPage() {
               <div className="relative aspect-[3/4] md:aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                 <img src={src} alt="Generated environment" className="h-full w-full object-cover" />
                 {isDefault && (
-                  <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
+                  <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]">
                     <CheckCircle2 className="size-4" aria-hidden="true" />
                     <span className="sr-only">Default environment</span>
                   </div>
@@ -606,7 +607,7 @@ export default function StudioPage() {
                       onClick={async () => {
                         await addEnvDefault(item.s3_key);
                       }}
-                      className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-accent)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-accent)]/90"
+                      className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-accent)] px-4 py-2 font-semibold text-[color:var(--color-accent-contrast)] shadow hover:bg-[color:var(--color-accent)]/90"
                     >
                       <PlusCircle className="size-4" aria-hidden="true" />
                       Add to default
@@ -712,7 +713,7 @@ export default function StudioPage() {
                 {data?.url ? (
                   <>
                     <img src={data.url} alt={label} className="h-full w-full object-cover" />
-                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
+                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]">
                       <CheckCircle2 className="size-4" aria-hidden="true" />
                       <span className="sr-only">Default model</span>
                     </div>
@@ -742,7 +743,7 @@ export default function StudioPage() {
                 )}
               </div>
               <div className="px-3 py-3 text-xs text-[color:var(--color-text-secondary)]">
-                <p className="text-sm font-semibold text-foreground">{label}</p>
+                <p className="text-sm font-semibold text-[color:var(--color-foreground)]">{label}</p>
                 <p className="truncate">{data?.name || (data ? "Untitled" : "—")}</p>
               </div>
             </div>
@@ -806,9 +807,12 @@ export default function StudioPage() {
               key={filter}
               type="button"
               onClick={() => setModelGalleryFilter(filter)}
-              className={`h-8 rounded-full border px-3 font-semibold ${
-                modelGalleryFilter === filter ? "border-foreground" : "border-[color:var(--color-border-strong)]"
-              }`}
+              className={clsx(
+                "h-8 rounded-full border px-3 font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
+                modelGalleryFilter === filter
+                  ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                  : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] text-[color:var(--color-text-secondary)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
+              )}
             >
               {filter === "all" ? "All" : filter === "man" ? "Men" : "Women"}
             </button>
@@ -831,7 +835,7 @@ export default function StudioPage() {
                 <div className="relative aspect-[3/4] md:aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                   <img src={src} alt="Generated model" className="h-full w-full object-cover" />
                   {isDefault && (
-                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
+                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]">
                       <CheckCircle2 className="size-4" aria-hidden="true" />
                       <span className="sr-only">Default model</span>
                     </div>
@@ -859,7 +863,7 @@ export default function StudioPage() {
                     ) : (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-accent)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-accent)]/90"
+                        className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-accent)] px-4 py-2 font-semibold text-[color:var(--color-accent-contrast)] shadow hover:bg-[color:var(--color-accent)]/90"
                         onClick={async () => {
                           try {
                             const baseUrl = getApiBase();
