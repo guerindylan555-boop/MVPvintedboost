@@ -6,14 +6,14 @@ import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
 import { Plus } from "lucide-react";
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { getSessionBasics } from "@/app/lib/session";
 import { subscribeToListingsUpdates } from "@/app/lib/listings-events";
 
 const authClient = createAuthClient();
 
 export default function ListingsPage() {
   const { data: session } = authClient.useSession();
-  const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
-  const isAdmin = Boolean(session?.user?.isAdmin);
+  const { userId, isAdmin } = getSessionBasics(session);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

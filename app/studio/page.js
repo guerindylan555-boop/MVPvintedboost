@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { getSessionBasics } from "@/app/lib/session";
 import { VB_STUDIO_ACTIVE_TAB, VB_STUDIO_MODEL_GENDER } from "@/app/lib/storage-keys";
 import { CheckCircle2, MinusCircle, PlusCircle, Trash2 } from "lucide-react";
 
@@ -14,8 +15,7 @@ const GENDER_FILTERS = ["all", "man", "woman"];
 
 export default function StudioPage() {
   const { data: session } = authClient.useSession();
-  const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
-  const isAdmin = Boolean(session?.user?.isAdmin);
+  const { userId, isAdmin } = getSessionBasics(session);
 
   const [activeSection, setActiveSection] = useState("environment");
   const [envLibraryView, setEnvLibraryView] = useState("generated");

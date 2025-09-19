@@ -1,4 +1,5 @@
 import { auth } from "@/app/lib/auth";
+import { getSessionBasics } from "@/app/lib/session";
 
 // Helper to proxy admin-only requests from Next server routes to the Python backend.
 // Performs: session check (isAdmin), resolves base URL + bearer, forwards body/query/headers.
@@ -14,7 +15,8 @@ export async function proxyAdmin(
   } = {}
 ) {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user?.isAdmin) return new Response("Forbidden", { status: 403 });
+  const { userId, isAdmin } = getSessionBasics(session);
+  if (!isAdmin) return new Response("Forbidden", { status: 403 });
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
   const adminBearer = process.env.ADMIN_BEARER_TOKEN;
@@ -28,7 +30,7 @@ export async function proxyAdmin(
 
   const headers = new Headers({ Authorization: `Bearer ${adminBearer}` });
   if (includeUserId) {
-    const uid = String(session.user.id || session.user.email || "");
+    const uid = userId == null ? "" : String(userId);
     if (uid) headers.set("X-User-Id", uid);
   }
 
