@@ -15,6 +15,7 @@ import {
 } from "@/app/components";
 import { useListingGenerator } from "@/app/hooks/use-listing-generator";
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { getSessionBasics } from "@/app/lib/session";
 import {
   VB_ENV_DEFAULT_KEY,
   VB_FLOW_MODE,
@@ -160,8 +161,7 @@ function serializeWalkthroughSeen(value) {
 
 export default function Home() {
   const { data: session } = authClient.useSession();
-  const isAdmin = Boolean(session?.user?.isAdmin);
-  const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
+  const { userId, isAdmin } = getSessionBasics(session);
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);

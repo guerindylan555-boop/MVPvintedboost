@@ -4,12 +4,13 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase } from "@/app/lib/api";
+import { getSessionBasics } from "@/app/lib/session";
 
 const authClient = createAuthClient();
 
 export default function StudioAdminPage() {
   const { data: session } = authClient.useSession();
-  const isAdmin = Boolean(session?.user?.isAdmin);
+  const { isAdmin } = getSessionBasics(session);
   const [active, setActive] = useState("env"); // env | model | pose
 
   if (!isAdmin) {

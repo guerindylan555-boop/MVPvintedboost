@@ -8,6 +8,7 @@ import { toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
 import { ChevronLeft, ChevronRight, Maximize2, X as XIcon } from "lucide-react";
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { getSessionBasics } from "@/app/lib/session";
 import { broadcastListingsUpdated } from "@/app/lib/listings-events";
 
 const authClient = createAuthClient();
@@ -16,7 +17,7 @@ export default function ListingPage() {
   const params = useParams();
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const { data: session } = authClient.useSession();
-  const userId = session?.session?.userId || session?.user?.id || session?.user?.email || null;
+  const { userId } = getSessionBasics(session);
 
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
