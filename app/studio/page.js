@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_STUDIO_ACTIVE_TAB, VB_STUDIO_MODEL_GENDER } from "@/app/lib/storage-keys";
+import { CheckCircle2, PlusCircle, Trash2 } from "lucide-react";
 
 const authClient = createAuthClient();
 const ENV_TABS = ["generated", "defaults", "sources"];
@@ -467,23 +468,26 @@ export default function StudioPage() {
           {defaults.map((item) => (
             <div
               key={item.s3_key}
-              className="rounded-2xl border border-foreground/30 ring-2 ring-foreground/40 bg-background overflow-hidden shadow-sm transition"
+              className="group rounded-2xl border border-foreground/30 ring-2 ring-foreground/40 bg-background overflow-hidden shadow-sm transition"
             >
-              <div className="aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[4/5] bg-black/5">
                 <img src={item.url} alt={item.name || "Environment default"} className="h-full w-full object-cover" />
+                <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-blue-600/90 px-3 py-1 text-[11px] font-semibold text-white">
+                  <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                  Default
+                </span>
               </div>
-              <div className="space-y-2 px-3 py-3 text-xs">
-                <p className="text-sm font-semibold text-foreground">{item.name || "Untitled"}</p>
-                <p className="truncate text-foreground/60">{item.s3_key}</p>
+              <div className="flex justify-center gap-3 px-3 py-3 text-xs">
                 <button
                   type="button"
                   onClick={async () => {
                     if (!confirm("Remove this default?")) return;
                     await removeEnvDefault(item.s3_key);
                   }}
-                  className="inline-flex h-8 items-center justify-center rounded-md border border-red-500 px-3 text-xs font-semibold text-red-600"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-red-500 text-red-600"
+                  aria-label="Remove default"
                 >
-                  Remove default
+                  <Trash2 className="size-4" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -565,67 +569,69 @@ export default function StudioPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {generated.map((item) => {
           const isDefault = defaults.some((def) => def.s3_key === item.s3_key);
-          const defaultMeta = defaults.find((def) => def.s3_key === item.s3_key);
           const src = item.url || `${getApiBase()}/env/image?s3_key=${encodeURIComponent(item.s3_key)}`;
           return (
             <div
               key={item.s3_key}
-              className={`rounded-2xl border bg-background overflow-hidden transition ${
+              className={`group rounded-2xl border bg-background overflow-hidden transition ${
                 isDefault
                   ? "border-blue-500 ring-2 ring-blue-300 shadow-lg"
                   : "border-foreground/15 hover:border-foreground/40"
               }`}
             >
-              <div className="aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[4/5] bg-black/5">
                 <img src={src} alt="Generated environment" className="h-full w-full object-cover" />
+                {isDefault && (
+                  <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-blue-600/90 px-3 py-1 text-[11px] font-semibold text-white">
+                    <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                    Default
+                  </span>
+                )}
               </div>
-              <div className="space-y-3 px-3 py-3 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-foreground/60">{item.s3_key}</span>
-                  {defaultMeta?.name && <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">{defaultMeta.name}</span>}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {isDefault ? (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!confirm("Remove this default?")) return;
-                        await removeEnvDefault(item.s3_key);
-                      }}
-                      className="inline-flex h-9 items-center justify-center rounded-md border border-blue-500 px-3 font-semibold text-blue-600"
-                    >
-                      Remove default
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await addEnvDefault(item.s3_key);
-                      }}
-                      className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/40 px-3 font-semibold"
-                    >
-                      Add to defaults
-                    </button>
-                  )}
+              <div className="flex justify-center gap-3 px-3 py-3 text-xs">
+                {isDefault ? (
                   <button
                     type="button"
-                    className="inline-flex h-9 items-center justify-center rounded-md border border-red-500 px-3 font-semibold text-red-600"
                     onClick={async () => {
-                      if (!confirm("Delete this image? This cannot be undone.")) return;
-                      try {
-                        const baseUrl = getApiBase();
-                        const res = await fetch(`${baseUrl}/env/generated?s3_key=${encodeURIComponent(item.s3_key)}`, { method: "DELETE" });
-                        if (!res.ok) throw new Error(await res.text());
-                        await refreshGenerated();
-                        await refreshDefaults();
-                      } catch (err) {
-                        alert("Delete failed");
-                      }
+                      if (!confirm("Remove this default?")) return;
+                      await removeEnvDefault(item.s3_key);
                     }}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-blue-500 text-blue-600"
+                    aria-label="Remove default"
                   >
-                    Delete
+                    <Trash2 className="size-4" aria-hidden="true" />
                   </button>
-                </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await addEnvDefault(item.s3_key);
+                    }}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-foreground/40"
+                    aria-label="Mark as default"
+                  >
+                    <PlusCircle className="size-4" aria-hidden="true" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500 text-red-600"
+                  onClick={async () => {
+                    if (!confirm("Delete this image? This cannot be undone.")) return;
+                    try {
+                      const baseUrl = getApiBase();
+                      const res = await fetch(`${baseUrl}/env/generated?s3_key=${encodeURIComponent(item.s3_key)}`, { method: "DELETE" });
+                      if (!res.ok) throw new Error(await res.text());
+                      await refreshGenerated();
+                      await refreshDefaults();
+                    } catch (err) {
+                      alert("Delete failed");
+                    }
+                  }}
+                  aria-label="Delete environment"
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                </button>
               </div>
             </div>
           );
@@ -809,79 +815,82 @@ export default function StudioPage() {
             return (
               <div
                 key={item.s3_key}
-                className={`rounded-2xl border bg-background overflow-hidden transition ${
+                className={`group rounded-2xl border bg-background overflow-hidden transition ${
                   isDefault
                     ? "border-blue-500 ring-2 ring-blue-300 shadow-lg"
                     : "border-foreground/15 hover:border-foreground/40"
                 }`}
               >
-                <div className="aspect-[3/4] bg-black/5">
+                <div className="relative aspect-[3/4] bg-black/5">
                   <img src={src} alt="Generated model" className="h-full w-full object-cover" />
+                  {isDefault && (
+                    <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-blue-600/90 px-3 py-1 text-[11px] font-semibold text-white">
+                      <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                      Default
+                    </span>
+                  )}
                 </div>
-                <div className="space-y-3 px-3 py-3 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-foreground/60">{item.s3_key}</span>
-                    <span className="rounded-full bg-foreground/10 px-2 py-1 text-[11px] uppercase tracking-wide text-foreground/70">{gender}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {isDefault ? (
-                      <button
-                        type="button"
-                        className="inline-flex h-9 items-center justify-center rounded-md border border-blue-500 px-3 font-semibold text-blue-600"
-                        onClick={async () => {
-                          if (!confirm("Remove this default?")) return;
-                          try {
-                            const baseUrl = getApiBase();
-                            const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
-                            if (!res.ok) throw new Error(await res.text());
-                            await refreshModelDefaults();
-                          } catch (err) {
-                            alert("Failed to remove default");
-                          }
-                        }}
-                      >
-                        Remove default
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/40 px-3 font-semibold"
-                        onClick={async () => {
-                          try {
-                            const baseUrl = getApiBase();
-                            const form = new FormData();
-                            form.append("gender", gender);
-                            form.append("s3_key", item.s3_key);
-                            form.append("name", gender === "woman" ? "Female default" : "Male default");
-                            const res = await fetch(`${baseUrl}/model/defaults`, { method: "POST", body: form });
-                            if (!res.ok) throw new Error(await res.text());
-                            await refreshModelDefaults();
-                          } catch (err) {
-                            alert("Failed to set default");
-                          }
-                        }}
-                      >
-                        Set as default
-                      </button>
-                    )}
+                <div className="flex items-center justify-center gap-3 px-3 py-3 text-xs">
+                  {isDefault ? (
                     <button
                       type="button"
-                      className="inline-flex h-9 items-center justify-center rounded-md border border-red-500 px-3 font-semibold text-red-600"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-blue-500 text-blue-600"
                       onClick={async () => {
-                        if (!confirm("Delete this model?")) return;
+                        if (!confirm("Remove this default?")) return;
                         try {
                           const baseUrl = getApiBase();
-                          const res = await fetch(`${baseUrl}/model/generated?s3_key=${encodeURIComponent(item.s3_key)}`, { method: "DELETE" });
+                          const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
                           if (!res.ok) throw new Error(await res.text());
-                          await refreshModelGenerated();
+                          await refreshModelDefaults();
                         } catch (err) {
-                          alert("Delete failed");
+                          alert("Failed to remove default");
                         }
                       }}
+                      aria-label="Remove default"
                     >
-                      Delete
+                      <Trash2 className="size-4" aria-hidden="true" />
                     </button>
-                  </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-foreground/40"
+                      onClick={async () => {
+                        try {
+                          const baseUrl = getApiBase();
+                          const form = new FormData();
+                          form.append("gender", gender);
+                          form.append("s3_key", item.s3_key);
+                          form.append("name", gender === "woman" ? "Female default" : "Male default");
+                          const res = await fetch(`${baseUrl}/model/defaults`, { method: "POST", body: form });
+                          if (!res.ok) throw new Error(await res.text());
+                          await refreshModelDefaults();
+                        } catch (err) {
+                          alert("Failed to set default");
+                        }
+                      }}
+                      aria-label="Set default"
+                    >
+                      <PlusCircle className="size-4" aria-hidden="true" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-500 text-red-600"
+                    onClick={async () => {
+                      if (!confirm("Delete this model?")) return;
+                      try {
+                        const baseUrl = getApiBase();
+                        const res = await fetch(`${baseUrl}/model/generated?s3_key=${encodeURIComponent(item.s3_key)}`, { method: "DELETE" });
+                        if (!res.ok) throw new Error(await res.text());
+                        await refreshModelGenerated();
+                      } catch (err) {
+                        alert("Delete failed");
+                      }
+                    }}
+                    aria-label="Delete model"
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             );
