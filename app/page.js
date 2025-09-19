@@ -11,6 +11,7 @@ import { getApiBase, withUserId } from "@/app/lib/api";
 import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY, VB_MODEL_REFERENCE_PREF } from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
 import { preprocessImage } from "@/app/lib/image-preprocess";
+import { broadcastListingsUpdated } from "@/app/lib/listings-events";
 
 const authClient = createAuthClient();
 const POSE_MAX = 10;
@@ -469,6 +470,7 @@ export default function Home() {
       const listing = await lres.json();
       const listingId = listing?.id;
       if (!listingId) throw new Error("No listing id");
+      broadcastListingsUpdated();
 
       // 2) Generate per pose according to flowMode (classic | sequential | both)
       let done = 0; // count poses done (first variant finished)

@@ -8,6 +8,7 @@ import { toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
 import { ChevronLeft, ChevronRight, Maximize2, X as XIcon } from "lucide-react";
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { broadcastListingsUpdated } from "@/app/lib/listings-events";
 
 const authClient = createAuthClient();
 
@@ -119,7 +120,10 @@ export default function ListingPage() {
       if (!res.ok) throw new Error(await res.text());
       toast.success("Cover updated");
       const r = await fetch(`${baseUrl}/listing/${id}`, { headers: withUserId({}, userId) });
-      if (r.ok) setListing(await r.json());
+      if (r.ok) {
+        setListing(await r.json());
+        broadcastListingsUpdated();
+      }
     } catch (e) {
       toast.error(e?.message || "Failed to set cover");
     }
@@ -147,6 +151,7 @@ export default function ListingPage() {
       const refreshed = await fetch(`${baseUrl}/listing/${id}`, { headers: withUserId({}, userId) });
       if (refreshed.ok) {
         setListing(await refreshed.json());
+        broadcastListingsUpdated();
         toast.success("Description generated");
       }
     } catch (e) {

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { createAuthClient } from "better-auth/react";
-import { Loader2, RefreshCw, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { getApiBase, withUserId } from "@/app/lib/api";
+import { subscribeToListingsUpdates } from "@/app/lib/listings-events";
 
 const authClient = createAuthClient();
 
@@ -15,26 +16,39 @@ export default function ListingsPage() {
   const isAdmin = Boolean(session?.user?.isAdmin);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const fetchInFlightRef = useRef(false);
+  const fingerprintRef = useRef(null);
 
-  const fetchListings = useCallback(async (showSpinner = true) => {
+  const fetchListings = useCallback(async (isBackground = false) => {
     if (!userId) return;
-    if (showSpinner) setLoading(true);
-    else setRefreshing(true);
-    setError(null);
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+    if (!isBackground) setLoading(true);
+    if (!isBackground) setError(null);
     const baseUrl = getApiBase();
     try {
       const res = await fetch(`${baseUrl}/listings`, { headers: withUserId({}, userId), cache: "no-store" });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      if (Array.isArray(data?.items)) setListings(data.items);
-      else setListings([]);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const fingerprint = items
+        .map((item) => `${item?.id ?? ""}:${item?.updated_at ?? item?.created_at ?? ""}`)
+        .join("|");
+      if (fingerprintRef.current !== fingerprint) {
+        fingerprintRef.current = fingerprint;
+        setListings(items);
+      }
+      if (!isBackground) setError(null);
     } catch (err) {
-      setError(err?.message || "Failed to load listings");
+      if (isBackground) {
+        if (process.env.NODE_ENV !== "production") console.error(err);
+      } else {
+        setError(err?.message || "Failed to load listings");
+      }
     } finally {
-      if (showSpinner) setLoading(false);
-      else setRefreshing(false);
+      fetchInFlightRef.current = false;
+      if (!isBackground) setLoading(false);
     }
   }, [userId]);
 
@@ -44,6 +58,32 @@ export default function ListingsPage() {
       return;
     }
     fetchListings();
+  }, [userId, fetchListings]);
+
+  useEffect(() => {
+    if (!userId) {
+      fingerprintRef.current = null;
+      setListings([]);
+      return undefined;
+    }
+
+    const unsubscribe = subscribeToListingsUpdates(() => {
+      fetchListings(true);
+    });
+
+    const handleFocus = () => fetchListings(true);
+    const handleVisibility = () => {
+      if (!document.hidden) fetchListings(true);
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [userId, fetchListings]);
 
   const sortedListings = useMemo(() => {
@@ -59,15 +99,6 @@ export default function ListingsPage() {
           <p className="text-sm text-foreground/70">Browse every generated listing, tweak covers, and jump back into edits.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fetchListings(false)}
-            disabled={refreshing || loading || !userId}
-            className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-foreground/20 px-3 text-xs font-semibold hover:border-foreground disabled:opacity-60"
-          >
-            {refreshing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
-            Refresh
-          </button>
           <Link
             href="/"
             className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-foreground px-3 text-xs font-semibold text-background"
@@ -101,11 +132,12 @@ export default function ListingsPage() {
           {sortedListings.map((listing) => {
             const createdAt = listing.created_at ? new Date(listing.created_at) : null;
             const settings = listing.settings || {};
-            const poseLabel = settings.poses && Array.isArray(settings.poses) && settings.poses.length
-              ? settings.poses.join(", ")
-              : "Random poses";
             return (
-              <div key={listing.id} className="flex flex-col gap-3 rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/15 dark:bg-white/5">
+              <Link
+                key={listing.id}
+                href={`/listing/${listing.id}`}
+                className="group flex flex-col gap-3 rounded-2xl border border-black/10 bg-black/5 p-4 text-sm transition hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground dark:border-white/15 dark:bg-white/5"
+              >
                 <div className="flex items-center gap-3">
                   <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border border-foreground/15 bg-background/40">
                     {listing.cover_url ? (
@@ -127,25 +159,7 @@ export default function ListingsPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex justify-between gap-2 text-xs text-foreground/60">
-                  <p className="truncate">{poseLabel}</p>
-                  {listing.cover_s3_key ? <span className="rounded-full border border-foreground/15 px-2 py-0.5 text-[10px] uppercase">Cover set</span> : null}
-                </div>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/listing/${listing.id}`}
-                    className="inline-flex h-9 flex-1 items-center justify-center rounded-lg bg-foreground text-xs font-semibold text-background"
-                  >
-                    Open listing
-                  </Link>
-                  <Link
-                    href={`/listing/${listing.id}#description`}
-                    className="inline-flex h-9 items-center justify-center rounded-lg border border-foreground/20 px-3 text-xs font-semibold"
-                  >
-                    Description
-                  </Link>
-                </div>
-              </div>
+              </Link>
             );
           })}
         </div>

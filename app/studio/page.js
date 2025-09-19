@@ -566,7 +566,7 @@ export default function StudioPage() {
     }
 
     return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
         {generated.map((item) => {
           const isDefault = defaults.some((def) => def.s3_key === item.s3_key);
           const src = item.url || `${getApiBase()}/env/image?s3_key=${encodeURIComponent(item.s3_key)}`;
@@ -579,7 +579,7 @@ export default function StudioPage() {
                   : "border-foreground/15 hover:border-foreground/40"
               }`}
             >
-              <div className="relative aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[3/4] md:aspect-[4/5] bg-black/5">
                 <img src={src} alt="Generated environment" className="h-full w-full object-cover" />
                 {isDefault && (
                   <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
@@ -814,7 +814,7 @@ export default function StudioPage() {
             </button>
           ))}
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
           {filtered.map((item) => {
             const gender = item.gender || "man";
             const isDefault = gender === "man" ? defaultsModel?.man?.s3_key === item.s3_key : defaultsModel?.woman?.s3_key === item.s3_key;
@@ -828,7 +828,7 @@ export default function StudioPage() {
                     : "border-foreground/15 hover:border-foreground/40"
                 }`}
               >
-                <div className="relative aspect-[3/4] bg-black/5">
+                <div className="relative aspect-[3/4] md:aspect-[4/5] bg-black/5">
                   <img src={src} alt="Generated model" className="h-full w-full object-cover" />
                   {isDefault && (
                     <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
