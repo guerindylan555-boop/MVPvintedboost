@@ -286,19 +286,6 @@ async def set_model_default(gender: str = Form(...), s3_key: str = Form(...), na
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@router.patch("/model/defaults")
-async def rename_model_default(gender: str = Form(...), name: str = Form(...)):
-    try:
-        gender = normalize_gender(gender)
-        name = (name or "").strip() or "Default"
-        async with db_session() as session:
-            await session.execute(text("UPDATE model_defaults SET name = :n WHERE gender = :g"), {"n": name, "g": gender})
-        return {"ok": True}
-    except Exception as exc:
-        LOGGER.exception("Failed to rename model default")
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-
 @router.delete("/model/defaults")
 async def unset_model_default(gender: str):
     try:
