@@ -123,7 +123,6 @@ npm run dev:full
 - `backend/main.py`: FastAPI app with endpoints
   - `POST /edit` (primary): accepts clothing image + options; may also include environment and person reference images; prompts Gemini and returns a PNG
     - Also accepts `model_description_text` (description-only model reference) and `prompt_override` (frontend sends exact prompt)
-  - `POST /generate`: text‑only generation (basic test)
   - `GET /health`: health probe
   - `POST /env/sources/upload`: bulk upload environment sources (S3 + DB)
   - `GET /env/sources`: list uploaded sources; `DELETE /env/sources`: delete all (S3 + DB)
@@ -131,8 +130,7 @@ npm run dev:full
   - `POST /env/generate`: same instruction + user prompt
 - `GET /env/generated`: list recent environment generations for the current user (requires header `X-User-Id`; includes presigned `url`)
   - `GET /env/image?s3_key=...`: stream any stored image from S3
-- `GET /env/defaults`: list env defaults for the current user (requires header `X-User-Id`; includes presigned `url`)
-  - `GET /history`: list last 200 generated garment edits for current user (excludes env/model tools)
+  - `GET /env/defaults`: list env defaults for the current user (requires header `X-User-Id`; includes presigned `url`)
 - `POST /env/defaults`: set up to 5 named defaults (per-user overwrite; requires `X-User-Id`)
 - `PATCH /env/defaults`: rename a default by `s3_key` (requires `X-User-Id`)
 - `DELETE /env/defaults`: unset a default by `s3_key`
@@ -145,7 +143,7 @@ npm run dev:full
   - `DELETE /model/defaults`: unset default for a gender
   - `POST /describe`: generate a Vinted-style product description from an uploaded garment image and metadata (`gender`, `brand`, `model_name`, `size`, `condition`). Uses the same Gemini model as image generation; returns `{ ok, description }` and stores it in DB.
 - `backend/db.py`: async SQLAlchemy setup, `Generation` model, `init_db()` at startup
-  - `EnvSource`, `EnvDefault`, `ModelDefault`, `ModelSource`, `ModelDescription`, `PoseSource`, `PoseDescription` models
+  - `EnvSource`, `EnvDefaultUser`, `ModelDefault`, `ModelSource`, `ModelDescription`, `PoseSource`, `PoseDescription` models
 - `backend/storage.py`: S3 client and upload helpers
   - `generate_presigned_get_url(...)` for fast grid loads
 - `upload_model_source_image(...)` for persisting person sources
@@ -384,11 +382,6 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Behavior: two model calls — Step 1 combines garment with person; Step 2 inserts that person into the environment. Only the final image is persisted and, when `listing_id` is provided, attached to the listing with pose suffixed as `"<pose> (seq)"`.
 - Response: `{ ok, s3_key, url, pose, prompt, listing_id }` (where `pose` includes the `(seq)` suffix)
 
-### POST /generate
-- Content-Type: `application/x-www-form-urlencoded`
-- Fields: `prompt`
-- Response: `image/png` stream
-
 ### POST /model/generate
 - Content-Type: `multipart/form-data`
 - Fields: `image` (file), `gender` (man|woman), `prompt` (optional)
@@ -431,7 +424,7 @@ Notes:
 - Redirect loop on `/login`: ensure global gating happens via `middleware.ts` (cookie presence) and not inside `layout.js`; verify `/login` is listed as a public path in the middleware allowlist.
 
 ## Roadmap
-- Persist request IDs and latency; expose `/history` endpoint using DB
+- Persist request IDs and latency metrics for the `/listings` feed
 - Return JSON with presigned S3 URLs for images (optional new endpoint)
 - Add Alembic migrations instead of `create_all`
 - Basic auth for admin endpoints
