@@ -282,27 +282,6 @@ async def unset_default(s3_key: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@router.patch("/env/defaults")
-async def rename_default(
-    s3_key: str = Form(...),
-    name: str = Form(...),
-    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
-):
-    try:
-        if not x_user_id:
-            return JSONResponse({"error": "missing user id"}, status_code=400)
-        name = (name or "").strip() or "Untitled"
-        async with db_session() as session:
-            await session.execute(
-                text("UPDATE env_defaults_user SET name = :n WHERE user_id = :uid AND s3_key = :k"),
-                {"n": name, "uid": x_user_id, "k": s3_key},
-            )
-        return {"ok": True}
-    except Exception as exc:
-        LOGGER.exception("Failed to rename default")
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-
 @router.delete("/env/generated")
 async def delete_generated(s3_key: str):
     try:

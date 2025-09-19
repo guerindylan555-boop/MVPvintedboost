@@ -55,7 +55,7 @@ Default generation style (Mirror Selfie for Vinted)
   - Random: picks a random uploaded source and generates with strict instruction “randomize the scene and the mirror frame”
   - Generate: same instruction, plus user prompt appended
   - Recent generated environments grid (last 200, per-user), images loaded via S3 presigned URLs for speed
-  - Defaults management inside the grid (per-user): select up to 5 generated images, name/rename, mark as default, and Undefault; defaults are highlighted and are not selectable
+  - Defaults management inside the grid (per-user): select up to 5 generated images, assign names, mark as default, and Undefault; defaults are highlighted and are not selectable
   - Delete any generated environment image (removes from S3 and DB, and from defaults if set)
   - List and delete all uploaded sources (S3 + DB) from the UI
 - Model tab:
@@ -64,7 +64,7 @@ Default generation style (Mirror Selfie for Vinted)
   - Random: uses the selected gender’s source image and the prompt “Randomize this man/woman.”
   - Generate: same, with your additional prompt appended
   - After generation, the resulting image is re‑sent to the model to generate a detailed description of the person (especially the face). The text is stored and shown as an overlay in the grid
-  - Two grids (last 200 each, per-user): “Recent generated models — Men” and “— Women”, each with its own single default. You can Set default, Rename default, or Undefault per gender
+  - Two grids (last 200 each, per-user): “Recent generated models — Men” and “— Women”, each with its own single default. You can set a default or Undefault per gender
   - Per-user storage: the frontend includes `X-User-Id` when calling `POST /model/generate` so the backend attributes generations to the current user (required for them to appear in the grids)
   - Person source images are uploaded to S3 and tracked in Postgres
   - Main page can send the model default as an image or description only (toggle)
@@ -132,14 +132,12 @@ npm run dev:full
   - `GET /env/image?s3_key=...`: stream any stored image from S3
   - `GET /env/defaults`: list env defaults for the current user (requires header `X-User-Id`; includes presigned `url`)
 - `POST /env/defaults`: set up to 5 named defaults (per-user overwrite; requires `X-User-Id`)
-- `PATCH /env/defaults`: rename a default by `s3_key` (requires `X-User-Id`)
 - `DELETE /env/defaults`: unset a default by `s3_key`
   - `DELETE /env/generated`: delete a generated env image (also unsets default if used)
   - `POST /model/generate`: person model generation; accepts a person source image and optional user prompt; returns PNG; saves result; also auto‑generates and stores a textual person description for the image
   - `GET /model/generated`: list recent model generations (includes `gender`, presigned `url`, and `description`)
   - `GET /model/defaults`: list model defaults (one per gender; includes `description`)
   - `POST /model/defaults`: set default for a gender (overwrites)
-  - `PATCH /model/defaults`: rename default for a gender
   - `DELETE /model/defaults`: unset default for a gender
   - `POST /describe`: generate a Vinted-style product description from an uploaded garment image and metadata (`gender`, `brand`, `model_name`, `size`, `condition`). Uses the same Gemini model as image generation; returns `{ ok, description }` and stores it in DB.
 - `backend/db.py`: async SQLAlchemy setup, `Generation` model, `init_db()` at startup
@@ -393,7 +391,6 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 ### Model defaults
 - `GET /model/defaults`
 - `POST /model/defaults` (form: `gender`, `s3_key`, `name`)
-- `PATCH /model/defaults` (form: `gender`, `name`)
 - `DELETE /model/defaults?gender=...`
 
 ### GET /health
