@@ -14,6 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app code
 COPY backend ./backend
+COPY vinted ./vinted
+
+# Ensure both packages are importable
+ENV PYTHONPATH=/app
 
 ENV PORT=8000
 EXPOSE 8000
