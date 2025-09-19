@@ -16,7 +16,10 @@ export default function TopNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="pointer-events-none fixed bottom-4 left-0 right-0 z-40 flex justify-center">
+    <nav
+      className="pointer-events-none fixed left-0 right-0 z-40 flex justify-center"
+      style={{ bottom: "var(--nav-offset, 1rem)" }}
+    >
       <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-black/10 bg-background/90 px-2 py-2 shadow-lg shadow-black/10 backdrop-blur dark:border-white/10 dark:shadow-black/40">
         {links.map((link) => {
           const Icon = link.icon;
