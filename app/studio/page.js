@@ -27,12 +27,9 @@ export default function StudioPage() {
   const [sources, setSources] = useState([]);
   const [generated, setGenerated] = useState([]);
   const [defaults, setDefaults] = useState([]);
-  const [selectedKeys, setSelectedKeys] = useState([]);
-  const [defaultNames, setDefaultNames] = useState({});
 
   const [modelPrompt, setModelPrompt] = useState("");
   const [isModelGenerating, setIsModelGenerating] = useState(false);
-  const [modelPreviewUrl, setModelPreviewUrl] = useState(null);
   const [modelGender, setModelGender] = useState("man");
   const [maleFile, setMaleFile] = useState(null);
   const [malePreview, setMalePreview] = useState(null);
@@ -75,11 +72,10 @@ export default function StudioPage() {
 
   useEffect(() => {
     return () => {
-      if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
       if (malePreview && malePreview.startsWith("blob:")) URL.revokeObjectURL(malePreview);
       if (femalePreview && femalePreview.startsWith("blob:")) URL.revokeObjectURL(femalePreview);
     };
-  }, [modelPreviewUrl, malePreview, femalePreview]);
+  }, [malePreview, femalePreview]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -107,6 +103,12 @@ export default function StudioPage() {
       setModelLibraryView("generated");
     }
   }, [isAdmin, modelLibraryView]);
+
+  useEffect(() => {
+    if (!isAdmin && envLibraryView === "sources") {
+      setEnvLibraryView("generated");
+    }
+  }, [isAdmin, envLibraryView]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -196,30 +198,33 @@ export default function StudioPage() {
     } catch {}
   }
 
-  function toggleSelect(key) {
-    setSelectedKeys((prev) => {
-      const has = prev.includes(key);
-      if (has) return prev.filter((item) => item !== key);
-      if (prev.length >= 5) return prev;
-      return [...prev, key];
-    });
-  }
-
-  async function saveDefaults() {
+  async function addEnvDefault(s3Key) {
     try {
       const baseUrl = getApiBase();
       const form = new FormData();
-      for (const key of selectedKeys) form.append("s3_keys", key);
-      for (const key of selectedKeys) form.append("names", defaultNames[key] || "Untitled");
+      form.append("s3_keys", s3Key);
+      form.append("names", "");
       const res = await fetch(`${baseUrl}/env/defaults`, { method: "POST", body: form, headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
-      await refreshDefaults();
-      setSelectedKeys([]);
-      setDefaultNames({});
-      alert("Defaults saved");
+      await Promise.all([refreshDefaults(), refreshGenerated()]);
     } catch (err) {
       console.error(err);
-      alert("Failed to save defaults");
+      alert("Failed to add default");
+    }
+  }
+
+  async function removeEnvDefault(s3Key) {
+    try {
+      const baseUrl = getApiBase();
+      const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(s3Key)}`, {
+        method: "DELETE",
+        headers: withUserId({}, userId),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await refreshDefaults();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to remove default");
     }
   }
 
@@ -338,10 +343,7 @@ export default function StudioPage() {
       const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: withUserId({}, userId) });
       if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
-      setModelPreviewUrl(url);
+      await res.blob();
       await refreshModelGenerated();
     } catch (err) {
       console.error(err);
@@ -463,58 +465,26 @@ export default function StudioPage() {
       return (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {defaults.map((item) => (
-            <div key={item.s3_key} className="rounded-2xl border border-black/10 bg-background overflow-hidden dark:border-white/15">
-              <div className="relative aspect-[4/5]">
+            <div
+              key={item.s3_key}
+              className="rounded-2xl border border-foreground/30 ring-2 ring-foreground/40 bg-background overflow-hidden shadow-sm transition"
+            >
+              <div className="aspect-[4/5] bg-black/5">
                 <img src={item.url} alt={item.name || "Environment default"} className="h-full w-full object-cover" />
-                <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-medium text-white">
-                  {item.name || "Untitled"}
-                </span>
               </div>
-              <div className="flex items-center justify-between gap-2 px-3 py-3 text-xs">
-                <span className="truncate text-foreground/60">{item.s3_key}</span>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="rounded-md border border-black/10 px-2 py-1 dark:border-white/15"
-                    onClick={async () => {
-                      const newName = prompt("Rename default", item.name || "");
-                      if (newName == null) return;
-                      try {
-                        const baseUrl = getApiBase();
-                        const form = new FormData();
-                        form.append("s3_key", item.s3_key);
-                        form.append("name", newName);
-                        const res = await fetch(`${baseUrl}/env/defaults`, { method: "PATCH", body: form, headers: withUserId({}, userId) });
-                        if (!res.ok) throw new Error(await res.text());
-                        await refreshDefaults();
-                      } catch (err) {
-                        alert("Rename failed");
-                      }
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-md border border-red-500 px-2 py-1 text-red-600"
-                    onClick={async () => {
-                      if (!confirm("Remove this default?")) return;
-                      try {
-                        const baseUrl = getApiBase();
-                        const res = await fetch(`${baseUrl}/env/defaults?s3_key=${encodeURIComponent(item.s3_key)}`, {
-                          method: "DELETE",
-                          headers: withUserId({}, userId),
-                        });
-                        if (!res.ok) throw new Error(await res.text());
-                        await refreshDefaults();
-                      } catch (err) {
-                        alert("Failed to remove default");
-                      }
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
+              <div className="space-y-2 px-3 py-3 text-xs">
+                <p className="text-sm font-semibold text-foreground">{item.name || "Untitled"}</p>
+                <p className="truncate text-foreground/60">{item.s3_key}</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!confirm("Remove this default?")) return;
+                    await removeEnvDefault(item.s3_key);
+                  }}
+                  className="inline-flex h-8 items-center justify-center rounded-md border border-red-500 px-3 text-xs font-semibold text-red-600"
+                >
+                  Remove default
+                </button>
               </div>
             </div>
           ))}
@@ -592,91 +562,74 @@ export default function StudioPage() {
     }
 
     return (
-      <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {generated.map((item) => {
-            const isDefault = defaults.some((def) => def.s3_key === item.s3_key);
-            const selected = selectedKeys.includes(item.s3_key);
-            const src = item.url || `${getApiBase()}/env/image?s3_key=${encodeURIComponent(item.s3_key)}`;
-            const name = defaults.find((def) => def.s3_key === item.s3_key)?.name;
-            return (
-              <div key={item.s3_key} className="rounded-2xl border border-black/10 bg-background overflow-hidden dark:border-white/15">
-                <div className="relative aspect-[4/5] bg-black/5">
-                  <img src={src} alt="Generated environment" className="h-full w-full object-cover" />
-                  {isDefault && (
-                    <span className="absolute left-2 top-2 rounded-full bg-blue-600 px-2 py-1 text-[11px] font-medium text-white">
-                      Default
-                    </span>
-                  )}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {generated.map((item) => {
+          const isDefault = defaults.some((def) => def.s3_key === item.s3_key);
+          const defaultMeta = defaults.find((def) => def.s3_key === item.s3_key);
+          const src = item.url || `${getApiBase()}/env/image?s3_key=${encodeURIComponent(item.s3_key)}`;
+          return (
+            <div
+              key={item.s3_key}
+              className={`rounded-2xl border bg-background overflow-hidden transition ${
+                isDefault
+                  ? "border-blue-500 ring-2 ring-blue-300 shadow-lg"
+                  : "border-foreground/15 hover:border-foreground/40"
+              }`}
+            >
+              <div className="aspect-[4/5] bg-black/5">
+                <img src={src} alt="Generated environment" className="h-full w-full object-cover" />
+              </div>
+              <div className="space-y-3 px-3 py-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-foreground/60">{item.s3_key}</span>
+                  {defaultMeta?.name && <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">{defaultMeta.name}</span>}
                 </div>
-                <div className="space-y-3 px-3 py-3 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-foreground/60">{item.s3_key}</span>
+                <div className="flex flex-wrap gap-2">
+                  {isDefault ? (
                     <button
                       type="button"
-                      className="rounded-md border border-red-500 px-2 py-1 text-red-600"
                       onClick={async () => {
-                        if (!confirm("Delete this image? This cannot be undone.")) return;
-                        try {
-                          const baseUrl = getApiBase();
-                          const res = await fetch(`${baseUrl}/env/generated?s3_key=${encodeURIComponent(item.s3_key)}`, { method: "DELETE" });
-                          if (!res.ok) throw new Error(await res.text());
-                          await refreshGenerated();
-                          await refreshDefaults();
-                        } catch (err) {
-                          alert("Delete failed");
-                        }
+                        if (!confirm("Remove this default?")) return;
+                        await removeEnvDefault(item.s3_key);
                       }}
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-blue-500 px-3 font-semibold text-blue-600"
                     >
-                      Delete
+                      Remove default
                     </button>
-                  </div>
-                  {isDefault ? (
-                    <p className="truncate text-foreground/60">Saved as: {name || "Untitled"}</p>
                   ) : (
-                    <label className="inline-flex items-center gap-1 text-foreground/60">
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleSelect(item.s3_key)}
-                        className="h-4 w-4"
-                      />
-                      Select for defaults
-                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await addEnvDefault(item.s3_key);
+                      }}
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/40 px-3 font-semibold"
+                    >
+                      Add to defaults
+                    </button>
                   )}
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center justify-center rounded-md border border-red-500 px-3 font-semibold text-red-600"
+                    onClick={async () => {
+                      if (!confirm("Delete this image? This cannot be undone.")) return;
+                      try {
+                        const baseUrl = getApiBase();
+                        const res = await fetch(`${baseUrl}/env/generated?s3_key=${encodeURIComponent(item.s3_key)}`, { method: "DELETE" });
+                        if (!res.ok) throw new Error(await res.text());
+                        await refreshGenerated();
+                        await refreshDefaults();
+                      } catch (err) {
+                        alert("Delete failed");
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-            );
-          })}
-        </div>
-        {selectedKeys.length > 0 && (
-          <div className="rounded-2xl border border-blue-500/40 bg-blue-500/5 p-4">
-            <div className="flex items-center justify-between text-xs font-semibold text-blue-900 dark:text-blue-200">
-              <span>Promote {selectedKeys.length} image(s) as defaults (max 5)</span>
-              <button
-                type="button"
-                onClick={saveDefaults}
-                className="inline-flex h-8 items-center justify-center rounded-md bg-blue-600 px-3 text-white"
-              >
-                Save defaults
-              </button>
             </div>
-            <div className="mt-3 space-y-2 text-xs">
-              {selectedKeys.map((key) => (
-                <div key={key} className="flex items-center gap-2">
-                  <span className="flex-1 truncate">{key}</span>
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    className="h-8 w-40 rounded-md border border-black/10 px-2 dark:border-white/15"
-                    value={defaultNames[key] || ""}
-                    onChange={(event) => setDefaultNames((prev) => ({ ...prev, [key]: event.target.value }))}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+          );
+        })}
       </div>
     );
   };
@@ -693,13 +646,13 @@ export default function StudioPage() {
           placeholder="e.g. sunlit loft apartment with a full-length mirror and wooden floors"
           className="mt-3 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
         />
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex justify-center">
           <button
             type="button"
             onClick={handleGenerate}
             disabled={isGenerating}
-            className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-              isGenerating ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
+            className={`inline-flex h-12 w-full max-w-xs items-center justify-center rounded-xl px-6 text-base font-semibold ${
+              isGenerating ? "bg-foreground/30 text-background/60" : "bg-foreground text-background shadow"
             }`}
           >
             {isGenerating ? "Generating…" : prompt.trim() ? "Generate environment" : "Generate random"}
@@ -714,7 +667,7 @@ export default function StudioPage() {
             <p className="text-xs text-foreground/60">Review generated scenes, defaults, and source uploads.</p>
           </div>
           <div className="inline-flex gap-2 rounded-full bg-background/40 p-1">
-            {ENV_TABS.map((tab) => (
+            {ENV_TABS.filter((tab) => isAdmin || tab !== "sources").map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -742,61 +695,41 @@ export default function StudioPage() {
       return (
         <div className="grid gap-3 sm:grid-cols-2">
           {items.map(({ gender, label, data }) => (
-            <div key={gender} className="rounded-2xl border border-black/10 bg-background overflow-hidden dark:border-white/15">
-              <div className="relative aspect-[4/5] bg-black/5">
+            <div
+              key={gender}
+              className={`rounded-2xl overflow-hidden border bg-background shadow-sm transition ${
+                data ? "border-foreground/30 ring-2 ring-foreground/40" : "border-foreground/15"
+              }`}
+            >
+              <div className="aspect-[4/5] bg-black/5">
                 {data?.url ? (
                   <img src={data.url} alt={label} className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-full items-center justify-center text-xs text-foreground/60">No default set</div>
                 )}
-                {data?.name && (
-                  <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-medium text-white">{data.name}</span>
-                )}
               </div>
-              <div className="px-3 py-3 text-xs text-foreground/60">
-                <p className="font-medium text-foreground">{label}</p>
-                <p className="mt-1 truncate">{data?.s3_key || "—"}</p>
+              <div className="space-y-2 px-3 py-3 text-xs text-foreground/70">
+                <p className="text-sm font-semibold text-foreground">{label}</p>
+                <p className="truncate">{data?.name || (data ? "Untitled" : "—")}</p>
+                <p className="truncate">{data?.s3_key || "No image selected"}</p>
                 {data && (
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      className="rounded-md border border-black/10 px-2 py-1 dark:border-white/15"
-                      onClick={async () => {
-                        const newName = prompt("Rename default", data.name || "");
-                        if (newName == null) return;
-                        try {
-                          const baseUrl = getApiBase();
-                          const form = new FormData();
-                          form.append("gender", gender);
-                          form.append("name", newName);
-                          const res = await fetch(`${baseUrl}/model/defaults`, { method: "PATCH", body: form });
-                          if (!res.ok) throw new Error(await res.text());
-                          await refreshModelDefaults();
-                        } catch (err) {
-                          alert("Rename failed");
-                        }
-                      }}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-md border border-red-500 px-2 py-1 text-red-600"
-                      onClick={async () => {
-                        if (!confirm("Remove this default?")) return;
-                        try {
-                          const baseUrl = getApiBase();
-                          const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
-                          if (!res.ok) throw new Error(await res.text());
-                          await refreshModelDefaults();
-                        } catch (err) {
-                          alert("Failed to remove default");
-                        }
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center justify-center rounded-md border border-red-500 px-3 font-semibold text-red-600"
+                    onClick={async () => {
+                      if (!confirm("Remove this default?")) return;
+                      try {
+                        const baseUrl = getApiBase();
+                        const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
+                        if (!res.ok) throw new Error(await res.text());
+                        await refreshModelDefaults();
+                      } catch (err) {
+                        alert("Failed to remove default");
+                      }
+                    }}
+                  >
+                    Remove default
+                  </button>
                 )}
               </div>
             </div>
@@ -872,72 +805,47 @@ export default function StudioPage() {
           {filtered.map((item) => {
             const gender = item.gender || "man";
             const isDefault = gender === "man" ? defaultsModel?.man?.s3_key === item.s3_key : defaultsModel?.woman?.s3_key === item.s3_key;
-            const defaultName = gender === "man" ? defaultsModel?.man?.name : defaultsModel?.woman?.name;
             const src = item.url || `${getApiBase()}/model/image?s3_key=${encodeURIComponent(item.s3_key)}`;
             return (
-              <div key={item.s3_key} className="rounded-2xl border border-black/10 bg-background overflow-hidden dark:border-white/15">
-                <div className="relative aspect-[3/4] bg-black/5">
+              <div
+                key={item.s3_key}
+                className={`rounded-2xl border bg-background overflow-hidden transition ${
+                  isDefault
+                    ? "border-blue-500 ring-2 ring-blue-300 shadow-lg"
+                    : "border-foreground/15 hover:border-foreground/40"
+                }`}
+              >
+                <div className="aspect-[3/4] bg-black/5">
                   <img src={src} alt="Generated model" className="h-full w-full object-cover" />
-                  {isDefault && (
-                    <span className="absolute left-2 top-2 rounded-full bg-blue-600 px-2 py-1 text-[11px] font-medium text-white">
-                      Default
-                    </span>
-                  )}
                 </div>
                 <div className="space-y-3 px-3 py-3 text-xs">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-foreground/60">{item.s3_key}</span>
                     <span className="rounded-full bg-foreground/10 px-2 py-1 text-[11px] uppercase tracking-wide text-foreground/70">{gender}</span>
                   </div>
-                  {item.description && (
-                    <p className="whitespace-pre-wrap text-foreground/80">{item.description}</p>
-                  )}
                   <div className="flex flex-wrap gap-2">
                     {isDefault ? (
-                      <>
-                        <button
-                          type="button"
-                          className="rounded-md border border-black/10 px-2 py-1 dark:border-white/15"
-                          onClick={async () => {
-                            const newName = prompt("Rename default", defaultName || "");
-                            if (newName == null) return;
-                            try {
-                              const baseUrl = getApiBase();
-                              const form = new FormData();
-                              form.append("gender", gender);
-                              form.append("name", newName);
-                              const res = await fetch(`${baseUrl}/model/defaults`, { method: "PATCH", body: form });
-                              if (!res.ok) throw new Error(await res.text());
-                              await refreshModelDefaults();
-                            } catch (err) {
-                              alert("Rename failed");
-                            }
-                          }}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-red-500 px-2 py-1 text-red-600"
-                          onClick={async () => {
-                            if (!confirm("Remove this default?")) return;
-                            try {
-                              const baseUrl = getApiBase();
-                              const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
-                              if (!res.ok) throw new Error(await res.text());
-                              await refreshModelDefaults();
-                            } catch (err) {
-                              alert("Failed to remove default");
-                            }
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </>
+                      <button
+                        type="button"
+                        className="inline-flex h-9 items-center justify-center rounded-md border border-blue-500 px-3 font-semibold text-blue-600"
+                        onClick={async () => {
+                          if (!confirm("Remove this default?")) return;
+                          try {
+                            const baseUrl = getApiBase();
+                            const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
+                            if (!res.ok) throw new Error(await res.text());
+                            await refreshModelDefaults();
+                          } catch (err) {
+                            alert("Failed to remove default");
+                          }
+                        }}
+                      >
+                        Remove default
+                      </button>
                     ) : (
                       <button
                         type="button"
-                        className="rounded-md border border-black/10 px-2 py-1 dark:border-white/15"
+                        className="inline-flex h-9 items-center justify-center rounded-md border border-foreground/40 px-3 font-semibold"
                         onClick={async () => {
                           try {
                             const baseUrl = getApiBase();
@@ -958,7 +866,7 @@ export default function StudioPage() {
                     )}
                     <button
                       type="button"
-                      className="rounded-md border border-red-500 px-2 py-1 text-red-600"
+                      className="inline-flex h-9 items-center justify-center rounded-md border border-red-500 px-3 font-semibold text-red-600"
                       onClick={async () => {
                         if (!confirm("Delete this model?")) return;
                         try {
@@ -984,131 +892,88 @@ export default function StudioPage() {
   };
 
   const renderModelSection = () => {
-    const currentSource = modelGender === "man" ? malePersisted : femalePersisted;
     const hasSource = modelGender === "man" ? (maleFile || malePersisted) : (femaleFile || femalePersisted);
 
     return (
       <div className="space-y-6">
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold">Generate model</h3>
-                <p className="text-xs text-foreground/60">Provide an optional prompt to guide the outfit or style.</p>
-              </div>
-              <div className="inline-flex overflow-hidden rounded-lg border border-black/10 dark:border-white/15">
-                {[
-                  { key: "man", label: "Male" },
-                  { key: "woman", label: "Female" },
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setModelGender(item.key)}
-                    className={`h-9 px-3 text-sm font-semibold ${
-                      modelGender === item.key ? "bg-foreground text-background" : "bg-transparent"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Generate model</h3>
+              <p className="text-xs text-foreground/60">Provide an optional prompt to guide the outfit or style.</p>
             </div>
-
-            {isAdmin ? (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                {[
-                  { gender: "man", label: "Male source", preview: malePreview, persisted: malePersisted, picker: onPickMale },
-                  { gender: "woman", label: "Female source", preview: femalePreview, persisted: femalePersisted, picker: onPickFemale },
-                ].map((item) => (
-                  <div key={item.gender} className={`rounded-xl border border-black/10 bg-background p-3 dark:border-white/15 ${modelGender === item.gender ? "ring-2 ring-foreground" : "opacity-70"}`}>
-                    <p className="text-xs font-semibold text-foreground/70">{item.label}</p>
-                    <div className="mt-2 aspect-[4/5] overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/15">
-                      {(item.preview || item.persisted?.url) ? (
-                        <img src={item.preview || item.persisted?.url} alt={item.label} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-[11px] text-foreground/60">No source yet</div>
-                      )}
-                    </div>
-                    {modelGender === item.gender && (
-                      <label className="mt-3 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md bg-foreground text-sm font-semibold text-background">
-                        <input type="file" accept="image/*" className="hidden" onChange={item.picker} />
-                        Replace source
-                      </label>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-black/10 bg-background p-4 text-xs text-foreground/60 dark:border-white/15">
-                {currentSource?.url ? (
-                  <div className="flex items-center gap-3">
-                    <img src={currentSource.url} alt="Default source" className="h-16 w-16 rounded-md object-cover" />
-                    <div>
-                      <p className="font-semibold text-foreground">Reference in use</p>
-                      <p>Contact your administrator to update source photos.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <p>No reference uploaded yet. Contact your administrator to add one.</p>
-                )}
-              </div>
-            )}
-
-            <textarea
-              rows={4}
-              value={modelPrompt}
-              onChange={(event) => setModelPrompt(event.target.value)}
-              placeholder="e.g. natural daylight, smiling expression, casual denim outfit"
-              className="mt-4 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
-            />
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleModelGenerate}
-                disabled={!hasSource || isModelGenerating || isModelSourceUploading}
-                className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                  (!hasSource || isModelGenerating || isModelSourceUploading)
-                    ? "bg-foreground/30 text-background/60"
-                    : "bg-foreground text-background"
-                }`}
-              >
-                {isModelGenerating ? "Generating…" : modelPrompt.trim() ? "Generate model" : "Generate random"}
-              </button>
-              <button
-                type="button"
-                onClick={refreshModelGenerated}
-                className="inline-flex h-10 items-center justify-center rounded-lg border border-black/10 px-4 text-sm font-semibold dark:border-white/15"
-              >
-                Refresh library
-              </button>
-              <span className="text-[11px] text-foreground/60">A source photo per gender is required before generating.</span>
+            <div className="inline-flex overflow-hidden rounded-lg border border-black/10 dark:border-white/15">
+              {[
+                { key: "man", label: "Male" },
+                { key: "woman", label: "Female" },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setModelGender(item.key)}
+                  className={`h-9 px-3 text-sm font-semibold ${
+                    modelGender === item.key ? "bg-foreground text-background" : "bg-transparent"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Preview</h3>
-              {modelPreviewUrl && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (modelPreviewUrl && modelPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(modelPreviewUrl);
-                    setModelPreviewUrl(null);
-                  }}
-                  className="text-xs text-foreground/60 underline"
+
+          {isAdmin ? (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {[
+                { gender: "man", label: "Male source", preview: malePreview, persisted: malePersisted, picker: onPickMale },
+                { gender: "woman", label: "Female source", preview: femalePreview, persisted: femalePersisted, picker: onPickFemale },
+              ].map((item) => (
+                <div
+                  key={item.gender}
+                  className={`rounded-xl border border-black/10 bg-background p-3 dark:border-white/15 ${
+                    modelGender === item.gender ? "ring-2 ring-foreground" : "opacity-70"
+                  }`}
                 >
-                  Clear preview
-                </button>
-              )}
+                  <p className="text-xs font-semibold text-foreground/70">{item.label}</p>
+                  <div className="mt-2 aspect-[4/5] overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/15">
+                    {(item.preview || item.persisted?.url) ? (
+                      <img src={item.preview || item.persisted?.url} alt={item.label} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-[11px] text-foreground/60">No source yet</div>
+                    )}
+                  </div>
+                  {modelGender === item.gender && (
+                    <label className="mt-3 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md bg-foreground text-sm font-semibold text-background">
+                      <input type="file" accept="image/*" className="hidden" onChange={item.picker} />
+                      Replace source
+                    </label>
+                  )}
+                </div>
+              ))}
             </div>
-            <div className="mt-3 aspect-[3/4] overflow-hidden rounded-xl border border-black/10 bg-black/10 dark:border-white/15">
-              {modelPreviewUrl ? (
-                <img src={modelPreviewUrl} alt="Model preview" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full items-center justify-center text-xs text-foreground/50">Generate a model to preview it here.</div>
-              )}
-            </div>
+          ) : null}
+
+          <textarea
+            rows={4}
+            value={modelPrompt}
+            onChange={(event) => setModelPrompt(event.target.value)}
+            placeholder="e.g. natural daylight, smiling expression, casual denim outfit"
+            className="mt-4 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
+          />
+
+          <div className="mt-4 flex flex-col items-center gap-2 text-center">
+            <button
+              type="button"
+              onClick={handleModelGenerate}
+              disabled={!hasSource || isModelGenerating || isModelSourceUploading}
+              className={`inline-flex h-12 w-full max-w-xs items-center justify-center rounded-xl px-6 text-base font-semibold ${
+                (!hasSource || isModelGenerating || isModelSourceUploading)
+                  ? "bg-foreground/30 text-background/60"
+                  : "bg-foreground text-background shadow"
+              }`}
+            >
+              {isModelGenerating ? "Generating…" : modelPrompt.trim() ? "Generate model" : "Generate random"}
+            </button>
+            <span className="text-[11px] text-foreground/60">A source photo per gender is required before generating.</span>
           </div>
         </div>
 
