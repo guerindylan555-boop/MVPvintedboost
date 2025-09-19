@@ -417,17 +417,6 @@ export default function Home() {
     }
   }
 
-  async function handleUseSample() {
-    // Tiny 1x1 PNG so backend accepts it
-    const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
-    const byteChars = atob(b64);
-    const bytes = new Uint8Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-    const blob = new Blob([bytes], { type: "image/png" });
-    const file = new File([blob], "sample.png", { type: "image/png" });
-    await setImageFile(file);
-  }
-
   function handlePoseCountChange(next) {
     const parsed = Number(next);
     const numeric = Number.isFinite(parsed) ? Math.round(parsed) : plannedImagesCount;
@@ -685,9 +674,15 @@ export default function Home() {
                 <h2 className="text-lg font-semibold">Upload garment</h2>
                 <p className="text-xs text-foreground/60">Drop a clear photo of the item you want the model to wear.</p>
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <button type="button" onClick={handleUseSample} className="underline underline-offset-4">Use sample</button>
-                <button type="button" onClick={handleTriggerCamera} className="underline underline-offset-4">Take photo</button>
+              <div className="flex items-center gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={handleTriggerCamera}
+                  className="inline-flex items-center gap-2 rounded-full border border-foreground/20 px-3 py-1.5 font-semibold text-foreground transition hover:border-foreground/40"
+                >
+                  <Camera className="size-4" aria-hidden="true" />
+                  <span>Take photo</span>
+                </button>
               </div>
             </div>
             <div className="mt-4">
@@ -835,18 +830,6 @@ export default function Home() {
                 ))}
               </div>
               {!garmentType && <p className="mt-1 text-[11px] text-foreground/50">Auto-detect if not set.</p>}
-            </div>
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                className={`inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-                  canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
-                }`}
-              >
-                {isGenerating ? "Generating…" : "Generate listing"}
-              </button>
             </div>
           </div>
 
@@ -1017,8 +1000,8 @@ export default function Home() {
                   <div className="sm:col-span-2">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold">Images & poses</p>
-                        <p className="mt-1 text-xs text-foreground/60">Choose up to 10 outputs. Leave blanks to auto-pick pose ideas.</p>
+                        <p className="text-sm font-semibold">Image count</p>
+                        <p className="mt-1 text-xs text-foreground/60">Pick how many images to generate (max 10).</p>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-foreground/70">
                         <button
@@ -1104,19 +1087,21 @@ export default function Home() {
               )}
             </div>
           )}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!canGenerate}
+              className={`inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                canGenerate ? "bg-foreground text-background" : "bg-foreground/30 text-background/60"
+              }`}
+            >
+              {isGenerating ? "Generating…" : "Generate listing"}
+            </button>
+          </div>
         </section>
 
         <aside className="space-y-3">
-          <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/15 dark:bg-white/5">
-            <h2 className="text-sm font-semibold">Manage listings</h2>
-            <p className="mt-2 text-xs text-foreground/60">Review every generation, regenerate poses, and copy descriptions from the dedicated listings hub.</p>
-            <Link
-              href="/listings"
-              className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-foreground/20 px-3 text-sm font-semibold hover:border-foreground"
-            >
-              Open listings
-            </Link>
-          </div>
           {isAdmin && (
             <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-sm dark:border-white/15 dark:bg-white/5">
               <h2 className="text-sm font-semibold">Admin tools</h2>
