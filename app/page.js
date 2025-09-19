@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
 import { Camera, Loader2 } from "lucide-react";
-import { Input, Switch, Spinner } from "@heroui/react";
+import { Button, Input, Switch, Spinner } from "@heroui/react";
 import {
   Card,
   CardBody,
@@ -15,7 +15,6 @@ import {
   AssetCard,
   AssetGrid,
   Textarea,
-  StickyGenerateBar,
 } from "@/app/components";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { preprocessImage } from "@/app/lib/image-preprocess";
@@ -60,6 +59,10 @@ export default function Home() {
 
   const [title, setTitle] = useState("");
   const [descEnabled, setDescEnabled] = useState(false);
+  const [brand, setBrand] = useState("");
+  const [size, setSize] = useState("");
+  const [condition, setCondition] = useState("");
+  const [modelName, setModelName] = useState("");
   const [garmentType, setGarmentType] = useState(null);
   const [garmentTypeError, setGarmentTypeError] = useState(false);
   const [imageCount, setImageCount] = useState(4);
@@ -87,11 +90,6 @@ export default function Home() {
     () => modelAssets.find((asset) => asset.s3_key === selectedModelKey) || null,
     [modelAssets, selectedModelKey]
   );
-
-  const garmentTypeLabel = useMemo(() => {
-    if (!garmentType) return "";
-    return garmentType === "full" ? "Full" : capitalize(garmentType);
-  }, [garmentType]);
 
   const extraTrimmed = useMemo(
     () => (typeof extraInstructions === "string" ? extraInstructions.trim() : ""),
@@ -202,15 +200,6 @@ export default function Home() {
     cameraInputRef.current?.click();
   }
 
-  async function handleUseSample() {
-    const b64 =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
-    const bytes = Uint8Array.from(atob(b64), (char) => char.charCodeAt(0));
-    const blob = new Blob([bytes], { type: "image/png" });
-    const file = new File([blob], "sample.png", { type: "image/png" });
-    await setImageFile(file);
-  }
-
   function clearSelection() {
     if (previewUrl) {
       try {
@@ -252,6 +241,10 @@ export default function Home() {
     }
 
     const gender = selectedModel.gender || "woman";
+    const brandTrimmed = brand.trim();
+    const sizeTrimmed = size.trim();
+    const conditionTrimmed = condition.trim();
+    const modelNameTrimmed = modelName.trim();
     const toastId = toast.loading("Creating listing…");
     setIsGenerating(true);
 
@@ -308,6 +301,10 @@ export default function Home() {
           descForm.append("image", selectedFile);
           descForm.append("gender", gender);
           descForm.append("listing_id", listingId);
+          if (brandTrimmed) descForm.append("brand", brandTrimmed);
+          if (sizeTrimmed) descForm.append("size", sizeTrimmed);
+          if (conditionTrimmed) descForm.append("condition", conditionTrimmed);
+          if (modelNameTrimmed) descForm.append("model_name", modelNameTrimmed);
           await fetch(`${baseUrl}/describe`, {
             method: "POST",
             body: descForm,
@@ -328,44 +325,8 @@ export default function Home() {
     }
   }
 
-  const garmentSummary = garmentTypeLabel || "Not set";
-  const environmentSummary = selectedEnvironment
-    ? formatDateLabel(selectedEnvironment.created_at) || "Selected"
-    : "Select";
-  const modelSummary = selectedModel
-    ? `${capitalize(selectedModel.gender || "")} model`
-    : "Select";
-
-  const stickyItems = [
-    {
-      label: "Garment",
-      value: garmentSummary,
-      placeholder: "Choose type",
-      complete: Boolean(garmentType),
-    },
-    {
-      label: "Environment",
-      value: environmentSummary,
-      placeholder: "Select",
-      complete: Boolean(selectedEnvironment),
-    },
-    {
-      label: "Model",
-      value: modelSummary,
-      placeholder: "Select",
-      complete: Boolean(selectedModel),
-    },
-    {
-      label: "Images",
-      value: `${imageCount}`,
-      placeholder: "1",
-      complete: true,
-    },
-  ];
-
   return (
-    <>
-      <div className="space-y-6">
+    <div className="space-y-6 pb-10">
         <header className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.4em] text-foreground/50">
             Create listing
@@ -392,16 +353,10 @@ export default function Home() {
                 <div className="flex items-center gap-3 text-sm text-foreground/70">
                   <button
                     type="button"
-                    onClick={handleUseSample}
-                    className="rounded-full border border-foreground/15 px-3 py-1 text-xs font-medium text-foreground hover:border-foreground/40"
-                  >
-                    Use sample
-                  </button>
-                  <button
-                    type="button"
                     onClick={triggerCameraPicker}
-                    className="rounded-full border border-foreground/15 px-3 py-1 text-xs font-medium text-foreground hover:border-foreground/40"
+                    className="flex items-center gap-2 rounded-full border border-foreground/15 px-3 py-1 text-xs font-medium text-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
                   >
+                    <Camera className="h-4 w-4" aria-hidden="true" />
                     Take photo
                   </button>
                 </div>
@@ -513,17 +468,105 @@ export default function Home() {
                 radius="lg"
                 value={title}
                 onValueChange={setTitle}
+                labelPlacement="outside"
+                classNames={{
+                  label: "text-sm font-semibold text-foreground",
+                  inputWrapper: "bg-background border border-foreground/15 hover:border-foreground/30",
+                  input: "text-base",
+                }}
               />
-              <div className="flex items-center justify-between rounded-2xl border border-foreground/10 bg-background/70 px-4 py-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-foreground">Generate product description</p>
-                  <p className="text-xs text-foreground/60">
-                    We’ll analyse the garment photo and draft a Vinted-ready blurb.
-                  </p>
+              <div
+                className={`rounded-2xl border px-4 py-4 transition-colors ${
+                  descEnabled
+                    ? "border-primary/40 bg-primary/10"
+                    : "border-foreground/10 bg-background/70"
+                }`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Generate product description</p>
+                    <p className="text-xs text-foreground/60">
+                      We’ll analyse the garment photo and draft a Vinted-ready blurb.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground/50">
+                      {descEnabled ? "On" : "Off"}
+                    </span>
+                    <Switch
+                      aria-label="Toggle product description generation"
+                      isSelected={descEnabled}
+                      onValueChange={setDescEnabled}
+                      color="primary"
+                      size="lg"
+                    />
+                  </div>
                 </div>
-                <Switch isSelected={descEnabled} onValueChange={setDescEnabled} color="primary">
-                  {descEnabled ? "On" : "Off"}
-                </Switch>
+                {descEnabled ? (
+                  <div className="mt-4 space-y-3">
+                    <p className="text-xs text-foreground/60">
+                      Add a few garment details to tailor the generated copy.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input
+                        label="Brand"
+                        placeholder="e.g. Zara"
+                        variant="bordered"
+                        radius="lg"
+                        value={brand}
+                        onValueChange={setBrand}
+                        labelPlacement="outside"
+                        classNames={{
+                          label: "text-xs font-semibold uppercase tracking-wide text-foreground/70",
+                          inputWrapper: "bg-background border border-foreground/15 hover:border-foreground/30",
+                          input: "text-sm",
+                        }}
+                      />
+                      <Input
+                        label="Size"
+                        placeholder="e.g. M"
+                        variant="bordered"
+                        radius="lg"
+                        value={size}
+                        onValueChange={setSize}
+                        labelPlacement="outside"
+                        classNames={{
+                          label: "text-xs font-semibold uppercase tracking-wide text-foreground/70",
+                          inputWrapper: "bg-background border border-foreground/15 hover:border-foreground/30",
+                          input: "text-sm",
+                        }}
+                      />
+                      <Input
+                        label="Condition"
+                        placeholder="e.g. Like new"
+                        variant="bordered"
+                        radius="lg"
+                        value={condition}
+                        onValueChange={setCondition}
+                        labelPlacement="outside"
+                        classNames={{
+                          label: "text-xs font-semibold uppercase tracking-wide text-foreground/70",
+                          inputWrapper: "bg-background border border-foreground/15 hover:border-foreground/30",
+                          input: "text-sm",
+                        }}
+                      />
+                      <Input
+                        label="Model name"
+                        placeholder="Optional"
+                        variant="bordered"
+                        radius="lg"
+                        value={modelName}
+                        onValueChange={setModelName}
+                        labelPlacement="outside"
+                        classNames={{
+                          label: "text-xs font-semibold uppercase tracking-wide text-foreground/70",
+                          inputWrapper: "bg-background border border-foreground/15 hover:border-foreground/30",
+                          input: "text-sm",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </CardBody>
           </Card>
@@ -701,14 +744,21 @@ export default function Home() {
             </CardBody>
           </Card>
         </section>
-      </div>
 
-      <StickyGenerateBar
-        items={stickyItems}
-        onGenerate={handleGenerate}
-        disabled={!canGenerate}
-        isGenerating={isGenerating}
-      />
-    </>
+        <div className="flex justify-end pt-2">
+          <Button
+            color="primary"
+            variant="solid"
+            radius="lg"
+            size="md"
+            className="h-11 min-w-[160px] text-sm font-semibold"
+            isDisabled={!canGenerate}
+            isLoading={isGenerating}
+            onPress={handleGenerate}
+          >
+            {isGenerating ? "Generating…" : "Generate"}
+          </Button>
+        </div>
+    </div>
   );
 }
