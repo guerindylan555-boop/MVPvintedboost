@@ -348,19 +348,6 @@ export default function Home() {
     poseRandomCache,
   ]);
 
-
-  function togglePose(pose) {
-    setOptions((o) => {
-      const has = o.poses.includes(pose);
-      if (has) {
-        return { ...o, poses: o.poses.filter((p) => p !== pose) };
-      }
-      // limit to 4
-      if (o.poses.length >= 4) return o;
-      return { ...o, poses: [...o.poses, pose] };
-    });
-  }
-
   async function setImageFile(file) {
     if (!file) return;
     if (!file.type?.startsWith("image/")) {

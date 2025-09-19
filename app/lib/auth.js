@@ -82,5 +82,3 @@ export async function migrateIfNeeded() {
   }
 }
 
-// Export the pg pool for diagnostics
-export const dbPool = pool;

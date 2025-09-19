@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase } from "@/app/lib/api";
 
