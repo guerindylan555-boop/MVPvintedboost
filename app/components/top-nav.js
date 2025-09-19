@@ -25,6 +25,8 @@ export default function TopNav() {
             <Link
               key={link.href}
               href={link.href}
+              aria-current={active ? "page" : undefined}
+              aria-label={active ? `${link.label} current page` : link.label}
               className={clsx(
                 "flex h-12 min-w-[72px] flex-col items-center justify-center rounded-xl px-3 text-xs font-medium transition",
                 active
