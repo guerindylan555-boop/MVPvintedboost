@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Card as HeroCard, CardBody as HeroCardBody, CardHeader as HeroCardHeader, CardFooter as HeroCardFooter } from "@heroui/react";
+import { Card as HeroCard, CardBody as HeroCardBody, CardHeader as HeroCardHeader } from "@heroui/react";
 import { twMerge } from "tailwind-merge";
 
 export const Card = forwardRef(function Card({ className, shadow = "sm", radius = "lg", ...props }, ref) {
@@ -27,16 +27,6 @@ export const CardHeader = forwardRef(function CardHeader({ className, ...props }
 export const CardBody = forwardRef(function CardBody({ className, ...props }, ref) {
   return (
     <HeroCardBody
-      ref={ref}
-      className={twMerge("px-5 py-4", className)}
-      {...props}
-    />
-  );
-});
-
-export const CardFooter = forwardRef(function CardFooter({ className, ...props }, ref) {
-  return (
-    <HeroCardFooter
       ref={ref}
       className={twMerge("px-5 py-4", className)}
       {...props}

@@ -281,20 +281,6 @@ def _normalize_choice(value: str, allowed: list[str], default: str) -> str:
     return value if value in allowed else default
 
 
-def _build_prompt(*, gender: str, environment: str, poses: list[str], extra: str) -> str:
-    """Legacy prompt builder (kept for reference)."""
-    pieces: list[str] = []
-    pieces.append("Put this clothing item on a realistic person model.")
-    pieces.append(f"Gender: {gender}.")
-    pieces.append(f"Environment: {environment}.")
-    if poses:
-        pieces.append("Poses: " + ", ".join(poses) + ".")
-    if extra:
-        pieces.append(extra)
-    pieces.append("Realistic fit, high-quality fashion photo, natural lighting.")
-    return " ".join(pieces)
-
-
 def build_env_prompt(user_prompt: Optional[str] = None) -> str:
     """Build the Studio Environment generation instruction.
 
@@ -460,71 +446,6 @@ def build_mirror_selfie_prompt(
     lines.append("")
     lines.append("END OF INSTRUCTIONS")
 
-    return "\n".join(lines)
-
-
-def build_sequential_step1_prompt(*, use_person_image: bool, person_description: Optional[str], pose: str, extra: str) -> str:
-    """Step 1: Wear garment on person (no environment changes).
-
-    Explicitly describe whether a person image or only a description is provided.
-    """
-    def q(s: Optional[str]) -> str:
-        return (s or "").strip()
-    lines: list[str] = []
-    lines.append("TASK")
-    if use_person_image:
-        lines.append("Use the attached person reference image and the attached garment: put the garment on that person.")
-    elif q(person_description):
-        lines.append("No person image: synthesize a person matching the provided description and put the garment on them.")
-    else:
-        lines.append("No person reference: synthesize a plausible person and put the garment on them.")
-    lines.append("")
-    lines.append("HARD CONSTRAINTS")
-    lines.append("- Do not change the person's identity, body, hair, or pose.")
-    lines.append("- Do not change or stylize the garment; preserve exact color, fabric, texture, print scale/alignment, logos, closures; ensure believable fit.")
-    lines.append("- Do not alter or stylize the background; no added props or phones.")
-    if q(pose):
-        lines.append(f"- Respect the current pose: {q(pose)}; keep the garment fully visible.")
-    if q(extra):
-        lines.append(f"- Notes: {q(extra).replace('\n',' ')}")
-    if (not use_person_image) and q(person_description):
-        lines.append("")
-        lines.append("PERSON DESCRIPTION (use this identity)")
-        lines.append(q(person_description))
-    lines.append("")
-    lines.append("OUTPUT")
-    lines.append("- One photorealistic PNG of the person now wearing the garment; neutral background unaffected; PG-13; no text/watermarks.")
-    return "\n".join(lines)
-
-
-def build_sequential_step2_prompt(*, environment: str, pose: str, extra: str, use_env_image: bool) -> str:
-    """Step 2: Place person-with-garment into mirror scene.
-
-    Explicitly describe whether an environment image is provided.
-    """
-    def q(s: Optional[str]) -> str:
-        return (s or "").strip()
-    lines: list[str] = []
-    lines.append("TASK")
-    if use_env_image:
-        lines.append("Insert the person from the attached person image into the attached mirror-scene environment.")
-    else:
-        lines.append("Insert the person from the attached person image into a synthesized mirror scene consistent with the requested environment.")
-    lines.append("")
-    lines.append("CONSTRAINTS")
-    lines.append("- Do not change the person or clothing at all; keep exact colors, textures, prints, and fit from the person image.")
-    lines.append("- Match environment lighting, camera angle, palette, shadows, and depth of field; mirror-coherent geometry.")
-    lines.append("- Mirror Selfie style: black iPhone 16 Pro occluding the face but not the garment; realistic hands; no extra phones.")
-    if q(pose):
-        lines.append(f"- Enforce pose: {q(pose)}; garment remains unobstructed.")
-    if q(extra):
-        lines.append(f"- Notes: {q(extra).replace('\n',' ')}")
-    if not use_env_image and q(environment):
-        lines.append(f"- Scene: {q(environment)}")
-    lines.append("- Photorealism; PG-13; no text/watermarks or added logos.")
-    lines.append("")
-    lines.append("OUTPUT")
-    lines.append("- One photorealistic PNG mirror selfie.")
     return "\n".join(lines)
 
 
