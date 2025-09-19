@@ -15,13 +15,148 @@ import {
 } from "@/app/components";
 import { useListingGenerator } from "@/app/hooks/use-listing-generator";
 import { getApiBase, withUserId } from "@/app/lib/api";
-import { VB_FLOW_MODE, VB_MAIN_OPTIONS, VB_ENV_DEFAULT_KEY, VB_MODEL_REFERENCE_PREF } from "@/app/lib/storage-keys";
+import {
+  VB_ENV_DEFAULT_KEY,
+  VB_FLOW_MODE,
+  VB_MAIN_OPTIONS,
+  VB_MODEL_REFERENCE_PREF,
+  VB_WALKTHROUGH_SEEN,
+} from "@/app/lib/storage-keys";
 import { buildMirrorSelfiePreview } from "@/app/lib/prompt-preview";
 import { preprocessImage } from "@/app/lib/image-preprocess";
 import { broadcastListingsUpdated } from "@/app/lib/listings-events";
+import { usePersistentState } from "@/app/lib/usePersistentState";
 
 const authClient = createAuthClient();
 const POSE_MAX = 10;
+
+const FLOW_MODE_VALUES = new Set(["classic", "sequential", "both"]);
+
+const defaultMainOptions = () => ({
+  gender: "woman",
+  environment: "studio",
+  extra: "",
+  poseCount: 3,
+});
+
+function deserializeMainOptions(value) {
+  const base = defaultMainOptions();
+  if (!value) return base;
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return base;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return base;
+  const next = { ...base, ...parsed };
+  if (typeof next.gender !== "string" || !next.gender) next.gender = base.gender;
+  if (typeof next.environment !== "string" || !next.environment) next.environment = base.environment;
+  if (typeof parsed.extra === "string") next.extra = parsed.extra;
+  else if (typeof next.extra !== "string") next.extra = base.extra;
+  let savedCount;
+  if (Number.isFinite(parsed.poseCount)) savedCount = Number(parsed.poseCount);
+  else if (Array.isArray(parsed.poses)) savedCount = parsed.poses.length;
+  else if (Number.isFinite(next.poseCount)) savedCount = Number(next.poseCount);
+  if (!Number.isFinite(savedCount) || savedCount <= 0) savedCount = base.poseCount;
+  next.poseCount = Math.min(Math.max(Math.round(savedCount), 1), POSE_MAX);
+  return next;
+}
+
+function serializeMainOptions(value) {
+  try {
+    const normalized = deserializeMainOptions(value);
+    return JSON.stringify(normalized);
+  } catch {
+    return JSON.stringify(defaultMainOptions());
+  }
+}
+
+function deserializeEnvDefaultKey(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "null" || trimmed === "undefined") return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed === null || parsed === undefined) return null;
+    if (typeof parsed === "string") return parsed;
+  } catch {}
+  return trimmed;
+}
+
+function serializeEnvDefaultKey(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  return value;
+}
+
+function deserializeModelReferencePref(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    if (trimmed === "image") return true;
+    if (trimmed === "description") return false;
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+    if (trimmed === "1") return true;
+    if (trimmed === "0") return false;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed === "image") return true;
+      if (parsed === "description") return false;
+      if (typeof parsed === "boolean") return parsed;
+    } catch {}
+  }
+  return true;
+}
+
+function serializeModelReferencePref(value) {
+  return value ? "image" : "description";
+}
+
+function deserializeFlowMode(value) {
+  if (!value) return "both";
+  if (typeof value === "string" && FLOW_MODE_VALUES.has(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed === "string" && FLOW_MODE_VALUES.has(parsed)) return parsed;
+    } catch {}
+  }
+  return "both";
+}
+
+function serializeFlowMode(value) {
+  return FLOW_MODE_VALUES.has(value) ? value : "both";
+}
+
+function deserializeWalkthroughSeen(value) {
+  if (!value) return false;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "1") return true;
+    if (trimmed === "0") return false;
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "boolean") return parsed;
+      if (typeof parsed === "number") return parsed > 0;
+    } catch {}
+    return Boolean(trimmed);
+  }
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  return Boolean(value);
+}
+
+function serializeWalkthroughSeen(value) {
+  return value ? "1" : "0";
+}
 
 export default function Home() {
   const { data: session } = authClient.useSession();
@@ -33,27 +168,60 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isPreprocessing, setIsPreprocessing] = useState(false);
-  const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const [walkthroughSeen, setWalkthroughSeen] = usePersistentState(
+    VB_WALKTHROUGH_SEEN,
+    () => false,
+    {
+      serialize: serializeWalkthroughSeen,
+      deserialize: deserializeWalkthroughSeen,
+    }
+  );
+  const showWalkthrough = !walkthroughSeen;
   // Pose choices for mirror selfie flow
-  const [options, setOptions] = useState({
-    gender: "woman",
-    environment: "studio",
-    extra: "",
-    poseCount: 3,
-  });
+  const [options, setOptions] = usePersistentState(
+    VB_MAIN_OPTIONS,
+    defaultMainOptions,
+    {
+      serialize: serializeMainOptions,
+      deserialize: deserializeMainOptions,
+    }
+  );
   // Toggle to choose whether to send the model default image (true) or
   // only its stored textual description (false) with the prompt
-  const [useModelImage, setUseModelImage] = useState(true);
+  const [useModelImage, setUseModelImage] = usePersistentState(
+    VB_MODEL_REFERENCE_PREF,
+    () => true,
+    {
+      enabled: isAdmin,
+      serialize: serializeModelReferencePref,
+      deserialize: deserializeModelReferencePref,
+    }
+  );
   const [envDefaults, setEnvDefaults] = useState([]); // [{s3_key,name,url}]
   const [envDefaultsLoading, setEnvDefaultsLoading] = useState(true);
-  const [selectedEnvDefaultKey, setSelectedEnvDefaultKey] = useState(null);
+  const [selectedEnvDefaultKey, setSelectedEnvDefaultKey] = usePersistentState(
+    VB_ENV_DEFAULT_KEY,
+    () => null,
+    {
+      serialize: serializeEnvDefaultKey,
+      deserialize: deserializeEnvDefaultKey,
+    }
+  );
   const [title, setTitle] = useState("");
   const [descEnabled, setDescEnabled] = useState(false);
   const [desc, setDesc] = useState({ brand: "", productModel: "", size: "" });
   const [productCondition, setProductCondition] = useState("");
   const [optionsCollapsed, setOptionsCollapsed] = useState(false);
   // Flow mode: classic | sequential | both
-  const [flowMode, setFlowMode] = useState("both");
+  const [flowMode, setFlowMode] = usePersistentState(
+    VB_FLOW_MODE,
+    () => "both",
+    {
+      enabled: isAdmin,
+      serialize: serializeFlowMode,
+      deserialize: deserializeFlowMode,
+    }
+  );
   // Prompt preview/editor
   const [promptInput, setPromptInput] = useState("");
   const [promptDirty, setPromptDirty] = useState(false);
@@ -75,13 +243,6 @@ export default function Home() {
     };
   }, [previewUrl]);
 
-  useEffect(() => {
-    try {
-      const seen = localStorage.getItem("vb_walkthrough_seen");
-      if (!seen) setShowWalkthrough(true);
-    } catch {}
-  }, []);
-
   // Load pose descriptions from Studio for random selection
   useEffect(() => {
     (async () => {
@@ -99,38 +260,6 @@ export default function Home() {
       } catch {}
     })();
   }, []);
-  // Load/persist flow mode selection
-  useEffect(() => {
-    if (!isAdmin) return;
-    try {
-      const saved = localStorage.getItem(VB_FLOW_MODE);
-      if (saved === "classic" || saved === "sequential" || saved === "both") setFlowMode(saved);
-    } catch {}
-  }, [isAdmin]);
-  useEffect(() => {
-    if (!isAdmin) return;
-    try { localStorage.setItem(VB_FLOW_MODE, flowMode); } catch {}
-  }, [isAdmin, flowMode]);
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    try {
-      const stored = localStorage.getItem(VB_MODEL_REFERENCE_PREF);
-      if (stored === "image" || stored === "description") setUseModelImage(stored === "image");
-    } catch {}
-  }, [isAdmin]);
-  useEffect(() => {
-    if (!isAdmin) return;
-    try { localStorage.setItem(VB_MODEL_REFERENCE_PREF, useModelImage ? "image" : "description"); } catch {}
-  }, [isAdmin, useModelImage]);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      setUseModelImage(true);
-      setFlowMode("both");
-    }
-  }, [isAdmin]);
-
   // Load environment defaults to reflect in UI label
   useEffect(() => {
     (async () => {
@@ -144,37 +273,6 @@ export default function Home() {
       setEnvDefaultsLoading(false);
     })();
   }, [userId]);
-
-  // Remember last selected options (gender, environment, poses, extra) and restore on load
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(VB_MAIN_OPTIONS);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        if (saved && typeof saved === "object") {
-          setOptions((o) => {
-            const next = {
-              ...o,
-              gender: saved.gender || o.gender,
-              environment: saved.environment || o.environment,
-              extra: typeof saved.extra === "string" ? saved.extra : o.extra,
-            };
-            const savedCount = Number.isFinite(saved.poseCount)
-              ? Number(saved.poseCount)
-              : (Array.isArray(saved.poses) ? saved.poses.length : o.poseCount);
-            if (savedCount && Number.isFinite(savedCount)) {
-              const clamped = Math.min(Math.max(Math.round(savedCount), 1), POSE_MAX);
-              next.poseCount = clamped;
-            }
-            return next;
-          });
-        }
-      }
-    } catch {}
-  }, []);
-  useEffect(() => {
-    try { localStorage.setItem(VB_MAIN_OPTIONS, JSON.stringify(options)); } catch {}
-  }, [options]);
 
   // Load model defaults (one per gender)
   const [modelDefaults, setModelDefaults] = useState({}); // { man: {s3_key,name}, woman: {...} }
@@ -206,15 +304,7 @@ export default function Home() {
     if (!hasCurrent) {
       setOptions((prev) => ({ ...prev, gender: modelDefaultList[0].gender }));
     }
-  }, [modelDefaultList, options.gender]);
-
-  // Load saved studio default selection
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(VB_ENV_DEFAULT_KEY);
-      if (saved) setSelectedEnvDefaultKey(saved);
-    } catch {}
-  }, []);
+  }, [modelDefaultList, options.gender, setOptions]);
 
   // Keep selection in sync with available defaults
   useEffect(() => {
@@ -223,18 +313,15 @@ export default function Home() {
     if (!exists) {
       const first = envDefaults[0]?.s3_key || null;
       setSelectedEnvDefaultKey(first);
-      try {
-        if (first) localStorage.setItem(VB_ENV_DEFAULT_KEY, first);
-      } catch {}
     }
-  }, [envDefaults, selectedEnvDefaultKey]);
+  }, [envDefaults, selectedEnvDefaultKey, setSelectedEnvDefaultKey]);
 
   // If defaults exist, force environment to studio in options
   useEffect(() => {
     if (envDefaults && envDefaults.length > 0 && options.environment !== "studio") {
       setOptions((o) => ({ ...o, environment: "studio" }));
     }
-  }, [envDefaults, options.environment]);
+  }, [envDefaults, options.environment, setOptions]);
 
   async function handleInitDb() {
     if (!isAdmin || initDbBusy) return;
@@ -253,8 +340,7 @@ export default function Home() {
   }
 
   function dismissWalkthrough() {
-    setShowWalkthrough(false);
-    try { localStorage.setItem("vb_walkthrough_seen", "1"); } catch {}
+    setWalkthroughSeen(true);
   }
 
   const getRandomPoseDescription = useCallback(() => {
@@ -424,7 +510,6 @@ export default function Home() {
 
   function handleSelectEnvironmentDefault(key) {
     setSelectedEnvDefaultKey(key);
-    try { localStorage.setItem(VB_ENV_DEFAULT_KEY, key); } catch {}
     if (options.environment !== "studio") {
       setOptions((o) => ({ ...o, environment: "studio" }));
     }
