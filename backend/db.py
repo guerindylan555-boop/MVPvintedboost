@@ -38,14 +38,6 @@ class EnvSource(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
-class EnvDefault(Base):
-    __tablename__ = "env_defaults"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    s3_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
-    name: Mapped[str] = mapped_column(String(128), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-
-
 class ModelDefault(Base):
     __tablename__ = "model_defaults"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -100,8 +92,7 @@ class ProductDescription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
-# Per-user environment defaults (new table). We keep the legacy global
-# table `env_defaults` for backward compatibility but stop using it.
+# Per-user environment defaults table.
 class EnvDefaultUser(Base):
     __tablename__ = "env_defaults_user"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
