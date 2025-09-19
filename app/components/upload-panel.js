@@ -12,6 +12,7 @@ export function UploadPanel({
   plannedImagesCount,
   title,
   onTitleChange,
+  titleHelpText,
   onTriggerPick,
   onTriggerCamera,
   onFileChange,
@@ -20,6 +21,8 @@ export function UploadPanel({
   onDragLeave,
   onClearSelection,
 }) {
+  const titleDescriptionId = titleHelpText ? "listing-title-helper" : undefined;
+
   return (
     <div className="rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -91,14 +94,23 @@ export function UploadPanel({
         )}
       </div>
       <div className="mt-4">
-        <label className="text-xs text-foreground/70">Listing title</label>
+        <label className="text-xs text-foreground/70" htmlFor="listing-title">
+          Listing title
+        </label>
         <input
+          id="listing-title"
           type="text"
           placeholder="Give this generation a name"
           className="mt-2 h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
+          aria-describedby={titleDescriptionId}
         />
+        {titleHelpText ? (
+          <p id={titleDescriptionId} className="mt-2 text-xs text-foreground/60">
+            {titleHelpText}
+          </p>
+        ) : null}
       </div>
     </div>
   );
