@@ -476,17 +476,17 @@ export default function StudioPage() {
                   <CheckCircle2 className="size-4" aria-hidden="true" />
                   <span className="sr-only">Default environment</span>
                 </div>
-                <div className="absolute right-3 top-3 flex flex-col gap-2">
+                <div className="absolute right-3 top-3 flex flex-col gap-2 text-xs">
                   <button
                     type="button"
                     onClick={async () => {
                       if (!confirm("Remove this default?")) return;
                       await removeEnvDefault(item.s3_key);
                     }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
-                    aria-label="Remove default"
+                    className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
                   >
                     <Trash2 className="size-4" aria-hidden="true" />
+                    Remove default
                   </button>
                 </div>
               </div>
@@ -587,7 +587,7 @@ export default function StudioPage() {
                     <span className="sr-only">Default environment</span>
                   </div>
                 )}
-                <div className="absolute right-3 top-3 flex flex-col gap-2">
+                <div className="absolute right-3 top-3 flex flex-col gap-2 text-xs">
                   {isDefault ? (
                     <button
                       type="button"
@@ -595,10 +595,10 @@ export default function StudioPage() {
                         if (!confirm("Remove this default?")) return;
                         await removeEnvDefault(item.s3_key);
                       }}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
-                      aria-label="Remove from defaults"
+                      className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
                     >
                       <MinusCircle className="size-4" aria-hidden="true" />
+                      Remove default
                     </button>
                   ) : (
                     <button
@@ -606,15 +606,15 @@ export default function StudioPage() {
                       onClick={async () => {
                         await addEnvDefault(item.s3_key);
                       }}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
-                      aria-label="Add to defaults"
+                      className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 font-semibold text-white shadow hover:bg-blue-700"
                     >
                       <PlusCircle className="size-4" aria-hidden="true" />
+                      Add to default
                     </button>
                   )}
                   <button
                     type="button"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
+                    className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 font-semibold text-white shadow hover:bg-red-700"
                     onClick={async () => {
                       if (!confirm("Delete this image? This cannot be undone.")) return;
                       try {
@@ -630,6 +630,7 @@ export default function StudioPage() {
                     aria-label="Delete environment"
                   >
                     <Trash2 className="size-4" aria-hidden="true" />
+                    Delete
                   </button>
                 </div>
               </div>
@@ -707,36 +708,42 @@ export default function StudioPage() {
                 data ? "border-foreground/30 ring-2 ring-foreground/40" : "border-foreground/15"
               }`}
             >
-              <div className="aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[4/5] bg-black/5">
                 {data?.url ? (
-                  <img src={data.url} alt={label} className="h-full w-full object-cover" />
+                  <>
+                    <img src={data.url} alt={label} className="h-full w-full object-cover" />
+                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
+                      <CheckCircle2 className="size-4" aria-hidden="true" />
+                      <span className="sr-only">Default model</span>
+                    </div>
+                    <div className="absolute right-3 top-3 flex flex-col gap-2 text-xs">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
+                        onClick={async () => {
+                          if (!confirm("Remove this default?")) return;
+                          try {
+                            const baseUrl = getApiBase();
+                            const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
+                            if (!res.ok) throw new Error(await res.text());
+                            await refreshModelDefaults();
+                          } catch (err) {
+                            alert("Failed to remove default");
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                        Remove default
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <div className="flex h-full items-center justify-center text-xs text-foreground/60">No default set</div>
                 )}
               </div>
-              <div className="space-y-2 px-3 py-3 text-xs text-foreground/70">
+              <div className="px-3 py-3 text-xs text-foreground/70">
                 <p className="text-sm font-semibold text-foreground">{label}</p>
                 <p className="truncate">{data?.name || (data ? "Untitled" : "—")}</p>
-                <p className="truncate">{data?.s3_key || "No image selected"}</p>
-                {data && (
-                  <button
-                    type="button"
-                    className="inline-flex h-8 items-center justify-center rounded-md border border-red-500 px-3 font-semibold text-red-600"
-                    onClick={async () => {
-                      if (!confirm("Remove this default?")) return;
-                      try {
-                        const baseUrl = getApiBase();
-                        const res = await fetch(`${baseUrl}/model/defaults?gender=${encodeURIComponent(gender)}`, { method: "DELETE" });
-                        if (!res.ok) throw new Error(await res.text());
-                        await refreshModelDefaults();
-                      } catch (err) {
-                        alert("Failed to remove default");
-                      }
-                    }}
-                  >
-                    Remove default
-                  </button>
-                )}
               </div>
             </div>
           ))}
@@ -829,11 +836,11 @@ export default function StudioPage() {
                       <span className="sr-only">Default model</span>
                     </div>
                   )}
-                  <div className="absolute right-3 top-3 flex flex-col gap-2">
+                  <div className="absolute right-3 top-3 flex flex-col gap-2 text-xs">
                     {isDefault ? (
                       <button
                         type="button"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
+                        className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
                         onClick={async () => {
                           if (!confirm("Remove this default?")) return;
                           try {
@@ -845,14 +852,14 @@ export default function StudioPage() {
                             alert("Failed to remove default");
                           }
                         }}
-                        aria-label="Remove default"
                       >
                         <MinusCircle className="size-4" aria-hidden="true" />
+                        Remove default
                       </button>
                     ) : (
                       <button
                         type="button"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
+                        className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 font-semibold text-white shadow hover:bg-blue-700"
                         onClick={async () => {
                           try {
                             const baseUrl = getApiBase();
@@ -867,14 +874,14 @@ export default function StudioPage() {
                             alert("Failed to set default");
                           }
                         }}
-                        aria-label="Set default"
                       >
                         <PlusCircle className="size-4" aria-hidden="true" />
+                        Add to default
                       </button>
                     )}
                     <button
                       type="button"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-black/50 text-white transition hover:border-white"
+                      className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 font-semibold text-white shadow hover:bg-red-700"
                       onClick={async () => {
                         if (!confirm("Delete this model?")) return;
                         try {
@@ -886,9 +893,9 @@ export default function StudioPage() {
                           alert("Delete failed");
                         }
                       }}
-                      aria-label="Delete model"
                     >
                       <Trash2 className="size-4" aria-hidden="true" />
+                      Delete
                     </button>
                   </div>
                 </div>
