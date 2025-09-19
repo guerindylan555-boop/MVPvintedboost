@@ -1,11 +1,3 @@
-export const spacing = {
-  xs: "0.5rem",
-  sm: "0.75rem",
-  md: "1rem",
-  lg: "1.5rem",
-  xl: "2rem",
-};
-
 export const radius = {
   sm: "0.5rem",
   md: "0.75rem",
