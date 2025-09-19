@@ -1,6 +1,8 @@
+import json
 import os
+import time
 from io import BytesIO
-from typing import Optional
+from typing import Optional, Any
 
 import logging
 from fastapi import FastAPI, UploadFile, Form, File, Header, HTTPException, status
@@ -46,6 +48,11 @@ from .storage import (
 from sqlalchemy import select, func, text
 import asyncio
 import uuid
+
+try:
+    from redis import asyncio as redis_asyncio  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover - optional dependency guard
+    redis_asyncio = None  # type: ignore[assignment]
 from .prompts import (
     classic_detailed,
     classic_concise,
@@ -55,14 +62,106 @@ from .prompts import (
     seq_step2_concise,
 )
 
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "")
+    try:
+        return int(raw) if raw.strip() else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "")
+    try:
+        return float(raw) if raw.strip() else default
+    except (TypeError, ValueError):
+        return default
+
+
 # Config
 MODEL = os.getenv("GENAI_MODEL", "gemini-2.5-flash-image-preview")
 API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GARMENT_TYPE_CLASSIFY = os.getenv("GARMENT_TYPE_CLASSIFY", "1").strip().lower() not in ("0", "false", "no")
-GARMENT_TYPE_TTL_SECONDS = int(os.getenv("GARMENT_TYPE_TTL_SECONDS", "86400") or "86400")
+GARMENT_TYPE_TTL_SECONDS = _env_int("GARMENT_TYPE_TTL_SECONDS", 86400)
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+GARMENT_TYPE_CACHE_VERSION = os.getenv("GARMENT_TYPE_CACHE_VERSION", "v1").strip() or "v1"
+GARMENT_TYPE_CACHE_PREFIX = os.getenv("GARMENT_TYPE_CACHE_PREFIX", "garment_type").strip() or "garment_type"
+GARMENT_TYPE_LOCK_TTL_SECONDS = max(1, _env_int("GARMENT_TYPE_LOCK_TTL_SECONDS", 30))
+GARMENT_TYPE_LOCK_WAIT_SECONDS = max(0.5, _env_float("GARMENT_TYPE_LOCK_WAIT_SECONDS", 5.0))
+REDIS_OP_TIMEOUT_SECONDS = max(0.1, _env_float("REDIS_OP_TIMEOUT_SECONDS", 0.5))
+REDIS_OPERATION_RETRIES = max(0, _env_int("REDIS_OPERATION_RETRIES", 1))
+REDIS_RETRY_BACKOFF_SECONDS = max(5.0, _env_float("REDIS_RETRY_BACKOFF_SECONDS", 60.0))
 
 app = FastAPI(title="VintedBoost Backend", version="0.1.0")
 logger = logging.getLogger("uvicorn.error")
+
+_redis_client: Any | None = None
+_redis_retry_at: float | None = None
+_redis_connect_lock = asyncio.Lock()
+_local_singleflight_locks: dict[str, asyncio.Lock] = {}
+_local_singleflight_guard = asyncio.Lock()
+
+
+async def get_redis_client() -> Any | None:
+    """Return a shared Redis client when REDIS_URL is configured."""
+
+    global _redis_client, _redis_retry_at
+    if not REDIS_URL or redis_asyncio is None:
+        return None
+    if _redis_client is not None:
+        return _redis_client
+    loop = asyncio.get_running_loop()
+    now = loop.time()
+    if _redis_retry_at and now < _redis_retry_at:
+        return None
+    async with _redis_connect_lock:
+        if _redis_client is not None:
+            return _redis_client
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        if _redis_retry_at and now < _redis_retry_at:
+            return None
+        candidate: Any | None = None
+        try:
+            candidate = redis_asyncio.from_url(
+                REDIS_URL,
+                encoding="utf-8",
+                decode_responses=False,
+                socket_timeout=REDIS_OP_TIMEOUT_SECONDS,
+                socket_connect_timeout=REDIS_OP_TIMEOUT_SECONDS,
+                retry_on_timeout=False,
+            )
+            await asyncio.wait_for(candidate.ping(), timeout=REDIS_OP_TIMEOUT_SECONDS)
+        except Exception as exc:  # pragma: no cover - network errors
+            logger.warning("Failed to initialize Redis client: %s", exc)
+            _redis_client = None
+            _redis_retry_at = now + REDIS_RETRY_BACKOFF_SECONDS
+            if candidate is not None:
+                try:
+                    await candidate.close()
+                except Exception:
+                    pass
+            return None
+        _redis_client = candidate
+        _redis_retry_at = None
+        return _redis_client
+
+
+async def _record_redis_failure(exc: Exception) -> None:
+    """Invalidate the active Redis client following an operational error."""
+
+    global _redis_client, _redis_retry_at
+    loop = asyncio.get_running_loop()
+    _redis_retry_at = loop.time() + REDIS_RETRY_BACKOFF_SECONDS
+    client = _redis_client
+    _redis_client = None
+    if client is not None:
+        try:
+            await client.close()
+        except Exception:
+            pass
+    logger.warning("Redis unavailable, falling back to local cache: %s", exc)
 
 # CORS - allow local Next.js dev and same-origin deployments
 # CORS origins from env (comma-separated). Fallback to permissive during MVP.
@@ -88,13 +187,135 @@ def get_client() -> genai.Client:
     return _client
 
 # --- Garment type classification (top | bottom | full) ---
-_garment_type_cache: dict[str, tuple[float, str]] = {}
+_garment_type_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
-def _sha1(data: bytes) -> str:
+
+def _hash_bytes(data: bytes) -> str:
     import hashlib
-    h = hashlib.sha1()
+
+    h = hashlib.sha256()
     h.update(data)
     return h.hexdigest()
+
+
+def _cache_key(image_hash: str) -> str:
+    return f"{GARMENT_TYPE_CACHE_PREFIX}:{GARMENT_TYPE_CACHE_VERSION}:{image_hash}"
+
+
+def _lock_key(image_hash: str) -> str:
+    return f"{GARMENT_TYPE_CACHE_PREFIX}:lock:{GARMENT_TYPE_CACHE_VERSION}:{image_hash}"
+
+
+def _build_cache_payload(garment_type: str, *, origin: str, ts: float) -> dict[str, Any]:
+    return {
+        "type": garment_type,
+        "origin": origin,
+        "ts": ts,
+        "model_id": MODEL,
+    }
+
+
+async def _get_local_singleflight_lock(image_hash: str) -> asyncio.Lock:
+    async with _local_singleflight_guard:
+        lock = _local_singleflight_locks.get(image_hash)
+        if lock is None:
+            lock = asyncio.Lock()
+            _local_singleflight_locks[image_hash] = lock
+        return lock
+
+
+async def _redis_execute(fn):
+    attempts = max(1, REDIS_OPERATION_RETRIES + 1)
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return await asyncio.wait_for(fn(), timeout=REDIS_OP_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, Exception) as exc:
+            last_exc = exc
+            if attempt >= attempts - 1:
+                raise
+            await asyncio.sleep(min(0.2, 0.05 * (attempt + 1)))
+    if last_exc is not None:
+        raise last_exc
+    return None
+
+
+def _decode_cache_payload(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, (bytes, bytearray)):
+        raw_str = raw.decode("utf-8", "ignore")
+    else:
+        raw_str = str(raw)
+    try:
+        payload = json.loads(raw_str)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    garment_type = payload.get("type")
+    if not isinstance(garment_type, str):
+        return None
+    normalized = _normalize_garment_type(garment_type)
+    if not normalized:
+        return None
+    payload["type"] = normalized
+    return payload
+
+
+async def _redis_get_payload(redis_client: Any, redis_key: str) -> dict[str, Any] | None:
+    raw = await _redis_execute(lambda: redis_client.get(redis_key))
+    return _decode_cache_payload(raw)
+
+
+async def _redis_set_payload(redis_client: Any, redis_key: str, payload: dict[str, Any]) -> None:
+    data = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    await _redis_execute(lambda: redis_client.set(redis_key, data, ex=GARMENT_TYPE_TTL_SECONDS))
+
+
+async def _acquire_redis_lock(redis_client: Any, lock_key: str, token: str) -> bool:
+    result = await _redis_execute(
+        lambda: redis_client.set(lock_key, token, nx=True, ex=GARMENT_TYPE_LOCK_TTL_SECONDS)
+    )
+    return bool(result)
+
+
+async def _release_redis_lock(redis_client: Any, lock_key: str, token: str) -> None:
+    script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
+    try:
+        await _redis_execute(lambda: redis_client.eval(script, 1, lock_key, token))
+    except Exception:
+        # Release failures should not block request handling
+        pass
+
+
+async def _wait_for_redis_payload(
+    redis_client: Any, redis_key: str, lock_key: str, *, deadline: float
+) -> dict[str, Any] | None:
+    loop = asyncio.get_running_loop()
+    while loop.time() < deadline:
+        try:
+            payload = await _redis_get_payload(redis_client, redis_key)
+        except Exception as exc:
+            await _record_redis_failure(exc)
+            return None
+        if payload:
+            return payload
+        try:
+            lock_exists = await _redis_execute(lambda: redis_client.exists(lock_key))
+        except Exception as exc:
+            await _record_redis_failure(exc)
+            return None
+        if not lock_exists:
+            # Another worker released lock without writing a value
+            try:
+                payload = await _redis_get_payload(redis_client, redis_key)
+            except Exception as exc:
+                await _record_redis_failure(exc)
+                return None
+            return payload
+        await asyncio.sleep(0.1)
+    return None
 
 def _normalize_garment_type(label: str) -> Optional[str]:
     s = (label or "").strip().lower()
@@ -112,48 +333,140 @@ def _normalize_garment_type(label: str) -> Optional[str]:
 async def _classify_garment_type(image_png: bytes, override: Optional[str] = None) -> str:
     """Classify garment coverage. Returns one of: top|bottom|full.
 
-    Uses in-memory TTL cache keyed by SHA1 of image bytes.
+    Uses an in-memory TTL cache with optional Redis distribution. The cache key is a
+    SHA256 digest of the normalized garment image bytes.
     """
-    # Explicit override from client/UI takes precedence
-    if override and _normalize_garment_type(override):
-        return _normalize_garment_type(override) or "full"
+
+    normalized_override = _normalize_garment_type(override or "") if override else None
+    if normalized_override:
+        return normalized_override
     if not GARMENT_TYPE_CLASSIFY:
         return "full"
-    key = _sha1(image_png)
-    now = asyncio.get_event_loop().time()
-    cached = _garment_type_cache.get(key)
-    if cached and cached[0] > now:
-        return cached[1]
-    instruction = (
-        "From the attached garment image, classify coverage for try-on. "
-        "Return ONLY one word: top (upper body), bottom (lower body), or full (one piece covering upper+lower like dress/jumpsuit/romper/overalls). "
-        "Output: top|bottom|full."
-    )
-    parts = [
-        types.Part.from_text(text=instruction),
-        types.Part.from_bytes(data=image_png, mime_type="image/png"),
-    ]
+
+    loop = asyncio.get_running_loop()
+    image_hash = _hash_bytes(image_png)
+    now = loop.time()
+    cached_entry = _garment_type_cache.get(image_hash)
+    if cached_entry and cached_entry[0] > now:
+        return cached_entry[1]["type"]
+
+    redis_client = await get_redis_client()
+    redis_key = _cache_key(image_hash)
+    lock_key = _lock_key(image_hash)
+    if redis_client and GARMENT_TYPE_TTL_SECONDS > 0:
+        try:
+            payload = await _redis_get_payload(redis_client, redis_key)
+        except Exception as exc:  # pragma: no cover - network errors
+            await _record_redis_failure(exc)
+            redis_client = None
+        else:
+            if payload:
+                _garment_type_cache[image_hash] = (
+                    loop.time() + GARMENT_TYPE_TTL_SECONDS,
+                    payload,
+                )
+                return payload["type"]
+
+    lock_token = uuid.uuid4().hex
+    redis_lock_acquired = False
+    lock_client: Any | None = None
+    local_lock: asyncio.Lock | None = None
+    local_lock_acquired = False
     try:
-        resp = await _genai_generate_with_retries(parts, attempts=2)
-        label_text: Optional[str] = None
-        for c in getattr(resp, "candidates", []) or []:
-            content = getattr(c, "content", None)
-            prts = getattr(content, "parts", None) if content is not None else None
-            if not prts:
-                continue
-            for p in prts:
-                if getattr(p, "text", None):
-                    label_text = p.text
+        if redis_client:
+            try:
+                redis_lock_acquired = await _acquire_redis_lock(redis_client, lock_key, lock_token)
+            except Exception as exc:  # pragma: no cover - network errors
+                await _record_redis_failure(exc)
+                redis_client = None
+            else:
+                if not redis_lock_acquired:
+                    deadline = loop.time() + GARMENT_TYPE_LOCK_WAIT_SECONDS
+                    payload = await _wait_for_redis_payload(
+                        redis_client, redis_key, lock_key, deadline=deadline
+                    )
+                    if payload:
+                        if GARMENT_TYPE_TTL_SECONDS > 0:
+                            _garment_type_cache[image_hash] = (
+                                loop.time() + GARMENT_TYPE_TTL_SECONDS,
+                                payload,
+                            )
+                        return payload["type"]
+                else:
+                    lock_client = redis_client
+        if not redis_lock_acquired:
+            local_lock = await _get_local_singleflight_lock(image_hash)
+            await local_lock.acquire()
+            local_lock_acquired = True
+
+        now = loop.time()
+        cached_entry = _garment_type_cache.get(image_hash)
+        if cached_entry and cached_entry[0] > now:
+            return cached_entry[1]["type"]
+
+        if redis_client:
+            try:
+                payload = await _redis_get_payload(redis_client, redis_key)
+            except Exception as exc:  # pragma: no cover - network errors
+                await _record_redis_failure(exc)
+                redis_client = None
+            else:
+                if payload:
+                    if GARMENT_TYPE_TTL_SECONDS > 0:
+                        _garment_type_cache[image_hash] = (
+                            loop.time() + GARMENT_TYPE_TTL_SECONDS,
+                            payload,
+                        )
+                    return payload["type"]
+
+        instruction = (
+            "From the attached garment image, classify coverage for try-on. "
+            "Return ONLY one word: top (upper body), bottom (lower body), or full (one piece covering upper+lower like dress/jumpsuit/romper/overalls). "
+            "Output: top|bottom|full."
+        )
+        parts = [
+            types.Part.from_text(text=instruction),
+            types.Part.from_bytes(data=image_png, mime_type="image/png"),
+        ]
+        try:
+            resp = await _genai_generate_with_retries(parts, attempts=2)
+            label_text: Optional[str] = None
+            for c in getattr(resp, "candidates", []) or []:
+                content = getattr(c, "content", None)
+                prts = getattr(content, "parts", None) if content is not None else None
+                if not prts:
+                    continue
+                for p in prts:
+                    if getattr(p, "text", None):
+                        label_text = p.text
+                        break
+                if label_text:
                     break
-            if label_text:
-                break
-        t = _normalize_garment_type(label_text or "")
-        garment_type = t or "full"
-    except Exception:
-        garment_type = "full"
-    # Cache with TTL
-    _garment_type_cache[key] = (now + GARMENT_TYPE_TTL_SECONDS, garment_type)
-    return garment_type
+            t = _normalize_garment_type(label_text or "")
+            garment_type = t or "full"
+        except Exception:
+            garment_type = "full"
+        payload = _build_cache_payload(garment_type, origin="classifier", ts=time.time())
+        if GARMENT_TYPE_TTL_SECONDS > 0:
+            _garment_type_cache[image_hash] = (
+                loop.time() + GARMENT_TYPE_TTL_SECONDS,
+                payload,
+            )
+        if redis_client and GARMENT_TYPE_TTL_SECONDS > 0:
+            try:
+                await _redis_set_payload(redis_client, redis_key, payload)
+            except Exception as exc:  # pragma: no cover - network errors
+                await _record_redis_failure(exc)
+        return garment_type
+    finally:
+        if local_lock_acquired and local_lock is not None and local_lock.locked():
+            local_lock.release()
+        if lock_client is not None and redis_lock_acquired:
+            try:
+                await _release_redis_lock(lock_client, lock_key, lock_token)
+            except Exception:
+                pass
+
 
 
 def _normalize_to_png_limited(raw_bytes: bytes, *, max_px: int = 2048) -> bytes:
@@ -222,6 +535,25 @@ async def on_startup():
         logger.exception("Failed to initialize DB (startup)")
         # Re-raise to crash the worker/container; orchestration should restart once env is fixed
         raise
+    if REDIS_URL and redis_asyncio is not None:
+        try:
+            client = await get_redis_client()
+            if client is not None:
+                logger.info("Redis client ready")
+        except Exception:
+            logger.exception("Redis startup check failed")
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    global _redis_client
+    client = _redis_client
+    _redis_client = None
+    if client is not None:
+        try:
+            await client.close()
+        except Exception:
+            pass
 
 
 def _require_admin(authorization: str | None) -> None:

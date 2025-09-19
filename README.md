@@ -102,6 +102,16 @@ npm run api        # runs uvicorn backend on :8000
 export NEXT_PUBLIC_API_BASE_URL="http://localhost:8000"
 npm run dev        # runs Next.js on :3000
 ```
+Optional: run Redis locally for background workers/caching:
+
+```bash
+docker run --rm -p 6379:6379 redis:7-alpine
+```
+Export a Redis URL so the backend reuses the shared client:
+
+```bash
+export REDIS_URL="redis://localhost:6379/0"
+```
 Alternative: run both with one command (uses `concurrently`):
 ```bash
 npm run dev:full
@@ -151,6 +161,14 @@ npm run dev:full
       -H "Authorization: Bearer $ADMIN_BEARER_TOKEN"
     ```
   - Returns `{ ok: true, message: "DB initialized" }` on success.
+
+#### Garment-type cache & Redis
+- `REDIS_URL` (optional) enables a shared Redis client that is opened on app startup and closed on shutdown. When unset, the backend sticks to the in-process TTL cache.
+- Cache entries use SHA256(image) keys under `garment_type:<version>:<hash>` (configurable via `GARMENT_TYPE_CACHE_PREFIX` and `GARMENT_TYPE_CACHE_VERSION`). Payloads are compact JSON blobs: `{ "type": "top|bottom|full", "origin": "classifier", "ts": <unix>, "model_id": <genai model> }`.
+- A 24h TTL (overridable via `GARMENT_TYPE_TTL_SECONDS`) keeps Redis and local memory in sync. Keys expire automatically so prompt tweaks can roll out by bumping the cache version.
+- Single-flight protection avoids stampedes: a short-lived Redis lock (`GARMENT_TYPE_LOCK_TTL_SECONDS`, default 30s) coordinates workers, and an in-process `asyncio.Lock` covers the no-Redis path. Waiters poll for the cached result for up to `GARMENT_TYPE_LOCK_WAIT_SECONDS`.
+- Redis operations run with strict timeouts/retries (`REDIS_OP_TIMEOUT_SECONDS`, `REDIS_OPERATION_RETRIES`, `REDIS_RETRY_BACKOFF_SECONDS`). Any network/auth failure clears the shared client and falls back to the local classifier so requests still succeed.
+- Persisted listings keep the garment type in Postgres metadata; the Redis/in-memory cache is strictly an acceleration layer and can be flushed at any time without losing canonical data.
 
 ### Model and SDK
 - Model: `gemini-2.5-flash-image-preview` (aka Nano Banana) for both image generation and text-from-image descriptions
@@ -212,6 +230,9 @@ AWS_ACCESS_KEY_ID=<aws-access-key>
 AWS_SECRET_ACCESS_KEY=<aws-secret>
 AWS_REGION=<aws-region>
 AWS_S3_BUCKET=<bucket-name>
+
+# Redis (optional but recommended for Celery/RQ workers and shared caching)
+REDIS_URL=redis://:password@<redis-internal-host>:6379/0
 
 # Garment type classification (optional)
 GARMENT_TYPE_CLASSIFY=1                 # 1 to enable auto-detection (default), 0 to disable
@@ -328,6 +349,12 @@ NEXT_PUBLIC_API_BASE_URL=https://<your-backend-domain>  # e.g., https://api.<you
 - Volume: mount `/var/lib/postgresql/data`
 - Env: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - Do not expose publicly; use internal host in `DATABASE_URL`
+
+### Redis on Dokploy (broker/cache)
+- App: image `redis:7-alpine`
+- Volume: mount `/data` if you want persistence across restarts
+- Optional command: `redis-server --appendonly yes --requirepass <password>`
+- Do not expose publicly; reference the internal host/port (and password if set) in `REDIS_URL`
 
 ## API reference (short)
 
