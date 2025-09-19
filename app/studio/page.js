@@ -1141,40 +1141,40 @@ export default function StudioPage() {
         </nav>
       </aside>
       <div className="flex flex-1 flex-col">
-        <header className="border-b border-black/10 bg-black/5 dark:border-white/15 dark:bg-white/5">
-          <div className="px-4 py-4 lg:px-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">{currentCopy.title}</h2>
+        <header className="border-b border-black/10 bg-background/95 backdrop-blur-sm dark:border-white/15 dark:bg-background/80">
+          <div className="px-4 py-6 lg:px-8">
+            <div className="mx-auto flex max-w-4xl flex-col items-center gap-4 text-center">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold tracking-tight">{currentCopy.title}</h2>
                 <p className="text-sm text-foreground/60">{currentCopy.description}</p>
               </div>
-              <div className="flex items-center gap-2">
-                {isAdmin && (
-                  <a
-                    href="/studio/admin"
-                    className="inline-flex h-9 items-center justify-center rounded-md border border-black/10 px-3 text-xs font-semibold dark:border-white/15"
-                  >
-                    Admin tools
-                  </a>
-                )}
+              <div className="flex flex-wrap justify-center gap-3">
+                {navItems.map((item) => {
+                  const isActive = activeSection === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setActiveSection(item.key)}
+                      className={`rounded-full px-5 py-2 text-sm font-semibold transition shadow-sm ${
+                        isActive
+                          ? "bg-foreground text-background shadow-lg"
+                          : "border border-foreground/20 bg-background text-foreground/70 hover:border-foreground/40"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
-            <div className="mt-4 flex gap-2 overflow-x-auto lg:hidden">
-              {navItems.map((item) => {
-                const isActive = activeSection === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setActiveSection(item.key)}
-                    className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
-                      isActive ? "bg-foreground text-background" : "border border-foreground/20 text-foreground/70"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
+              {isAdmin && (
+                <a
+                  href="/studio/admin"
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-foreground/20 px-4 text-xs font-semibold text-foreground/70 hover:border-foreground/40"
+                >
+                  Admin tools
+                </a>
+              )}
             </div>
           </div>
         </header>
