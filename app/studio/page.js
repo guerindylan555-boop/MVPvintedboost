@@ -461,18 +461,18 @@ export default function StudioPage() {
   const renderEnvironmentLibrary = () => {
     if (envLibraryView === "defaults") {
       if (defaults.length === 0) {
-        return <p className="text-xs text-foreground/60">You have no saved defaults yet. Promote generated scenes from the Generated tab.</p>;
+        return <p className="text-xs text-[color:var(--color-text-secondary)]">You have no saved defaults yet. Promote generated scenes from the Generated tab.</p>;
       }
       return (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {defaults.map((item) => (
             <div
               key={item.s3_key}
-              className="group rounded-2xl border border-foreground/30 ring-2 ring-foreground/40 bg-background overflow-hidden shadow-sm"
+              className="group rounded-2xl border border-[color:var(--color-border-strong)] ring-2 ring-[color:var(--color-accent)] bg-[color:var(--color-surface)] overflow-hidden shadow-sm"
             >
-              <div className="relative aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                 <img src={item.url} alt={item.name || "Environment default"} className="h-full w-full object-cover" />
-                <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
+                <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
                   <CheckCircle2 className="size-4" aria-hidden="true" />
                   <span className="sr-only">Default environment</span>
                 </div>
@@ -483,7 +483,7 @@ export default function StudioPage() {
                       if (!confirm("Remove this default?")) return;
                       await removeEnvDefault(item.s3_key);
                     }}
-                    className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
+                    className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-surface-strong)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-surface)]"
                   >
                     <Trash2 className="size-4" aria-hidden="true" />
                     Remove default
@@ -499,40 +499,40 @@ export default function StudioPage() {
     if (envLibraryView === "sources") {
       return (
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-black/10 bg-background p-5 dark:border-white/15 dark:bg-white/5">
+          <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5">
             <h4 className="text-sm font-semibold">Upload new sources</h4>
-            <p className="mt-1 text-xs text-foreground/60">Source environments help the generator learn your style.</p>
+            <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Source environments help the generator learn your style.</p>
             <input
               type="file"
               accept="image/*"
               multiple
               onChange={handleBulkChange}
-              className="mt-3 block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 file:bg-transparent file:px-3 file:py-2 dark:file:border-white/15"
+              className="mt-3 block w-full text-sm file:mr-3 file:rounded-md file:border file:border-[color:var(--color-border)] file:bg-transparent file:px-3 file:py-2"
             />
             {bulkFiles.length > 0 && (
-              <div className="mt-3 flex items-center justify-between text-xs text-foreground/60">
+              <div className="mt-3 flex items-center justify-between text-xs text-[color:var(--color-text-secondary)]">
                 <span>{bulkFiles.length} file(s) selected</span>
                 <button
                   type="button"
                   onClick={handleBulkUpload}
-                  className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-3 font-semibold text-background"
+                  className="inline-flex h-9 items-center justify-center rounded-md bg-[color:var(--color-accent)] px-3 font-semibold text-[color:var(--color-accent-contrast)]"
                 >
                   Upload
                 </button>
               </div>
             )}
           </div>
-          <div className="rounded-2xl border border-black/10 bg-background p-5 dark:border-white/15 dark:bg-white/5">
+          <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5">
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-semibold">Uploaded sources</h4>
-                <p className="mt-1 text-xs text-foreground/60">{sources.length} stored photo(s).</p>
+                <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">{sources.length} stored photo(s).</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={refreshSources}
-                  className="inline-flex h-8 items-center justify-center rounded-md border border-black/10 px-2 text-xs dark:border-white/15"
+                  className="inline-flex h-8 items-center justify-center rounded-md border border-[color:var(--color-border)] px-2 text-xs"
                 >
                   Refresh
                 </button>
@@ -548,9 +548,9 @@ export default function StudioPage() {
               </div>
             </div>
             {sources.length === 0 ? (
-              <p className="mt-3 text-xs text-foreground/60">No sources uploaded yet.</p>
+              <p className="mt-3 text-xs text-[color:var(--color-text-secondary)]">No sources uploaded yet.</p>
             ) : (
-              <ul className="mt-3 space-y-1 text-xs text-foreground/70">
+              <ul className="mt-3 space-y-1 text-xs text-[color:var(--color-text-secondary)]">
                 {sources.map((src) => (
                   <li key={src.s3_key} className="truncate">{src.s3_key}</li>
                 ))}
@@ -562,7 +562,7 @@ export default function StudioPage() {
     }
 
     if (generated.length === 0) {
-      return <p className="text-xs text-foreground/60">Generate a scene to see it listed here.</p>;
+      return <p className="text-xs text-[color:var(--color-text-secondary)]">Generate a scene to see it listed here.</p>;
     }
 
     return (
@@ -573,16 +573,16 @@ export default function StudioPage() {
           return (
             <div
               key={item.s3_key}
-              className={`group rounded-2xl border bg-background overflow-hidden transition ${
+              className={`group rounded-2xl border bg-[color:var(--color-surface)] overflow-hidden transition ${
                 isDefault
-                  ? "border-blue-500 ring-2 ring-blue-300 shadow-lg"
-                  : "border-foreground/15 hover:border-foreground/40"
+                  ? "border-[color:var(--color-accent)] ring-2 ring-[color:var(--color-accent)] shadow-lg"
+                  : "border-[color:var(--color-border)] hover:border-[color:var(--color-border-strong)]"
               }`}
             >
-              <div className="relative aspect-[3/4] md:aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[3/4] md:aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                 <img src={src} alt="Generated environment" className="h-full w-full object-cover" />
                 {isDefault && (
-                  <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
+                  <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
                     <CheckCircle2 className="size-4" aria-hidden="true" />
                     <span className="sr-only">Default environment</span>
                   </div>
@@ -595,7 +595,7 @@ export default function StudioPage() {
                         if (!confirm("Remove this default?")) return;
                         await removeEnvDefault(item.s3_key);
                       }}
-                      className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
+                      className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-surface-strong)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-surface)]"
                     >
                       <MinusCircle className="size-4" aria-hidden="true" />
                       Remove default
@@ -606,7 +606,7 @@ export default function StudioPage() {
                       onClick={async () => {
                         await addEnvDefault(item.s3_key);
                       }}
-                      className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 font-semibold text-white shadow hover:bg-blue-700"
+                      className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-accent)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-accent)]/90"
                     >
                       <PlusCircle className="size-4" aria-hidden="true" />
                       Add to default
@@ -614,7 +614,7 @@ export default function StudioPage() {
                   )}
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 font-semibold text-white shadow hover:bg-red-700"
+                    className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-red-700"
                     onClick={async () => {
                       if (!confirm("Delete this image? This cannot be undone.")) return;
                       try {
@@ -643,15 +643,15 @@ export default function StudioPage() {
 
   const renderEnvironmentSection = () => (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+      <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
         <h3 className="text-lg font-semibold">Generate environment</h3>
-        <p className="mt-1 text-xs text-foreground/60">Describe a backdrop or leave blank for a random mirror scene.</p>
+        <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Describe a backdrop or leave blank for a random mirror scene.</p>
         <textarea
           rows={4}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="e.g. sunlit loft apartment with a full-length mirror and wooden floors"
-          className="mt-3 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
+          className="mt-3 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)]/50 px-3 py-2 text-sm"
         />
         <div className="mt-4 flex justify-center">
           <button
@@ -659,7 +659,7 @@ export default function StudioPage() {
             onClick={handleGenerate}
             disabled={isGenerating}
             className={`inline-flex h-12 w-full max-w-xs items-center justify-center rounded-xl px-6 text-base font-semibold ${
-              isGenerating ? "bg-foreground/30 text-background/60" : "bg-foreground text-background shadow"
+              isGenerating ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80" : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow"
             }`}
           >
             {isGenerating ? "Generating…" : prompt.trim() ? "Generate environment" : "Generate random"}
@@ -667,20 +667,20 @@ export default function StudioPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+      <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold">Environment library</h3>
-            <p className="text-xs text-foreground/60">Review generated scenes, defaults, and source uploads.</p>
+            <p className="text-xs text-[color:var(--color-text-secondary)]">Review generated scenes, defaults, and source uploads.</p>
           </div>
-          <div className="inline-flex gap-2 rounded-full bg-background/40 p-1">
+          <div className="inline-flex gap-2 rounded-full bg-[color:var(--color-surface)]/40 p-1">
             {ENV_TABS.filter((tab) => isAdmin || tab !== "sources").map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setEnvLibraryView(tab)}
                 className={`h-9 rounded-full px-3 text-xs font-semibold transition ${
-                  envLibraryView === tab ? "bg-foreground text-background" : "text-foreground/60"
+                  envLibraryView === tab ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]" : "text-[color:var(--color-text-secondary)]"
                 }`}
               >
                 {tab === "generated" ? "Generated" : tab === "defaults" ? "Defaults" : "Sources"}
@@ -704,22 +704,22 @@ export default function StudioPage() {
           {items.map(({ gender, label, data }) => (
             <div
               key={gender}
-              className={`rounded-2xl overflow-hidden border bg-background shadow-sm transition ${
-                data ? "border-foreground/30 ring-2 ring-foreground/40" : "border-foreground/15"
+              className={`rounded-2xl overflow-hidden border bg-[color:var(--color-surface)] shadow-sm transition ${
+                data ? "border-[color:var(--color-border-strong)] ring-2 ring-[color:var(--color-accent)]" : "border-[color:var(--color-border)]"
               }`}
             >
-              <div className="relative aspect-[4/5] bg-black/5">
+              <div className="relative aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                 {data?.url ? (
                   <>
                     <img src={data.url} alt={label} className="h-full w-full object-cover" />
-                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
+                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
                       <CheckCircle2 className="size-4" aria-hidden="true" />
                       <span className="sr-only">Default model</span>
                     </div>
                     <div className="absolute right-3 top-3 flex flex-col gap-2 text-xs">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
+                        className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-surface-strong)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-surface)]"
                         onClick={async () => {
                           if (!confirm("Remove this default?")) return;
                           try {
@@ -738,10 +738,10 @@ export default function StudioPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-foreground/60">No default set</div>
+                  <div className="flex h-full items-center justify-center text-xs text-[color:var(--color-text-secondary)]">No default set</div>
                 )}
               </div>
-              <div className="px-3 py-3 text-xs text-foreground/70">
+              <div className="px-3 py-3 text-xs text-[color:var(--color-text-secondary)]">
                 <p className="text-sm font-semibold text-foreground">{label}</p>
                 <p className="truncate">{data?.name || (data ? "Untitled" : "—")}</p>
               </div>
@@ -759,28 +759,28 @@ export default function StudioPage() {
       return (
         <div className="grid gap-6 lg:grid-cols-2">
           {items.map((item) => (
-            <div key={item.gender} className={`rounded-2xl border border-black/10 bg-background p-5 dark:border-white/15 dark:bg-white/5 ${modelGender === item.gender ? "ring-2 ring-foreground" : "opacity-70"}`}>
+            <div key={item.gender} className={`rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5 ${modelGender === item.gender ? "ring-2 ring-[color:var(--color-accent)]" : "opacity-70"}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-semibold">{item.label}</h4>
-                  <p className="text-xs text-foreground/60">{item.persisted ? "Current reference" : "No source uploaded"}</p>
+                  <p className="text-xs text-[color:var(--color-text-secondary)]">{item.persisted ? "Current reference" : "No source uploaded"}</p>
                 </div>
-                {isModelSourceUploading && <span className="text-[11px] text-foreground/60">Uploading…</span>}
+                {isModelSourceUploading && <span className="text-[11px] text-[color:var(--color-text-secondary)]">Uploading…</span>}
               </div>
-              <div className="mt-3 aspect-[4/5] overflow-hidden rounded-xl border border-black/10 bg-black/5 dark:border-white/15">
+              <div className="mt-3 aspect-[4/5] overflow-hidden rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)]">
                 {(item.preview || item.persisted?.url) ? (
                   <img src={item.preview || item.persisted?.url} alt={item.label} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-foreground/60">None</div>
+                  <div className="flex h-full items-center justify-center text-xs text-[color:var(--color-text-secondary)]">None</div>
                 )}
               </div>
               {isAdmin ? (
-                <label className="mt-3 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md bg-foreground text-sm font-semibold text-background">
+                <label className="mt-3 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md bg-[color:var(--color-accent)] text-sm font-semibold text-[color:var(--color-accent-contrast)]">
                   <input type="file" accept="image/*" className="hidden" onChange={item.picker} />
                   Replace source
                 </label>
               ) : (
-                <p className="mt-3 text-[11px] text-foreground/60">Contact an admin to update this source image.</p>
+                <p className="mt-3 text-[11px] text-[color:var(--color-text-secondary)]">Contact an admin to update this source image.</p>
               )}
             </div>
           ))}
@@ -794,12 +794,12 @@ export default function StudioPage() {
     });
 
     if (filtered.length === 0) {
-      return <p className="text-xs text-foreground/60">No generated models yet.</p>;
+      return <p className="text-xs text-[color:var(--color-text-secondary)]">No generated models yet.</p>;
     }
 
     return (
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/60">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[color:var(--color-text-secondary)]">
           <span>Filter by gender:</span>
           {GENDER_FILTERS.map((filter) => (
             <button
@@ -807,7 +807,7 @@ export default function StudioPage() {
               type="button"
               onClick={() => setModelGalleryFilter(filter)}
               className={`h-8 rounded-full border px-3 font-semibold ${
-                modelGalleryFilter === filter ? "border-foreground" : "border-foreground/30"
+                modelGalleryFilter === filter ? "border-foreground" : "border-[color:var(--color-border-strong)]"
               }`}
             >
               {filter === "all" ? "All" : filter === "man" ? "Men" : "Women"}
@@ -822,16 +822,16 @@ export default function StudioPage() {
             return (
               <div
                 key={item.s3_key}
-                className={`group rounded-2xl border bg-background overflow-hidden transition ${
+                className={`group rounded-2xl border bg-[color:var(--color-surface)] overflow-hidden transition ${
                   isDefault
-                    ? "border-blue-500 ring-2 ring-blue-300 shadow-lg"
-                    : "border-foreground/15 hover:border-foreground/40"
+                    ? "border-[color:var(--color-accent)] ring-2 ring-[color:var(--color-accent)] shadow-lg"
+                    : "border-[color:var(--color-border)] hover:border-[color:var(--color-border-strong)]"
                 }`}
               >
-                <div className="relative aspect-[3/4] md:aspect-[4/5] bg-black/5">
+                <div className="relative aspect-[3/4] md:aspect-[4/5] bg-[color:var(--color-surface-strong)]">
                   <img src={src} alt="Generated model" className="h-full w-full object-cover" />
                   {isDefault && (
-                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600/90 text-white">
+                    <div className="absolute left-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-foreground)]">
                       <CheckCircle2 className="size-4" aria-hidden="true" />
                       <span className="sr-only">Default model</span>
                     </div>
@@ -840,7 +840,7 @@ export default function StudioPage() {
                     {isDefault ? (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 font-semibold text-white shadow hover:bg-black/70"
+                        className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-surface-strong)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-surface)]"
                         onClick={async () => {
                           if (!confirm("Remove this default?")) return;
                           try {
@@ -859,7 +859,7 @@ export default function StudioPage() {
                     ) : (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 font-semibold text-white shadow hover:bg-blue-700"
+                        className="inline-flex items-center gap-2 rounded-full bg-[color:var(--color-accent)] px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-[color:var(--color-accent)]/90"
                         onClick={async () => {
                           try {
                             const baseUrl = getApiBase();
@@ -881,7 +881,7 @@ export default function StudioPage() {
                     )}
                     <button
                       type="button"
-                      className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 font-semibold text-white shadow hover:bg-red-700"
+                      className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 font-semibold text-[color:var(--color-foreground)] shadow hover:bg-red-700"
                       onClick={async () => {
                         if (!confirm("Delete this model?")) return;
                         try {
@@ -912,13 +912,13 @@ export default function StudioPage() {
 
     return (
       <div className="space-y-6">
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+        <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold">Generate model</h3>
-              <p className="text-xs text-foreground/60">Provide an optional prompt to guide the outfit or style.</p>
+              <p className="text-xs text-[color:var(--color-text-secondary)]">Provide an optional prompt to guide the outfit or style.</p>
             </div>
-            <div className="inline-flex overflow-hidden rounded-lg border border-black/10 dark:border-white/15">
+            <div className="inline-flex overflow-hidden rounded-lg border border-[color:var(--color-border)]">
               {[
                 { key: "man", label: "Male" },
                 { key: "woman", label: "Female" },
@@ -928,7 +928,7 @@ export default function StudioPage() {
                   type="button"
                   onClick={() => setModelGender(item.key)}
                   className={`h-9 px-3 text-sm font-semibold ${
-                    modelGender === item.key ? "bg-foreground text-background" : "bg-transparent"
+                    modelGender === item.key ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]" : "bg-transparent"
                   }`}
                 >
                   {item.label}
@@ -945,20 +945,20 @@ export default function StudioPage() {
               ].map((item) => (
                 <div
                   key={item.gender}
-                  className={`rounded-xl border border-black/10 bg-background p-3 dark:border-white/15 ${
-                    modelGender === item.gender ? "ring-2 ring-foreground" : "opacity-70"
+                  className={`rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-3 ${
+                    modelGender === item.gender ? "ring-2 ring-[color:var(--color-accent)]" : "opacity-70"
                   }`}
                 >
-                  <p className="text-xs font-semibold text-foreground/70">{item.label}</p>
-                  <div className="mt-2 aspect-[4/5] overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/15">
+                  <p className="text-xs font-semibold text-[color:var(--color-text-secondary)]">{item.label}</p>
+                  <div className="mt-2 aspect-[4/5] overflow-hidden rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)]">
                     {(item.preview || item.persisted?.url) ? (
                       <img src={item.preview || item.persisted?.url} alt={item.label} className="h-full w-full object-cover" />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-[11px] text-foreground/60">No source yet</div>
+                      <div className="flex h-full items-center justify-center text-[11px] text-[color:var(--color-text-secondary)]">No source yet</div>
                     )}
                   </div>
                   {modelGender === item.gender && (
-                    <label className="mt-3 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md bg-foreground text-sm font-semibold text-background">
+                    <label className="mt-3 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md bg-[color:var(--color-accent)] text-sm font-semibold text-[color:var(--color-accent-contrast)]">
                       <input type="file" accept="image/*" className="hidden" onChange={item.picker} />
                       Replace source
                     </label>
@@ -973,7 +973,7 @@ export default function StudioPage() {
             value={modelPrompt}
             onChange={(event) => setModelPrompt(event.target.value)}
             placeholder="e.g. natural daylight, smiling expression, casual denim outfit"
-            className="mt-4 w-full rounded-lg border border-black/10 bg-background/50 px-3 py-2 text-sm dark:border-white/15"
+            className="mt-4 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)]/50 px-3 py-2 text-sm"
           />
 
           <div className="mt-4 flex flex-col items-center gap-2 text-center">
@@ -983,30 +983,30 @@ export default function StudioPage() {
               disabled={!hasSource || isModelGenerating || isModelSourceUploading}
               className={`inline-flex h-12 w-full max-w-xs items-center justify-center rounded-xl px-6 text-base font-semibold ${
                 (!hasSource || isModelGenerating || isModelSourceUploading)
-                  ? "bg-foreground/30 text-background/60"
-                  : "bg-foreground text-background shadow"
+                  ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+                  : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow"
               }`}
             >
               {isModelGenerating ? "Generating…" : modelPrompt.trim() ? "Generate model" : "Generate random"}
             </button>
-            <span className="text-[11px] text-foreground/60">A source photo per gender is required before generating.</span>
+            <span className="text-[11px] text-[color:var(--color-text-secondary)]">A source photo per gender is required before generating.</span>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+        <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold">Model library</h3>
-              <p className="text-xs text-foreground/60">Review generated variants, defaults, and source references.</p>
+              <p className="text-xs text-[color:var(--color-text-secondary)]">Review generated variants, defaults, and source references.</p>
             </div>
-            <div className="inline-flex gap-2 rounded-full bg-background/40 p-1">
+            <div className="inline-flex gap-2 rounded-full bg-[color:var(--color-surface)]/40 p-1">
               {MODEL_TABS.filter((tab) => tab !== "sources" || isAdmin).map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setModelLibraryView(tab)}
                   className={`h-9 rounded-full px-3 text-xs font-semibold transition ${
-                    modelLibraryView === tab ? "bg-foreground text-background" : "text-foreground/60"
+                    modelLibraryView === tab ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]" : "text-[color:var(--color-text-secondary)]"
                   }`}
                 >
                   {tab === "generated" ? "Generated" : tab === "defaults" ? "Defaults" : "Sources"}
@@ -1022,25 +1022,25 @@ export default function StudioPage() {
 
   const renderPoseSection = () => (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+      <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
         <h3 className="text-lg font-semibold">Upload pose references</h3>
-        <p className="mt-1 text-xs text-foreground/60">Drop in up to 10 pose examples at a time to expand the catalog.</p>
+        <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Drop in up to 10 pose examples at a time to expand the catalog.</p>
         <input
           type="file"
           accept="image/*"
           multiple
           onChange={handlePoseFilesChange}
-          className="mt-3 block w-full text-sm file:mr-3 file:rounded-md file:border file:border-black/10 file:bg-transparent file:px-3 file:py-2 dark:file:border-white/15"
+          className="mt-3 block w-full text-sm file:mr-3 file:rounded-md file:border file:border-[color:var(--color-border)] file:bg-transparent file:px-3 file:py-2"
         />
         {poseFiles.length > 0 && (
-          <div className="mt-3 flex items-center justify-between text-xs text-foreground/60">
+          <div className="mt-3 flex items-center justify-between text-xs text-[color:var(--color-text-secondary)]">
             <span>{poseFiles.length} file(s) selected</span>
             <button
               type="button"
               onClick={uploadPoseFiles}
               disabled={isPoseUploading}
               className={`inline-flex h-9 items-center justify-center rounded-md px-3 font-semibold ${
-                isPoseUploading ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
+                isPoseUploading ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80" : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
               }`}
             >
               {isPoseUploading ? "Uploading…" : "Upload"}
@@ -1049,17 +1049,17 @@ export default function StudioPage() {
         )}
       </div>
 
-      <div className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+      <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold">Pose descriptions</h3>
-            <p className="text-xs text-foreground/60">Trigger description generation and manage existing entries.</p>
+            <p className="text-xs text-[color:var(--color-text-secondary)]">Trigger description generation and manage existing entries.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={refreshPoseDescriptions}
-              className="inline-flex h-9 items-center justify-center rounded-md border border-black/10 px-3 text-xs font-semibold dark:border-white/15"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-[color:var(--color-border)] px-3 text-xs font-semibold"
             >
               Refresh
             </button>
@@ -1069,7 +1069,7 @@ export default function StudioPage() {
                 onClick={generatePoseDescriptions}
                 disabled={isPoseDescribing}
                 className={`inline-flex h-9 items-center justify-center rounded-md px-3 text-xs font-semibold ${
-                  isPoseDescribing ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
+                  isPoseDescribing ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80" : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
                 }`}
               >
                 {isPoseDescribing ? "Generating…" : "Generate from sources"}
@@ -1081,23 +1081,23 @@ export default function StudioPage() {
         <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <div className="space-y-3">
             {poseDescs.length === 0 ? (
-              <p className="text-xs text-foreground/60">No descriptions yet.</p>
+              <p className="text-xs text-[color:var(--color-text-secondary)]">No descriptions yet.</p>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
                 {poseDescs.map((item) => (
-                  <div key={item.s3_key} className="rounded-xl border border-black/10 bg-background p-3 text-xs text-foreground/70 dark:border-white/15">
-                    <div className="truncate text-[10px] text-foreground/50">{item.s3_key}</div>
-                    <p className="mt-2 whitespace-pre-wrap text-foreground/80">{item.description || "No description"}</p>
+                  <div key={item.s3_key} className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-3 text-xs text-[color:var(--color-text-secondary)]">
+                    <div className="truncate text-[10px] text-[color:var(--color-text-tertiary)]">{item.s3_key}</div>
+                    <p className="mt-2 whitespace-pre-wrap text-[color:var(--color-foreground)]">{item.description || "No description"}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
-          <div className="rounded-xl border border-black/10 bg-background p-3 text-xs text-foreground/70 dark:border-white/15">
+          <div className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-3 text-xs text-[color:var(--color-text-secondary)]">
             <h4 className="text-sm font-semibold">Raw sources ({poseSources.length})</h4>
-            <p className="mt-1 text-[11px] text-foreground/60">Uploaded pose references awaiting descriptions.</p>
+            <p className="mt-1 text-[11px] text-[color:var(--color-text-secondary)]">Uploaded pose references awaiting descriptions.</p>
             {poseSources.length === 0 ? (
-              <p className="mt-3 text-[11px] text-foreground/60">No sources uploaded.</p>
+              <p className="mt-3 text-[11px] text-[color:var(--color-text-secondary)]">No sources uploaded.</p>
             ) : (
               <ul className="mt-3 space-y-1">
                 {poseSources.map((key) => (
@@ -1116,12 +1116,12 @@ export default function StudioPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{currentCopy.title}</h1>
-          <p className="text-sm text-foreground/70">{currentCopy.description}</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">{currentCopy.description}</p>
         </div>
         {isAdmin && (
           <a
             href="/studio/admin"
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-foreground/20 px-3 text-xs font-semibold text-foreground/70 hover:border-foreground/40"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-[color:var(--color-border)] px-3 text-xs font-semibold text-[color:var(--color-text-secondary)] hover:border-[color:var(--color-border-strong)]"
           >
             Admin tools
           </a>
@@ -1139,13 +1139,13 @@ export default function StudioPage() {
               onClick={() => setActiveSection(item.key)}
               className={`inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition shadow-sm ${
                 isActive
-                  ? "bg-foreground text-background shadow-lg"
-                  : "border border-foreground/20 bg-background text-foreground/70 hover:border-foreground/40"
+                  ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow-lg"
+                  : "border border-[color:var(--color-border)] bg-[color:var(--color-surface)] text-[color:var(--color-text-secondary)] hover:border-[color:var(--color-border-strong)]"
               }`}
             >
               <span>{item.label}</span>
               {count > 0 && (
-                <span className={`rounded-full px-2 text-[11px] font-medium ${isActive ? "bg-background/30" : "bg-foreground/10 text-foreground"}`}>
+                <span className={`rounded-full px-2 text-[11px] font-medium ${isActive ? "bg-[color:var(--color-surface)]/30" : "bg-[color:var(--color-surface-strong)] text-[color:var(--color-text-secondary)]"}`}>
                   {count}
                 </span>
               )}

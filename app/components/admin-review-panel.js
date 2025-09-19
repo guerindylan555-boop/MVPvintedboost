@@ -17,14 +17,26 @@ export function AdminReviewPanel({
   poseStatusItems,
 }) {
   return (
-    <div className="space-y-4 rounded-2xl border border-black/10 bg-black/5 p-4 dark:border-white/15 dark:bg-white/5 sm:p-6">
+    <div className="space-y-4 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-4 sm:p-6">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="rounded-full border border-foreground/15 px-3 py-1">{gender}</span>
-        <span className="rounded-full border border-foreground/15 px-3 py-1">Env: {environmentSummary}</span>
-        <span className="rounded-full border border-foreground/15 px-3 py-1">Poses: {poseSummary || "–"}</span>
-        <span className="rounded-full border border-foreground/15 px-3 py-1">Model: {modelSummary}</span>
-        <span className="rounded-full border border-foreground/15 px-3 py-1">Flow: {flowMode}</span>
-        <span className="rounded-full border border-foreground/15 px-3 py-1">Type: {garmentSummary}</span>
+        <span className="rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-1 text-[color:var(--color-text-secondary)]">
+          {gender}
+        </span>
+        <span className="rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-1 text-[color:var(--color-text-secondary)]">
+          Env: {environmentSummary}
+        </span>
+        <span className="rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-1 text-[color:var(--color-text-secondary)]">
+          Poses: {poseSummary || "–"}
+        </span>
+        <span className="rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-1 text-[color:var(--color-text-secondary)]">
+          Model: {modelSummary}
+        </span>
+        <span className="rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-1 text-[color:var(--color-text-secondary)]">
+          Flow: {flowMode}
+        </span>
+        <span className="rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-1 text-[color:var(--color-text-secondary)]">
+          Type: {garmentSummary}
+        </span>
       </div>
       <PromptPreviewCard
         prompt={prompt}

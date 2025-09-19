@@ -59,7 +59,9 @@ export function InfoTooltip({ label, description, className, side = "top", child
               }}
             >
               <p className="text-sm font-semibold mb-1">{label}</p>
-              {description && <p className="text-xs leading-snug text-slate-300">{description}</p>}
+              {description && (
+                <p className="text-xs leading-snug text-[color:var(--color-text-secondary)]">{description}</p>
+              )}
             </div>
             <div
               ref={setArrowEl}

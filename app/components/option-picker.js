@@ -52,13 +52,14 @@ export function OptionPicker({
               type="button"
               onClick={() => toggle(option.value)}
               className={clsx(
-                "text-left px-4 py-3 rounded-lg border transition flex flex-col gap-1",
+                "text-left px-4 py-3 rounded-lg border transition flex flex-col gap-1 ring-1",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]",
+                "focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                 selected
-                  ? "border-transparent"
-                  : "border-white/10 hover:border-white/20"
+                  ? "border-transparent bg-[color:var(--color-accent-soft)] ring-[color:var(--color-accent)]"
+                  : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] ring-[color:var(--color-border-muted)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
               )}
               style={{
-                backgroundColor: selected ? `${palette.accentSoft}` : "rgba(15,23,42,0.5)",
                 color: palette.textPrimary,
                 borderRadius: radius.md,
                 transition: transitions.base,
@@ -66,13 +67,15 @@ export function OptionPicker({
             >
               <span className="text-sm font-medium">{option.label}</span>
               {option.description && (
-                <span className="text-xs text-slate-400 leading-snug">{option.description}</span>
+                <span className="text-xs leading-snug text-[color:var(--color-text-secondary)]">
+                  {option.description}
+                </span>
               )}
               {option.badge && (
                 <span
                   className="text-[10px] uppercase tracking-wide mt-1 inline-flex self-start rounded-full px-2 py-0.5"
                   style={{
-                    backgroundColor: `${palette.accent}22`,
+                    backgroundColor: palette.accentSoft,
                     color: palette.accent,
                   }}
                 >

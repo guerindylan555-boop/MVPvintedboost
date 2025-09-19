@@ -5,20 +5,21 @@ export const radius = {
 };
 
 export const palette = {
-  background: "#0f172a",
-  card: "rgba(15, 23, 42, 0.8)",
-  cardBorder: "rgba(148, 163, 184, 0.2)",
-  accent: "#38bdf8",
-  accentSoft: "rgba(56, 189, 248, 0.2)",
-  positive: "#22c55e",
-  warning: "#f97316",
-  danger: "#ef4444",
-  textPrimary: "#f8fafc",
-  textSecondary: "#cbd5f5",
+  background: "var(--color-surface-strong)",
+  card: "var(--color-surface-strong)",
+  cardBorder: "var(--color-border)",
+  accent: "var(--color-accent)",
+  accentSoft: "var(--color-accent-soft)",
+  accentContrast: "var(--color-accent-contrast)",
+  positive: "var(--color-positive)",
+  warning: "var(--color-warning)",
+  danger: "var(--color-danger)",
+  textPrimary: "var(--color-foreground)",
+  textSecondary: "var(--color-text-secondary)",
 };
 
 export const shadows = {
-  soft: "0 10px 50px rgba(15, 23, 42, 0.35)",
+  soft: "var(--shadow-soft)",
 };
 
 export const transitions = {

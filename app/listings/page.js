@@ -96,12 +96,14 @@ export default function ListingsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Your listings</h1>
-          <p className="text-sm text-foreground/70">Browse every generated listing, tweak covers, and jump back into edits.</p>
+          <p className="text-sm text-[color:var(--color-text-secondary)]">
+            Browse every generated listing, tweak covers, and jump back into edits.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link
             href="/"
-            className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-foreground px-3 text-xs font-semibold text-background"
+            className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-[color:var(--color-accent)] px-3 text-xs font-semibold text-[color:var(--color-accent-contrast)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]"
           >
             <Plus className="size-3" />
             New listing
@@ -110,13 +112,13 @@ export default function ListingsPage() {
       </div>
 
       {!userId ? (
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-6 text-sm text-foreground/70 dark:border-white/15 dark:bg-white/5">
+        <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-6 text-sm text-[color:var(--color-text-secondary)]">
           Sign in to view your listings.
         </div>
       ) : loading ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, idx) => (
-            <div key={idx} className="h-36 animate-pulse rounded-2xl bg-foreground/10" />
+            <div key={idx} className="h-36 animate-pulse rounded-2xl bg-[color:var(--color-surface)]" />
           ))}
         </div>
       ) : error ? (
@@ -124,7 +126,7 @@ export default function ListingsPage() {
           {error}
         </div>
       ) : sortedListings.length === 0 ? (
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-6 text-sm text-foreground/70 dark:border-white/15 dark:bg-white/5">
+        <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-6 text-sm text-[color:var(--color-text-secondary)]">
           No listings yet. Generate your first one to see it here.
         </div>
       ) : (
@@ -136,26 +138,30 @@ export default function ListingsPage() {
               <Link
                 key={listing.id}
                 href={`/listing/${listing.id}`}
-                className="group flex flex-col gap-3 rounded-2xl border border-black/10 bg-black/5 p-4 text-sm transition hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground dark:border-white/15 dark:bg-white/5"
+                className="group flex flex-col gap-3 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-4 text-sm transition hover:border-[color:var(--color-border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]"
               >
                 <div className="flex items-center gap-3">
-                  <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border border-foreground/15 bg-background/40">
+                  <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
                     {listing.cover_url ? (
                       <Image src={listing.cover_url} alt={listing.title || "Listing cover"} fill sizes="80px" className="object-cover" />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center text-[11px] text-foreground/50">No cover</div>
+                      <div className="flex h-full w-full items-center justify-center text-[11px] text-[color:var(--color-text-tertiary)]">
+                        No cover
+                      </div>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-foreground">{listing.title || "Untitled listing"}</p>
+                    <p className="truncate text-sm font-semibold text-[color:var(--color-foreground)]">{listing.title || "Untitled listing"}</p>
                     {createdAt && (
-                      <p className="text-xs text-foreground/60">{createdAt.toLocaleString()}</p>
+                      <p className="text-xs text-[color:var(--color-text-secondary)]">{createdAt.toLocaleString()}</p>
                     )}
-                    <p className="mt-1 text-[11px] uppercase tracking-wide text-foreground/50">
+                    <p className="mt-1 text-[11px] uppercase tracking-wide text-[color:var(--color-text-tertiary)]">
                       {settings.gender || ""} {settings.environment || ""}
                     </p>
                     {typeof listing.images_count === "number" && (
-                      <p className="text-[11px] text-foreground/60">{listing.images_count} image{listing.images_count === 1 ? "" : "s"}</p>
+                      <p className="text-[11px] text-[color:var(--color-text-secondary)]">
+                        {listing.images_count} image{listing.images_count === 1 ? "" : "s"}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -166,7 +172,9 @@ export default function ListingsPage() {
       )}
 
       {isAdmin && (
-        <p className="text-center text-[11px] text-foreground/40">Admin? Use the init tools on the Create page to seed defaults.</p>
+        <p className="text-center text-[11px] text-[color:var(--color-text-tertiary)]">
+          Admin? Use the init tools on the Create page to seed defaults.
+        </p>
       )}
     </div>
   );

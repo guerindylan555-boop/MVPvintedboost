@@ -1,5 +1,6 @@
 "use client";
 
+import clsx from "clsx";
 import Link from "next/link";
 import Image from "next/image";
 import { ImageOff } from "lucide-react";
@@ -37,25 +38,27 @@ export function SceneModelOptions({
   const showDescriptionWarning = !useModelImage && !selectedModelDefault?.description;
 
   return (
-    <div className="rounded-2xl border border-black/10 bg-black/5 dark:border-white/15 dark:bg-white/5">
+    <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)]">
       <button
         type="button"
         onClick={onToggleCollapsed}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]"
       >
         <span>Scene & model options</span>
-        <span className="text-xs text-foreground/60">{collapsed ? "Show" : "Hide"}</span>
+        <span className="text-xs text-[color:var(--color-text-secondary)]">{collapsed ? "Show" : "Hide"}</span>
       </button>
       {!collapsed && (
-        <div className="border-t border-foreground/10 px-4 py-5">
+        <div className="border-t border-[color:var(--color-border-muted)] px-4 py-5">
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold">Model defaults</p>
-                  <p className="mt-1 text-xs text-foreground/60">Pick a Studio default image to set the person and gender.</p>
+                  <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
+                    Pick a Studio default image to set the person and gender.
+                  </p>
                 </div>
-                <Link href="/studio" className="text-xs text-foreground/60 underline">
+                <Link href="/studio" className="text-xs text-[color:var(--color-text-secondary)] underline">
                   Manage
                 </Link>
               </div>
@@ -69,11 +72,13 @@ export function SceneModelOptions({
                         key={model.gender}
                         type="button"
                         onClick={() => onSelectGender(model.gender)}
-                        className={`group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
+                        className={clsx(
+                          "group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                           selected
-                            ? "border-foreground ring-2 ring-foreground/40 bg-foreground/5 shadow-lg"
-                            : "border-foreground/15 hover:border-foreground/50"
-                        }`}
+                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)] shadow-[0_18px_36px_rgba(12,23,37,0.16)]"
+                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
+                        )}
                         aria-pressed={selected}
                       >
                         <div className="relative aspect-[3/4] w-full overflow-hidden">
@@ -87,21 +92,21 @@ export function SceneModelOptions({
                               unoptimized
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-foreground/50">
+                            <div className="flex h-full w-full items-center justify-center bg-[color:var(--color-surface)] text-[color:var(--color-text-tertiary)]">
                               <ImageOff className="size-6" aria-hidden="true" />
                             </div>
                           )}
                         </div>
                         <div className="px-3 py-2">
                           <p className="text-sm font-semibold capitalize">{model.name || genderLabel}</p>
-                          <p className="text-[11px] text-foreground/60">{genderLabel} fit</p>
+                          <p className="text-[11px] text-[color:var(--color-text-secondary)]">{genderLabel} fit</p>
                         </div>
                       </button>
                     );
                   })}
                 </div>
               ) : (
-                <div className="mt-3 rounded-lg border border-foreground/15 bg-background/40 p-3 text-xs text-foreground/60">
+                <div className="mt-3 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-3 text-xs text-[color:var(--color-text-secondary)]">
                   No Studio defaults yet. <Link href="/studio" className="underline">Add one</Link> to unlock a quicker flow.
                 </div>
               )}
@@ -126,35 +131,42 @@ export function SceneModelOptions({
               </div>
             )}
             <div className="sm:col-span-2">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold">Environment defaults</p>
-                  <p className="mt-1 text-xs text-foreground/60">Pick from your saved backgrounds. Add more in Studio to build a library.</p>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Environment defaults</p>
+                    <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
+                      Pick from your saved backgrounds. Add more in Studio to build a library.
+                    </p>
+                  </div>
+                  <Link href="/studio" className="text-xs text-[color:var(--color-text-secondary)] underline">
+                    Manage
+                  </Link>
                 </div>
-                <Link href="/studio" className="text-xs text-foreground/60 underline">
-                  Manage
-                </Link>
-              </div>
-              {envDefaultsLoading ? (
-                <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-32 w-32 flex-shrink-0 animate-pulse rounded-xl bg-foreground/10" />
-                  ))}
-                </div>
-              ) : envDefaults.length > 0 ? (
-                <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-                  {envDefaults.map((env) => {
+                {envDefaultsLoading ? (
+                  <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="h-32 w-32 flex-shrink-0 animate-pulse rounded-xl bg-[color:var(--color-surface)]"
+                      />
+                    ))}
+                  </div>
+                ) : envDefaults.length > 0 ? (
+                  <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+                    {envDefaults.map((env) => {
                     const selected = selectedEnvDefaultKey === env.s3_key;
                     return (
                       <button
                         key={env.s3_key}
                         type="button"
                         onClick={() => onSelectEnvironmentDefault(env.s3_key)}
-                        className={`group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition ${
+                        className={clsx(
+                          "group w-32 flex-shrink-0 overflow-hidden rounded-xl border text-left transition",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                           selected
-                            ? "border-foreground ring-2 ring-foreground/40 bg-foreground/5 shadow-lg"
-                            : "border-foreground/15 hover:border-foreground/50"
-                        }`}
+                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)] shadow-[0_18px_36px_rgba(12,23,37,0.16)]"
+                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)]"
+                        )}
                         aria-pressed={selected}
                       >
                         <div className="relative aspect-[3/4] w-full overflow-hidden">
@@ -168,14 +180,16 @@ export function SceneModelOptions({
                               unoptimized
                             />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-foreground/10 text-foreground/50">
+                            <div className="flex h-full w-full items-center justify-center bg-[color:var(--color-surface)] text-[color:var(--color-text-tertiary)]">
                               <ImageOff className="size-6" aria-hidden="true" />
                             </div>
                           )}
                         </div>
                         <div className="px-3 py-2">
                           <p className="text-sm font-semibold">{env.name || "Untitled"}</p>
-                          <p className="text-[11px] text-foreground/60">{selected ? "Current selection" : "Tap to select"}</p>
+                          <p className="text-[11px] text-[color:var(--color-text-secondary)]">
+                            {selected ? "Current selection" : "Tap to select"}
+                          </p>
                         </div>
                       </button>
                     );
@@ -184,20 +198,26 @@ export function SceneModelOptions({
               ) : (
                 <div className="mt-3 space-y-3">
                   <OptionPicker options={environmentOptions} value={environmentValue} onChange={onEnvironmentChange} />
-                  <p className="text-[11px] text-foreground/50">Save environment photos in Studio to see them here.</p>
+                  <p className="text-[11px] text-[color:var(--color-text-tertiary)]">
+                    Save environment photos in Studio to see them here.
+                  </p>
                 </div>
               )}
             </div>
             <div className="sm:col-span-2">
-              <div className="rounded-2xl border border-foreground/15 bg-background/60 p-4 shadow-sm">
+              <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">Image count</p>
-                    <p className="mt-1 text-xs text-foreground/60">Pick how many images to generate (max {poseMax}).</p>
+                    <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
+                      Pick how many images to generate (max {poseMax}).
+                    </p>
                   </div>
-                  <div className="inline-flex items-baseline gap-2 rounded-xl bg-foreground px-4 py-2 text-background shadow">
+                  <div className="inline-flex items-baseline gap-2 rounded-xl bg-[color:var(--color-accent)] px-4 py-2 text-[color:var(--color-accent-contrast)] shadow">
                     <span className="text-2xl font-semibold leading-none">{plannedImagesCount}</span>
-                    <span className="text-[11px] uppercase tracking-wide text-background/70">images</span>
+                    <span className="text-[11px] uppercase tracking-wide text-[color:var(--color-accent-contrast)]/70">
+                      images
+                    </span>
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-5 gap-2">
@@ -208,11 +228,13 @@ export function SceneModelOptions({
                         key={count}
                         type="button"
                         onClick={() => onPoseCountChange(count)}
-                        className={`group flex h-10 items-center justify-center rounded-lg border text-sm font-semibold transition ${
+                        className={clsx(
+                          "group flex h-10 items-center justify-center rounded-lg border text-sm font-semibold transition",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
                           checked
-                            ? "border-foreground bg-foreground text-background shadow"
-                            : "border-foreground/20 bg-background/80 text-foreground/70 hover:border-foreground/60 hover:text-foreground"
-                        }`}
+                            ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)] shadow"
+                            : "border-[color:var(--color-border)] bg-[color:var(--color-surface)] text-[color:var(--color-text-secondary)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface-strong)] hover:text-[color:var(--color-foreground)]"
+                        )}
                         aria-pressed={checked}
                       >
                         {count}
@@ -220,14 +242,16 @@ export function SceneModelOptions({
                     );
                   })}
                 </div>
-                <p className="mt-3 text-[11px] text-foreground/60">We’ll pick varied poses automatically for each image.</p>
+                <p className="mt-3 text-[11px] text-[color:var(--color-text-secondary)]">
+                  We’ll pick varied poses automatically for each image.
+                </p>
               </div>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs text-foreground/70">Extra instructions</label>
+              <label className="text-xs text-[color:var(--color-text-secondary)]">Extra instructions</label>
               <textarea
                 rows={3}
-                className="mt-2 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[color:var(--color-background)]"
                 placeholder="Optional: add a style tweak, colours, or vibe"
                 value={extraInstructions}
                 onChange={(e) => onExtraChange(e.target.value)}

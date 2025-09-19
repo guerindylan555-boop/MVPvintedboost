@@ -40,29 +40,33 @@ export default function SettingsPage() {
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Account settings</h1>
-        <p className="mt-1 text-sm text-foreground/70">
+        <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
           Update your account details or sign out. More controls are coming soon.
         </p>
       </header>
 
-      <section className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+      <section className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
         <h2 className="text-lg font-semibold">Email</h2>
-        <p className="mt-1 text-xs text-foreground/60">Keep your contact email up to date.</p>
+        <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Keep your contact email up to date.</p>
         <form onSubmit={handleEmailSubmit} className="mt-4 flex flex-col gap-3 sm:max-w-md">
-          <label className="text-xs text-foreground/70" htmlFor="settings-email">Email address</label>
+          <label className="text-xs text-[color:var(--color-text-secondary)]" htmlFor="settings-email">
+            Email address
+          </label>
           <input
             id="settings-email"
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+            className="h-10 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[color:var(--color-background)]"
             placeholder="you@example.com"
           />
           <button
             type="submit"
             disabled={busy}
-            className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-              busy ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
+            className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)] ${
+              busy
+                ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+                : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
             }`}
           >
             Save email
@@ -70,42 +74,50 @@ export default function SettingsPage() {
         </form>
       </section>
 
-      <section className="rounded-2xl border border-black/10 bg-black/5 p-5 dark:border-white/15 dark:bg-white/5">
+      <section className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-5">
         <h2 className="text-lg font-semibold">Password</h2>
-        <p className="mt-1 text-xs text-foreground/60">Change your password to keep your account secure.</p>
+        <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Change your password to keep your account secure.</p>
         <form onSubmit={handlePasswordSubmit} className="mt-4 flex flex-col gap-3 sm:max-w-md">
-          <label className="text-xs text-foreground/70" htmlFor="current-password">Current password</label>
+          <label className="text-xs text-[color:var(--color-text-secondary)]" htmlFor="current-password">
+            Current password
+          </label>
           <input
             id="current-password"
             type="password"
             value={passwords.current}
             onChange={(event) => setPasswords((prev) => ({ ...prev, current: event.target.value }))}
-            className="h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+            className="h-10 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[color:var(--color-background)]"
             placeholder="••••••••"
           />
-          <label className="text-xs text-foreground/70" htmlFor="new-password">New password</label>
+          <label className="text-xs text-[color:var(--color-text-secondary)]" htmlFor="new-password">
+            New password
+          </label>
           <input
             id="new-password"
             type="password"
             value={passwords.next}
             onChange={(event) => setPasswords((prev) => ({ ...prev, next: event.target.value }))}
-            className="h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+            className="h-10 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[color:var(--color-background)]"
             placeholder="••••••••"
           />
-          <label className="text-xs text-foreground/70" htmlFor="confirm-password">Confirm new password</label>
+          <label className="text-xs text-[color:var(--color-text-secondary)]" htmlFor="confirm-password">
+            Confirm new password
+          </label>
           <input
             id="confirm-password"
             type="password"
             value={passwords.confirm}
             onChange={(event) => setPasswords((prev) => ({ ...prev, confirm: event.target.value }))}
-            className="h-10 w-full rounded-lg border border-foreground/15 bg-background/40 px-3 text-sm"
+            className="h-10 w-full rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)] focus:ring-offset-2 focus:ring-offset-[color:var(--color-background)]"
             placeholder="••••••••"
           />
           <button
             type="submit"
             disabled={busy}
-            className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
-              busy ? "bg-foreground/30 text-background/60" : "bg-foreground text-background"
+            className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)] ${
+              busy
+                ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+                : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
             }`}
           >
             Save password

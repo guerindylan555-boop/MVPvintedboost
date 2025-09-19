@@ -11,10 +11,10 @@ export function PromptPreviewCard({ prompt, onChange, dirty, onReset }) {
 
   return (
     <section className="flex flex-col gap-3" style={styles}>
-      <header className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--color-border)]">
         <div>
-          <h3 className="text-sm font-semibold text-slate-100">Prompt preview</h3>
-          <p className="text-xs text-slate-400 mt-1">Live snapshot of what we send to Gemini. Override when you need something bespoke.</p>
+          <h3 className="text-sm font-semibold text-[color:var(--color-foreground)]">Prompt preview</h3>
+          <p className="text-xs text-[color:var(--color-text-secondary)] mt-1">Live snapshot of what we send to Gemini. Override when you need something bespoke.</p>
         </div>
         <div className="flex items-center gap-2">
           {dirty && (
@@ -52,7 +52,7 @@ export function PromptPreviewCard({ prompt, onChange, dirty, onReset }) {
               onChange={(e) => onChange?.(e.target.value)}
               className={clsx(
                 "w-full min-h-[160px] text-sm leading-relaxed resize-y focus:outline-none p-4",
-                "bg-transparent border border-white/10 focus:border-white/20 rounded-lg"
+                "bg-transparent border border-[color:var(--color-border)] focus:border-[color:var(--color-border-strong)] rounded-lg"
               )}
               style={{ color: palette.textPrimary, borderRadius: radius.md }}
             />

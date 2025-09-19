@@ -11,19 +11,19 @@ export function PoseStatusList({ items }) {
   };
 
   return (
-    <div className="rounded-xl border border-foreground/10 bg-background/40 p-4">
+    <div className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-strong)] p-4">
       <h3 className="text-sm font-semibold">Generation status</h3>
-      <ul className="mt-2 space-y-2 text-xs">
+      <ul className="mt-2 space-y-2 text-xs text-[color:var(--color-text-secondary)]">
         {items.map(({ key, label, status, error }) => (
           <li key={key} className="flex items-start justify-between gap-3">
             <span className="font-medium">{label}</span>
             <span
               className={
                 status === "error"
-                  ? "text-red-500"
+                  ? "text-[color:var(--color-danger)]"
                   : status === "done"
-                    ? "text-green-400"
-                    : "text-foreground/60"
+                    ? "text-[color:var(--color-positive)]"
+                    : "text-[color:var(--color-text-secondary)]"
               }
             >
               {resolveStatusLabel(status, error)}

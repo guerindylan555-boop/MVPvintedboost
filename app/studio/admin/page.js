@@ -1,7 +1,8 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import clsx from "clsx";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
@@ -17,7 +18,7 @@ export default function StudioAdminPage() {
     return (
       <div className="max-w-md mx-auto p-6">
         <h1 className="text-lg font-semibold mb-2">Admin only</h1>
-        <p className="text-sm text-gray-500">You don’t have access to the Studio admin console.</p>
+        <p className="text-sm text-[color:var(--color-text-secondary)]">You don’t have access to the Studio admin console.</p>
         <a href="/studio" className="inline-block mt-4 underline">Back to Studio</a>
       </div>
     );
@@ -37,7 +38,12 @@ export default function StudioAdminPage() {
               key={t.k}
               type="button"
               onClick={() => setActive(t.k)}
-              className={`h-8 px-3 rounded-md border ${active === t.k ? 'bg-foreground text-background' : ''}`}
+              className={clsx(
+                "h-8 px-3 rounded-md border border-[color:var(--color-border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-background)]",
+                active === t.k
+                  ? "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+                  : "text-[color:var(--color-text-secondary)] hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface)]"
+              )}
             >
               {t.label}
             </button>
@@ -96,15 +102,31 @@ function EnvAdmin() {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-base font-semibold">Environment Sources</h2>
-      <p className="text-sm text-gray-500">Upload source photos used to generate environment defaults.</p>
+      <p className="text-sm text-[color:var(--color-text-secondary)]">Upload source photos used to generate environment defaults.</p>
       <input type="file" multiple accept="image/*" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
       <div className="flex items-center gap-2">
-        <button disabled={!files.length || busy} onClick={upload} className={`h-9 px-3 rounded-md border ${busy ? 'opacity-60' : ''}`}>Upload</button>
-        <button onClick={clearAll} className="h-9 px-3 rounded-md border">Delete all</button>
+        <button
+          disabled={!files.length || busy}
+          onClick={upload}
+          className={clsx(
+            "h-9 px-3 rounded-md border border-[color:var(--color-border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]",
+            busy
+              ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+              : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+          )}
+        >
+          Upload
+        </button>
+        <button
+          onClick={clearAll}
+          className="h-9 px-3 rounded-md border border-[color:var(--color-border)] text-[color:var(--color-text-secondary)] transition hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+        >
+          Delete all
+        </button>
       </div>
       <div className="grid grid-cols-6 gap-2">
         {sources.map((k) => (
-          <div key={k} className="aspect-[3/4] rounded border border-black/10 dark:border-white/15 text-[10px] p-1 break-all">{k.split('/').pop()}</div>
+          <div key={k} className="aspect-[3/4] rounded border border-[color:var(--color-border)] text-[10px] p-1 break-all">{k.split('/').pop()}</div>
         ))}
       </div>
     </section>
@@ -117,15 +139,17 @@ function ModelSourcesAdmin() {
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const base = getApiBase();
       const res = await fetch(`${base}/model/sources?gender=${gender}`);
       const data = await res.json();
       setItems(data?.items || []);
     } catch {}
-  }
-  useEffect(() => { refresh(); }, [gender]);
+  }, [gender]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   async function upload() {
     if (!files.length) return;
@@ -150,20 +174,35 @@ function ModelSourcesAdmin() {
     <section className="flex flex-col gap-3">
       <h2 className="text-base font-semibold">Model Sources</h2>
       <div className="flex items-center gap-2">
-        <label className="text-sm">Gender</label>
-        <select value={gender} onChange={(e) => setGender(e.target.value)} className="h-9 rounded border bg-transparent px-2">
+        <label className="text-sm text-[color:var(--color-text-secondary)]">Gender</label>
+        <select
+          value={gender}
+          onChange={(e) => setGender(e.target.value)}
+          className="h-9 rounded border border-[color:var(--color-border)] bg-transparent px-2 text-[color:var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[color:var(--color-accent)]"
+        >
           <option value="man">Man</option>
           <option value="woman">Woman</option>
         </select>
       </div>
       <input type="file" multiple accept="image/*" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
       <div className="flex items-center gap-2">
-        <button disabled={!files.length || busy} onClick={upload} className={`h-9 px-3 rounded-md border ${busy ? 'opacity-60' : ''}`}>Upload</button>
+        <button
+          disabled={!files.length || busy}
+          onClick={upload}
+          className={clsx(
+            "h-9 px-3 rounded-md border border-[color:var(--color-border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]",
+            busy
+              ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+              : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+          )}
+        >
+          Upload
+        </button>
       </div>
       <div className="grid grid-cols-6 gap-2">
         {items.map((it) => (
-          <div key={it.s3_key} className="aspect-[3/4] rounded overflow-hidden border border-black/10 dark:border-white/15">
-            {it.url ? <img src={it.url} alt="source" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-black/10 dark:bg-white/10" />}
+          <div key={it.s3_key} className="aspect-[3/4] rounded overflow-hidden border border-[color:var(--color-border)]">
+            {it.url ? <img src={it.url} alt="source" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-[color:var(--color-surface)]" />}
           </div>
         ))}
       </div>
@@ -225,16 +264,43 @@ function PoseAdmin() {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-base font-semibold">Poses</h2>
-      <p className="text-sm text-gray-500">Upload pose photos and generate pose-only descriptions for use in prompts.</p>
+      <p className="text-sm text-[color:var(--color-text-secondary)]">Upload pose photos and generate pose-only descriptions for use in prompts.</p>
       <input type="file" multiple accept="image/*" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
       <div className="flex items-center gap-2">
-        <button disabled={!files.length || busy} onClick={upload} className={`h-9 px-3 rounded-md border ${busy ? 'opacity-60' : ''}`}>Upload</button>
-        <button disabled={descBusy} onClick={describeAll} className={`h-9 px-3 rounded-md border ${descBusy ? 'opacity-60' : ''}`}>Generate descriptions</button>
-        <button onClick={clearAll} className="h-9 px-3 rounded-md border">Delete all</button>
+        <button
+          disabled={!files.length || busy}
+          onClick={upload}
+          className={clsx(
+            "h-9 px-3 rounded-md border border-[color:var(--color-border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]",
+            busy
+              ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+              : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+          )}
+        >
+          Upload
+        </button>
+        <button
+          disabled={descBusy}
+          onClick={describeAll}
+          className={clsx(
+            "h-9 px-3 rounded-md border border-[color:var(--color-border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]",
+            descBusy
+              ? "bg-[color:var(--color-accent)]/60 text-[color:var(--color-accent-contrast)]/80"
+              : "bg-[color:var(--color-accent)] text-[color:var(--color-accent-contrast)]"
+          )}
+        >
+          Generate descriptions
+        </button>
+        <button
+          onClick={clearAll}
+          className="h-9 px-3 rounded-md border border-[color:var(--color-border)] text-[color:var(--color-text-secondary)] transition hover:border-[color:var(--color-border-strong)] hover:bg-[color:var(--color-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]"
+        >
+          Delete all
+        </button>
       </div>
       <div className="grid grid-cols-6 gap-2">
         {items.map((k) => (
-          <div key={k} className="aspect-[3/4] rounded border border-black/10 dark:border-white/15 text-[10px] p-1 break-all">{k.split('/').pop()}</div>
+          <div key={k} className="aspect-[3/4] rounded border border-[color:var(--color-border)] text-[10px] p-1 break-all">{k.split('/').pop()}</div>
         ))}
       </div>
     </section>
