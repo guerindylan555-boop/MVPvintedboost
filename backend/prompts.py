@@ -131,29 +131,41 @@ def seq_step1_concise(*, use_person_image: bool, pose: str, person_description: 
     return "\n".join(lines)
 
 
-def seq_step2_detailed(*, use_env_image: bool, environment: str, pose: str) -> str:
+def seq_step2_detailed(
+    *, use_env_image: bool, environment: str, pose: str, garment_type: str = "full"
+) -> str:
     pose_line = _pose_line(pose)
     lines = []
     lines.append(
-        ("Place the person from Image 2 into the mirror scene of Image 1, matching its lighting, camera angle, palette, shadows, and depth of field." if use_env_image
-         else "Place the person from Image 2 into a synthesized clean mirror setting consistent with the requested environment.")
+        (
+            "Place the person from Image 2 into the mirror scene of Image 1, matching its lighting, camera angle, palette, shadows, and depth of field." if use_env_image
+            else "Place the person from Image 2 into a synthesized clean mirror setting consistent with the requested environment."
+        )
     )
-    lines.append("Produce a mirror selfie where a black iPhone 16 Pro occludes the face but not the outfit; hands are realistic with correct reflection.")
+    lines.append(
+        "Produce a mirror selfie where a black iPhone 16 Pro occludes the face but not the outfit; hands are realistic with correct reflection."
+    )
     lines.append("Do not alter the person or clothing from Image 2 (colors, textures, prints, fit).")
+    lines.append(_garment_condition_line(garment_type))
     lines.append(f"Pose: {pose_line}. Keep the outfit unobstructed.")
     lines.append("Output: one photorealistic PNG mirror selfie; PG-13; no text/watermarks.")
     lines.append("Avoid: artifacts, extra phones, inconsistent reflections, added logos, explicit content.")
     return "\n".join(lines)
 
 
-def seq_step2_concise(*, use_env_image: bool, environment: str, pose: str) -> str:
+def seq_step2_concise(
+    *, use_env_image: bool, environment: str, pose: str, garment_type: str = "full"
+) -> str:
     pose_line = _pose_line(pose)
     lines = []
     lines.append(
-        ("Insert the person from Image 2 into the mirror scene of Image 1 (if present); match lighting/angle/palette/DoF." if use_env_image
-         else "Insert the person from Image 2 into a clean mirror setting consistent with the requested environment.")
+        (
+            "Insert the person from Image 2 into the mirror scene of Image 1 (if present); match lighting/angle/palette/DoF." if use_env_image
+            else "Insert the person from Image 2 into a clean mirror setting consistent with the requested environment."
+        )
     )
     lines.append("Mirror selfie with black iPhone 16 Pro occluding the face; outfit fully visible. Do not alter person/clothing.")
+    lines.append(_garment_condition_line(garment_type))
     lines.append(f"Pose: {pose_line}. Garment unobstructed.")
     lines.append("Output: one photorealistic PNG; PG-13; no text/watermarks.")
     return "\n".join(lines)
