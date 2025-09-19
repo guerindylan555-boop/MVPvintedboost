@@ -259,10 +259,7 @@ GARMENT_TYPE_TTL_SECONDS=86400          # in-memory cache TTL for type detection
 - Studio/admin gating:
   - `app/studio/layout.js` performs a server‑side `auth.api.getSession()` check and redirects to `/login` if the user is not an admin.
   - `app/login/page.js` starts Google sign‑in using the Better Auth client (`signIn.social`).
-- Admin BFF (server proxy) routes under `app/api/admin/*` enforce the session and forward to FastAPI with `Authorization: Bearer <ADMIN_BEARER_TOKEN>`:
-  - Env: `GET/POST/PATCH/DELETE /api/admin/env/defaults`, `GET/DELETE /api/admin/env/generated`, `GET/DELETE /api/admin/env/sources`, `POST /api/admin/env/sources/upload`
-  - Model: `GET/POST/PATCH/DELETE /api/admin/model/defaults`
-  - Pose: `GET /api/admin/pose/sources`, `POST /api/admin/pose/describe`, `GET /api/admin/pose/descriptions`
+- Admin tooling now calls the FastAPI service directly from the Studio admin UI. Client components (see `app/studio/admin/page.js`) build URLs with `getApiBase()` and interact with endpoints such as `/env/*`, `/model/*`, and `/pose/*` without going through a Next.js proxy. Better Auth session checks still gate the admin console in the browser, while FastAPI enforces bearer authentication only for critical operations like DB resets (`POST /admin/init-db`).
 
 #### Access control & visibility
 - Global auth gating is implemented in `middleware.ts` (cookie‑based), not in `layout.js`, to avoid redirect loops behind proxies.
