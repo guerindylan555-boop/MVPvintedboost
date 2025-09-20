@@ -338,6 +338,8 @@ export function useListingGenerator({
     showQuotaToast,
     title,
     usage?.remaining,
+    usageCosts?.listing_create,
+    usageCosts?.listing_image,
     useModelImage,
     userId,
   ]);

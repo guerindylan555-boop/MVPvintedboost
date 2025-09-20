@@ -77,8 +77,6 @@ export async function migrateIfNeeded() {
     await runMigrations();
     didMigrate = true;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error("Better Auth migrations failed (will continue):", err);
   }
 }
-

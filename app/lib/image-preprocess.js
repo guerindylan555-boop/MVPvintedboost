@@ -19,7 +19,7 @@ function toFile(blob, filename, type) {
     return new File([blob], filename, { type });
   } catch {
     // Safari 14 fallback: no File constructor — return Blob with name
-    blob.name = filename; // eslint-disable-line no-param-reassign
+    blob.name = filename;
     return blob;
   }
 }
@@ -60,4 +60,3 @@ export async function preprocessImage(inputFile) {
     return { file: working, previewUrl };
   }
 }
-

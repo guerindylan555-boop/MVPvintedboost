@@ -1,6 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import clsx from "clsx";
@@ -129,7 +130,9 @@ export default function UsageAdminPage() {
       <div className="max-w-md mx-auto p-6">
         <h1 className="text-lg font-semibold mb-2">Admin only</h1>
         <p className="text-sm text-gray-500">You don’t have access to the usage administration tools.</p>
-        <a href="/" className="mt-4 inline-block underline">Back to home</a>
+        <Link href="/" className="mt-4 inline-block underline">
+          Back to home
+        </Link>
       </div>
     );
   }

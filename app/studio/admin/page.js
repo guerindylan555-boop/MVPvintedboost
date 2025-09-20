@@ -1,7 +1,9 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
@@ -18,7 +20,9 @@ export default function StudioAdminPage() {
       <div className="max-w-md mx-auto p-6">
         <h1 className="text-lg font-semibold mb-2">Admin only</h1>
         <p className="text-sm text-gray-500">You don’t have access to the Studio admin console.</p>
-        <a href="/studio" className="inline-block mt-4 underline">Back to Studio</a>
+        <Link href="/studio" className="inline-block mt-4 underline">
+          Back to Studio
+        </Link>
       </div>
     );
   }
@@ -57,17 +61,17 @@ function EnvAdmin() {
   const [busy, setBusy] = useState(false);
   const [sources, setSources] = useState([]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const base = getApiBase();
       const res = await fetch(`${base}/env/sources`);
       const data = await res.json();
       setSources(data?.items || []);
     } catch {}
-  }
-  useEffect(() => { refresh(); }, []);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
 
-  async function upload() {
+  const upload = useCallback(async () => {
     if (!files.length) return;
     setBusy(true);
     try {
@@ -83,15 +87,15 @@ function EnvAdmin() {
     } finally {
       setBusy(false);
     }
-  }
-  async function clearAll() {
+  }, [files, refresh]);
+  const clearAll = useCallback(async () => {
     if (!confirm("Delete all environment sources?")) return;
     try {
       const base = getApiBase();
       await fetch(`${base}/env/sources`, { method: "DELETE" });
       await refresh();
     } catch {}
-  }
+  }, [refresh]);
 
   return (
     <section className="flex flex-col gap-3">
@@ -117,17 +121,17 @@ function ModelSourcesAdmin() {
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const base = getApiBase();
       const res = await fetch(`${base}/model/sources?gender=${gender}`);
       const data = await res.json();
       setItems(data?.items || []);
     } catch {}
-  }
-  useEffect(() => { refresh(); }, [gender]);
+  }, [gender]);
+  useEffect(() => { refresh(); }, [refresh]);
 
-  async function upload() {
+  const upload = useCallback(async () => {
     if (!files.length) return;
     setBusy(true);
     try {
@@ -144,7 +148,7 @@ function ModelSourcesAdmin() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [files, gender, refresh]);
 
   return (
     <section className="flex flex-col gap-3">
@@ -177,17 +181,17 @@ function PoseAdmin() {
   const [items, setItems] = useState([]);
   const [descBusy, setDescBusy] = useState(false);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const base = getApiBase();
       const res = await fetch(`${base}/pose/sources`);
       const data = await res.json();
       setItems(data?.items || []);
     } catch {}
-  }
-  useEffect(() => { refresh(); }, []);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
 
-  async function upload() {
+  const upload = useCallback(async () => {
     if (!files.length) return;
     setBusy(true);
     try {
@@ -203,24 +207,27 @@ function PoseAdmin() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [files, refresh]);
 
-  async function describeAll() {
+  const describeAll = useCallback(async () => {
     setDescBusy(true);
     try {
       const base = getApiBase();
       await fetch(`${base}/pose/describe`, { method: "POST" });
-      alert("Pose descriptions queued/generated.");
-    } catch {}
-    setDescBusy(false);
-  }
+      await refresh();
+    } catch (e) {
+      alert("Describe poses failed");
+    } finally {
+      setDescBusy(false);
+    }
+  }, [refresh]);
 
-  async function clearAll() {
+  const clearAll = useCallback(async () => {
     if (!confirm("Delete all pose sources and descriptions?")) return;
     const base = getApiBase();
     await fetch(`${base}/pose/sources`, { method: "DELETE" });
     await refresh();
-  }
+  }, [refresh]);
 
   return (
     <section className="flex flex-col gap-3">
@@ -240,4 +247,3 @@ function PoseAdmin() {
     </section>
   );
 }
-

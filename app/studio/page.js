@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
