@@ -33,6 +33,10 @@ const POSE_MAX = 10;
 
 const FLOW_MODE_VALUES = new Set(["classic", "sequential", "both"]);
 
+const WALKTHROUGH_TITLE_ID = "walkthrough-title";
+const WALKTHROUGH_STEPS_ID = "walkthrough-steps";
+const WALKTHROUGH_FOOTNOTE_ID = "walkthrough-footnote";
+
 const defaultMainOptions = () => ({
   gender: "woman",
   environment: "studio",
@@ -164,6 +168,9 @@ export default function Home() {
   const { userId, isAdmin } = getSessionBasics(session);
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+  const walkthroughDialogRef = useRef(null);
+  const walkthroughDismissButtonRef = useRef(null);
+  const previouslyFocusedElementRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -339,9 +346,98 @@ export default function Home() {
     }
   }
 
-  function dismissWalkthrough() {
+  const dismissWalkthrough = useCallback(() => {
     setWalkthroughSeen(true);
-  }
+  }, [setWalkthroughSeen]);
+
+  useEffect(() => {
+    if (showWalkthrough) {
+      const activeElement = document.activeElement;
+      previouslyFocusedElementRef.current =
+        activeElement instanceof HTMLElement ? activeElement : null;
+
+      const focusTarget =
+        walkthroughDismissButtonRef.current || walkthroughDialogRef.current;
+      const frame = requestAnimationFrame(() => {
+        focusTarget?.focus?.({ preventScroll: true });
+      });
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    }
+
+    const toRestore = previouslyFocusedElementRef.current;
+    previouslyFocusedElementRef.current = null;
+    if (toRestore && typeof toRestore.focus === "function") {
+      requestAnimationFrame(() => {
+        toRestore.focus({ preventScroll: true });
+      });
+    }
+    return undefined;
+  }, [showWalkthrough]);
+
+  const handleWalkthroughKeyDown = useCallback(
+    (event) => {
+      if (!showWalkthrough) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dismissWalkthrough();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const dialogNode = walkthroughDialogRef.current;
+      if (!dialogNode) return;
+
+      const focusableSelectors = [
+        "a[href]",
+        "area[href]",
+        "button:not([disabled])",
+        "input:not([disabled])",
+        "select:not([disabled])",
+        "textarea:not([disabled])",
+        "[tabindex]:not([tabindex='-1'])",
+      ];
+      const focusableElements = Array.from(
+        dialogNode.querySelectorAll(focusableSelectors.join(","))
+      ).filter(
+        (element) =>
+          element instanceof HTMLElement &&
+          !element.hasAttribute("disabled") &&
+          element.getAttribute("aria-hidden") !== "true" &&
+          element.tabIndex >= 0
+      );
+
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialogNode.focus({ preventScroll: true });
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (event.shiftKey) {
+        if (
+          activeElement === firstElement ||
+          !dialogNode.contains(activeElement)
+        ) {
+          event.preventDefault();
+          lastElement.focus({ preventScroll: true });
+        }
+        return;
+      }
+
+      if (activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus({ preventScroll: true });
+      }
+    },
+    [dismissWalkthrough, showWalkthrough]
+  );
 
   const getRandomPoseDescription = useCallback(() => {
     const items = Array.isArray(poseDescs) ? poseDescs : [];
@@ -699,18 +795,49 @@ export default function Home() {
       </div>
 
       {showWalkthrough && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5">
-          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-background p-5">
-            <h2 className="text-lg font-semibold">How VintedBoost works</h2>
-            <ol className="mt-3 list-inside list-decimal space-y-2 text-sm text-foreground/80">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) dismissWalkthrough();
+          }}
+        >
+          <div
+            ref={walkthroughDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={WALKTHROUGH_TITLE_ID}
+            aria-describedby={`${WALKTHROUGH_STEPS_ID} ${WALKTHROUGH_FOOTNOTE_ID}`}
+            tabIndex={-1}
+            className="w-full max-w-md rounded-2xl border border-white/15 bg-background p-5"
+            onKeyDown={handleWalkthroughKeyDown}
+          >
+            <h2 id={WALKTHROUGH_TITLE_ID} className="text-lg font-semibold">
+              How VintedBoost works
+            </h2>
+            <ol
+              id={WALKTHROUGH_STEPS_ID}
+              className="mt-3 list-inside list-decimal space-y-2 text-sm text-foreground/80"
+            >
               <li>Upload a clear photo of your garment.</li>
               <li>Pick model, environment, and up to four poses.</li>
               <li>Review the prompt and generate mirror-selfie images.</li>
             </ol>
-            <p className="mt-3 text-xs text-foreground/60">Defaults for model and environment live in Studio. Set them once and reuse here.</p>
+            <p
+              id={WALKTHROUGH_FOOTNOTE_ID}
+              className="mt-3 text-xs text-foreground/60"
+            >
+              Defaults for model and environment live in Studio. Set them once
+              and reuse here.
+            </p>
             <div className="mt-4 flex items-center justify-between">
               <Link href="/studio" className="text-sm underline">Open Studio</Link>
-              <button onClick={dismissWalkthrough} className="h-9 rounded-md bg-foreground px-3 text-sm font-semibold text-background">Got it</button>
+              <button
+                ref={walkthroughDismissButtonRef}
+                onClick={dismissWalkthrough}
+                className="h-9 rounded-md bg-foreground px-3 text-sm font-semibold text-background"
+              >
+                Got it
+              </button>
             </div>
           </div>
         </div>
