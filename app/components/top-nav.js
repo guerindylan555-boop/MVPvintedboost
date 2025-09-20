@@ -3,11 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { Sparkles, Palette, Settings, List, CreditCard } from "lucide-react";
+import { createAuthClient } from "better-auth/react";
+import { Sparkles, Palette, Settings, List, CreditCard, Shield } from "lucide-react";
 
+import { getSessionBasics } from "@/app/lib/session";
 import { useSubscription } from "./subscription-provider";
 
-const links = [
+const authClient = createAuthClient();
+
+const BASE_LINKS = [
   { href: "/", label: "Create", icon: Sparkles },
   { href: "/studio", label: "Studio", icon: Palette },
   { href: "/listings", label: "Listings", icon: List },
@@ -18,6 +22,12 @@ const links = [
 export default function TopNav() {
   const pathname = usePathname();
   const { plan, allowance, remaining, isBillingEnabled } = useSubscription();
+  const { data: session } = authClient.useSession();
+  const { isAdmin } = getSessionBasics(session);
+
+  const navLinks = isAdmin
+    ? [...BASE_LINKS, { href: "/admin/usage", label: "Admin", icon: Shield }]
+    : BASE_LINKS;
 
   const planName = plan?.name || "Free";
   const allowanceNumber = typeof allowance === "number" ? allowance : null;
@@ -38,7 +48,7 @@ export default function TopNav() {
     <nav className="pointer-events-none fixed bottom-4 left-0 right-0 z-40 flex justify-center">
       <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface-strong)] px-2 py-2 shadow-[0_18px_60px_var(--color-border-strong)] backdrop-blur">
         <div className="flex items-center gap-1">
-          {links.map((link) => {
+          {navLinks.map((link) => {
             const Icon = link.icon;
             const active = pathname === link.href || pathname?.startsWith(`${link.href}/`);
             return (

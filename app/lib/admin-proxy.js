@@ -29,6 +29,10 @@ export async function proxyAdmin(
   }
 
   const headers = new Headers({ Authorization: `Bearer ${adminBearer}` });
+  const contentType = request.headers.get("content-type");
+  if (passBody && contentType && passBody !== "form") {
+    headers.set("content-type", contentType);
+  }
   if (includeUserId) {
     const uid = userId == null ? "" : String(userId);
     if (uid) headers.set("X-User-Id", uid);
@@ -50,4 +54,3 @@ export async function proxyAdmin(
   });
   return new Response(await res.text(), { status: res.status, headers: res.headers });
 }
-

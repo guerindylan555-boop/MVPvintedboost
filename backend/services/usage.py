@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -296,3 +296,53 @@ def get_usage_cost(action: str, *, default: int = 1) -> int:
         return max(int(value), 0)
     except (TypeError, ValueError):
         return max(default, 0)
+
+
+def set_usage_costs(new_costs: dict[str, Any]) -> dict[str, int]:
+    if not isinstance(new_costs, dict):
+        raise ValueError("costs payload must be an object")
+
+    sanitized: dict[str, int] = {}
+    for key, value in new_costs.items():
+        if not key or not isinstance(key, str):
+            continue
+        try:
+            sanitized[key] = max(int(value), 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid cost value for '{key}'") from exc
+
+    if not sanitized:
+        raise ValueError("no valid costs provided")
+
+    root = Path(__file__).resolve().parents[2]
+    path = root / "shared" / "usage_costs.json"
+    path.write_text(json.dumps(sanitized, indent=2) + "\n", encoding="utf-8")
+    _load_usage_costs.cache_clear()
+    return get_usage_costs_mapping()
+
+
+async def get_usage_summaries(user_ids: Iterable[str]) -> list[UsageSummary]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for uid in user_ids:
+        if not uid:
+            continue
+        if uid not in seen:
+            unique.append(uid)
+            seen.add(uid)
+    if not unique:
+        return []
+
+    summaries: list[UsageSummary] = []
+    async with db_session() as session:
+        for user_id in unique:
+            subscription = await _select_subscription(session, user_id)
+            plan = await session.get(SubscriptionPlan, subscription.plan_id) if subscription and subscription.plan_id else None
+            usage = await _ensure_usage_record(session, user_id, subscription)
+            summary = _build_summary(user_id, subscription, plan, usage)
+            if subscription and subscription.plan_id and plan is None:
+                polar_plan = await get_plan(subscription.plan_id, refresh=False)
+                if polar_plan:
+                    summary.apply_plan(polar_plan)
+            summaries.append(summary)
+    return summaries
