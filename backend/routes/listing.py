@@ -11,12 +11,26 @@ from sqlalchemy import text
 
 from backend.config import LOGGER
 from backend.db import Listing, ListingImage, db_session
-from backend.storage import (
-    generate_presigned_get_url,
-    upload_product_source_image,
+from backend.services.usage import (
+    QuotaError,
+    build_usage_identity,
+    consume_quota_with_session,
+    ensure_can_consume,
 )
+from backend.services.usage_rules import get_operation_cost
+from backend.storage import generate_presigned_get_url, upload_product_source_image
 
 router = APIRouter()
+
+
+def _parse_bool_header(value: str | None) -> bool:
+    if value is None:
+        return False
+    value = value.strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+LISTING_CREATE_COST = get_operation_cost("listing.create")
 
 
 def _normalize_to_png(raw_bytes: bytes) -> bytes:
@@ -47,10 +61,23 @@ async def create_listing(
     title: str | None = Form(None),
     garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
 ):
     try:
         if not x_user_id:
             return JSONResponse({"error": "missing user id"}, status_code=400)
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        try:
+            await ensure_can_consume(identity, amount=LISTING_CREATE_COST)
+        except QuotaError as exc:
+            return JSONResponse(
+                {"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402
+            )
         if not image or not image.filename:
             return JSONResponse({"error": "image file required"}, status_code=400)
         raw_bytes = await image.read()
@@ -80,16 +107,25 @@ async def create_listing(
         }
 
         lid = uuid.uuid4().hex
-        async with db_session() as session:
-            session.add(
-                Listing(
-                    id=lid,
-                    user_id=x_user_id,
-                    source_s3_key=src_key,
-                    settings_json=settings,
-                    description_text=None,
-                    cover_s3_key=None,
+        usage_summary = None
+        try:
+            async with db_session() as session:
+                session.add(
+                    Listing(
+                        id=lid,
+                        user_id=x_user_id,
+                        source_s3_key=src_key,
+                        settings_json=settings,
+                        description_text=None,
+                        cover_s3_key=None,
+                    )
                 )
+                usage_summary = await consume_quota_with_session(
+                    session, identity, LISTING_CREATE_COST
+                )
+        except QuotaError as exc:
+            return JSONResponse(
+                {"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402
             )
 
         try:
@@ -103,6 +139,7 @@ async def create_listing(
             "source_s3_key": src_key,
             "source_url": src_url,
             "settings": settings,
+            "usage": usage_summary.to_dict() if usage_summary else None,
         }
     except Exception as exc:
         LOGGER.exception("failed to create listing")

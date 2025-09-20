@@ -10,6 +10,7 @@ from PIL import Image
 from sqlalchemy import text
 
 from backend.db import Generation, ListingImage, db_session
+from backend.services.usage import UsageIdentity, UsageSummary, consume_quota_with_session
 from backend.storage import get_object_bytes
 from backend.utils.normalization import normalize_choice
 
@@ -210,9 +211,12 @@ async def persist_generation_result(
     update_listing_settings: bool = False,
     garment_type: str | None = None,
     garment_type_override: str | None = None,
-) -> None:
+    usage_identity: UsageIdentity | None = None,
+    usage_amount: float | None = None,
+) -> UsageSummary | None:
     """Persist generation metadata and optional listing attachments."""
 
+    usage_summary: UsageSummary | None = None
     async with db_session() as session:
         session.add(
             Generation(
@@ -224,8 +228,13 @@ async def persist_generation_result(
             )
         )
 
+        if usage_identity and usage_amount and usage_amount > 0:
+            usage_summary = await consume_quota_with_session(
+                session, usage_identity, usage_amount
+            )
+
         if not listing:
-            return
+            return usage_summary
 
         session.add(
             ListingImage(
@@ -265,3 +274,5 @@ async def persist_generation_result(
                 )
             except Exception:  # pragma: no cover - best-effort update
                 pass
+
+    return usage_summary

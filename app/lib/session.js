@@ -5,6 +5,7 @@ export function getSessionBasics(session) {
     session?.user?.email ||
     null;
   const isAdmin = Boolean(session?.user?.isAdmin);
-  return { userId, isAdmin };
+  const email = session?.user?.email || null;
+  return { userId, email, isAdmin };
 }
 

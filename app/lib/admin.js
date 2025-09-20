@@ -17,8 +17,7 @@ export function isAdminEmail(email) {
   const emails = parseAllowedEmails();
   const domain = getAllowedDomain();
 
-  // If no allowlist configured, allow any signed-in user
-  if (emails.length === 0 && !domain) return true;
+  if (emails.length === 0 && !domain) return false;
 
   if (emails.includes(lower)) return true;
   if (domain) {

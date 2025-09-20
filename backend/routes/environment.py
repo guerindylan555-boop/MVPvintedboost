@@ -10,11 +10,18 @@ from sqlalchemy import select, text
 
 from backend.config import LOGGER, MODEL
 from backend.db import EnvDefaultUser, EnvSource, Generation, db_session
+from backend.services.editing import persist_generation_result
 from backend.services.genai import (
     first_inline_image_bytes,
     genai_generate_with_retries,
     types as genai_types,
 )
+from backend.services.usage import (
+    QuotaError,
+    build_usage_identity,
+    ensure_can_consume,
+)
+from backend.services.usage_rules import get_operation_cost
 from backend.storage import (
     delete_objects,
     generate_presigned_get_url,
@@ -24,6 +31,22 @@ from backend.storage import (
 )
 
 router = APIRouter()
+
+
+def _parse_bool_header(value: str | None) -> bool:
+    if value is None:
+        return False
+    value = value.strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+ENVIRONMENT_COST = get_operation_cost("studio.environment")
+
+
+def _quota_json(exc: QuotaError) -> JSONResponse:
+    return JSONResponse(
+        {"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402
+    )
 
 
 def build_env_prompt(user_prompt: Optional[str] = None) -> str:
@@ -68,7 +91,12 @@ def build_env_prompt(user_prompt: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
-async def _generate_env_with_random_source(prompt_text: str, *, options: dict[str, Any]):
+async def _generate_env_with_random_source(
+    prompt_text: str,
+    *,
+    options: dict[str, Any],
+    identity=None,
+):
     async with db_session() as session:
         stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
         res = await session.execute(stmt)
@@ -90,16 +118,27 @@ async def _generate_env_with_random_source(prompt_text: str, *, options: dict[st
     _, key = upload_image(png_bytes, pose="env")
     payload = dict(options)
     payload["source_s3_key"] = source_key
-    async with db_session() as session:
-        rec = Generation(
+    try:
+        usage = await persist_generation_result(
             s3_key=key,
             pose="env",
             prompt=prompt_text,
-            options_json=payload,
-            model=MODEL,
+            options=payload,
+            model_name=MODEL,
+            usage_identity=identity,
+            usage_amount=ENVIRONMENT_COST,
         )
-        session.add(rec)
-    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+    except QuotaError as exc:
+        return _quota_json(exc)
+
+    response = StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+    if usage:
+        response.headers["X-Usage-Allowance"] = str(usage.allowance)
+        response.headers["X-Usage-Used"] = str(usage.used)
+        response.headers["X-Usage-Remaining"] = str(usage.remaining) if usage.remaining is not None else ""
+        if usage.plan_id:
+            response.headers["X-Usage-Plan-Id"] = usage.plan_id
+    return response
 
 
 @router.post("/env/sources/upload")
@@ -148,12 +187,25 @@ async def delete_env_sources():
 
 
 @router.post("/env/random")
-async def generate_env_random(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
+async def generate_env_random(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
+):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
         instruction = build_env_prompt()
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        await ensure_can_consume(identity, amount=ENVIRONMENT_COST)
         return await _generate_env_with_random_source(
             instruction,
             options={"mode": "random", "user_id": x_user_id},
+            identity=identity,
         )
     except Exception as exc:
         LOGGER.exception("env random failed")
@@ -161,10 +213,23 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
 
 
 @router.post("/env/generate")
-async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(default=None, alias="X-User-Id")):
+async def generate_env(
+    prompt: str = Form(""),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
+):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
         full = build_env_prompt(prompt)
         user_prompt = (prompt or "").strip()
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        await ensure_can_consume(identity, amount=ENVIRONMENT_COST)
         return await _generate_env_with_random_source(
             full,
             options={
@@ -172,6 +237,7 @@ async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(de
                 "user_prompt": user_prompt,
                 "user_id": x_user_id,
             },
+            identity=identity,
         )
     except Exception as exc:
         LOGGER.exception("env generate failed")

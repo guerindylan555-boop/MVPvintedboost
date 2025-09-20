@@ -18,12 +18,19 @@ from backend.db import (
     ModelSource,
     db_session,
 )
+from backend.services.editing import persist_generation_result
 from backend.services.genai import (
     first_inline_image_bytes,
     genai_generate_with_retries,
     get_client,
     types as genai_types,
 )
+from backend.services.usage import (
+    QuotaError,
+    build_usage_identity,
+    ensure_can_consume,
+)
+from backend.services.usage_rules import get_operation_cost
 from backend.storage import (
     delete_objects,
     generate_presigned_get_url,
@@ -34,6 +41,22 @@ from backend.storage import (
 from backend.utils.normalization import normalize_gender
 
 router = APIRouter()
+
+
+def _parse_bool_header(value: str | None) -> bool:
+    if value is None:
+        return False
+    value = value.strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+MODEL_GENERATION_COST = get_operation_cost("studio.model")
+
+
+def _quota_json(exc: QuotaError) -> JSONResponse:
+    return JSONResponse(
+        {"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402
+    )
 
 
 def build_model_prompt(gender: str, user_prompt: Optional[str]) -> str:
@@ -86,10 +109,22 @@ async def model_generate(
     gender: str = Form("man"),
     prompt: str = Form(""),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
 ):
     try:
         gender = normalize_gender(gender)
         user_prompt = (prompt or "").strip()
+
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        await ensure_can_consume(identity, amount=MODEL_GENERATION_COST)
 
         instruction = build_model_prompt(gender, user_prompt if user_prompt else None)
         parts: list[genai_types.Part] = [genai_types.Part.from_text(text=instruction)]
@@ -132,20 +167,24 @@ async def model_generate(
         png_bytes = first_inline_image_bytes(resp)
         if png_bytes:
             _, key = upload_image(png_bytes, pose=f"model-{gender}")
-            async with db_session() as session:
-                rec = Generation(
+            try:
+                usage = await persist_generation_result(
                     s3_key=key,
                     pose=f"model-{gender}",
                     prompt=instruction,
-                    options_json={
+                    options={
                         "mode": "model",
                         "gender": gender,
                         "user_prompt": user_prompt,
                         "user_id": x_user_id,
                     },
-                    model=MODEL,
+                    model_name=MODEL,
+                    usage_identity=identity,
+                    usage_amount=MODEL_GENERATION_COST,
                 )
-                session.add(rec)
+            except QuotaError as exc:
+                LOGGER.warning("quota exceeded after model generate", extra={"gender": gender})
+                return _quota_json(exc)
             try:
                 describe_prompt = (
                     "Describe this person precisely for identity reference (plain text, MINIMUM 500 words). "
@@ -182,7 +221,16 @@ async def model_generate(
                         session.add(ModelDescription(s3_key=key, description=description_text))
             except Exception:
                 pass
-            return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+            response = StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+            if usage:
+                response.headers["X-Usage-Allowance"] = str(usage.allowance)
+                response.headers["X-Usage-Used"] = str(usage.used)
+                response.headers["X-Usage-Remaining"] = (
+                    str(usage.remaining) if usage.remaining is not None else ""
+                )
+                if usage.plan_id:
+                    response.headers["X-Usage-Plan-Id"] = usage.plan_id
+            return response
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as exc:
         LOGGER.exception("model generate failed")

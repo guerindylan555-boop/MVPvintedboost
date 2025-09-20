@@ -161,7 +161,8 @@ function serializeWalkthroughSeen(value) {
 
 export default function Home() {
   const { data: session } = authClient.useSession();
-  const { userId, isAdmin } = getSessionBasics(session);
+  const sessionBasics = getSessionBasics(session);
+  const { userId, email, isAdmin } = sessionBasics;
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -266,7 +267,9 @@ export default function Home() {
       setEnvDefaultsLoading(true);
       try {
         const baseUrl = getApiBase();
-        const res = await fetch(`${baseUrl}/env/defaults`, { headers: withUserId({}, userId) });
+        const res = await fetch(`${baseUrl}/env/defaults`, {
+          headers: withUserId({}, sessionBasics),
+        });
         const data = await res.json();
         if (data?.items) setEnvDefaults(data.items);
       } catch {}
@@ -454,6 +457,7 @@ export default function Home() {
     desc,
     productCondition,
     userId,
+    user: sessionBasics,
     flowMode,
     resolvePoseInstruction,
     computeEffectivePrompt,
@@ -552,7 +556,7 @@ export default function Home() {
       key,
       index: idx,
       label: randomLabel || `Image ${idx + 1}`,
-      status: poseStatus[key] || (isGenerating ? "running" : "pending"),
+      status: poseStatus[key] || (isGenerating ? "queued" : "pending"),
       error: poseErrors[key],
     };
   });

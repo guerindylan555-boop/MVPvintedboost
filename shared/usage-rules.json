@@ -1,0 +1,25 @@
+{
+  "precision": 1,
+  "operations": {
+    "listing.create": {
+      "label": "Create listing",
+      "description": "Upload a new garment and start a listing workflow.",
+      "cost": 1
+    },
+    "generation.pose": {
+      "label": "Generate listing pose",
+      "description": "Create an AI try-on image or listing variation.",
+      "cost": 1
+    },
+    "studio.environment": {
+      "label": "Generate studio environment",
+      "description": "Produce a new backdrop or mirror environment.",
+      "cost": 0.5
+    },
+    "studio.model": {
+      "label": "Generate studio model",
+      "description": "Create or refresh an in-house model reference.",
+      "cost": 1
+    }
+  }
+}

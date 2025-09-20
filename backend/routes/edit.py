@@ -29,9 +29,40 @@ from backend.services.editing import (
 from backend.services.garment import classify_garment_type
 from backend.services.genai import first_inline_image_bytes, genai_generate_with_retries, types as genai_types
 from backend.storage import generate_presigned_get_url, get_object_bytes, upload_image
+from backend.services.usage import (
+    QuotaError,
+    UsageSummary,
+    build_usage_identity,
+    ensure_can_consume,
+)
+from backend.services.usage_rules import get_operation_cost
 from backend.utils.normalization import normalize_choice
 
 router = APIRouter()
+
+
+def _parse_bool_header(value: str | None) -> bool:
+    if value is None:
+        return False
+    value = value.strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+GENERATION_COST = get_operation_cost("generation.pose")
+
+
+def _quota_json(exc: QuotaError) -> JSONResponse:
+    return JSONResponse({"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402)
+
+
+def _attach_usage_headers(response: StreamingResponse, summary: UsageSummary) -> None:
+    response.headers["X-Usage-Allowance"] = str(summary.allowance)
+    response.headers["X-Usage-Used"] = str(summary.used)
+    response.headers["X-Usage-Remaining"] = str(summary.remaining)
+    if summary.plan_id:
+        response.headers["X-Usage-Plan-Id"] = summary.plan_id
+    if summary.plan_name:
+        response.headers["X-Usage-Plan-Name"] = summary.plan_name
 
 
 @router.post("/edit")
@@ -47,8 +78,21 @@ async def edit(
     prompt_override: str | None = Form(None),
     garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
 ):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        try:
+            await ensure_can_consume(identity, amount=GENERATION_COST)
+        except QuotaError as exc:
+            return _quota_json(exc)
         if not image or not image.filename:
             return JSONResponse({"error": "image file required"}, status_code=400)
         raw_bytes = await image.read()
@@ -122,28 +166,39 @@ async def edit(
         png_bytes_out = first_inline_image_bytes(resp)
         if png_bytes_out:
             _, key = upload_image(png_bytes_out, pose=norm_poses[0])
-            async with db_session() as session:
-                rec = Generation(
+            try:
+                usage = await persist_generation_result(
                     s3_key=key,
                     pose=norm_poses[0],
                     prompt=prompt_text,
-                    options_json={
+                    options={
                         "gender": gender,
                         "environment": environment,
                         "poses": norm_poses,
                         "extra": extra,
                         "env_default_s3_key": env_key_used,
                         "model_default_s3_key": person_key_used,
-                        "model_description_text": (model_description_text if not person_key_used else None),
+                        "model_description_text": (
+                            model_description_text if not person_key_used else None
+                        ),
                         "garment_type": garment_type,
-                        "garment_type_override": (garment_type_override if garment_type_override else None),
+                        "garment_type_override": (
+                            garment_type_override if garment_type_override else None
+                        ),
                         "user_id": x_user_id,
                         "prompt_variant": prompt_variant,
                     },
-                    model=MODEL,
+                    model_name=MODEL,
+                    usage_identity=identity,
+                    usage_amount=GENERATION_COST,
                 )
-                session.add(rec)
-            return StreamingResponse(BytesIO(png_bytes_out), media_type="image/png")
+            except QuotaError as exc:
+                LOGGER.warning("quota exceeded after edit generation", extra={"s3_key": key})
+                return _quota_json(exc)
+            response = StreamingResponse(BytesIO(png_bytes_out), media_type="image/png")
+            if usage:
+                _attach_usage_headers(response, usage)
+            return response
 
         if not (prompt_override and prompt_override.strip()):
             try:
@@ -162,28 +217,39 @@ async def edit(
                 png_bytes2 = first_inline_image_bytes(resp2)
                 if png_bytes2:
                     _, key = upload_image(png_bytes2, pose=norm_poses[0])
-                    async with db_session() as session:
-                        rec = Generation(
+                    try:
+                        usage = await persist_generation_result(
                             s3_key=key,
                             pose=norm_poses[0],
                             prompt=prompt_text,
-                            options_json={
+                            options={
                                 "gender": gender,
                                 "environment": environment,
                                 "poses": norm_poses,
                                 "extra": extra,
                                 "env_default_s3_key": env_key_used,
                                 "model_default_s3_key": person_key_used,
-                                "model_description_text": (model_description_text if not person_key_used else None),
+                                "model_description_text": (
+                                    model_description_text if not person_key_used else None
+                                ),
                                 "garment_type": garment_type,
-                                "garment_type_override": (garment_type_override if garment_type_override else None),
+                                "garment_type_override": (
+                                    garment_type_override if garment_type_override else None
+                                ),
                                 "user_id": x_user_id,
                                 "prompt_variant": prompt_variant,
                             },
-                            model=MODEL,
+                            model_name=MODEL,
+                            usage_identity=identity,
+                            usage_amount=GENERATION_COST,
                         )
-                        session.add(rec)
-                    return StreamingResponse(BytesIO(png_bytes2), media_type="image/png")
+                    except QuotaError as exc:
+                        LOGGER.warning("quota exceeded after edit retry", extra={"s3_key": key})
+                        return _quota_json(exc)
+                    response = StreamingResponse(BytesIO(png_bytes2), media_type="image/png")
+                    if usage:
+                        _attach_usage_headers(response, usage)
+                    return response
             except Exception:
                 pass
         try:
@@ -220,8 +286,21 @@ async def edit_json(
     listing_id: str | None = Form(None),
     garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
 ):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        try:
+            await ensure_can_consume(identity, amount=GENERATION_COST)
+        except QuotaError as exc:
+            return _quota_json(exc)
         listing_ctx = await resolve_listing_context(
             listing_id, x_user_id, required=not (image and image.filename)
         )
@@ -317,17 +396,25 @@ async def edit_json(
         pose_for_storage = pose_str or "pose"
         if png_bytes:
             _, key = upload_image(png_bytes, pose=pose_for_storage)
-            await persist_generation_result(
-                s3_key=key,
-                pose=pose_for_storage,
-                prompt=prompt_text,
-                options=dict(base_options, prompt_variant=prompt_variant),
-                model_name=MODEL,
-                listing=listing_ctx,
-                update_listing_settings=True,
-                garment_type=garment_type,
-                garment_type_override=garment_type_override,
-            )
+            try:
+                usage = await persist_generation_result(
+                    s3_key=key,
+                    pose=pose_for_storage,
+                    prompt=prompt_text,
+                    options=dict(base_options, prompt_variant=prompt_variant),
+                    model_name=MODEL,
+                    listing=listing_ctx,
+                    update_listing_settings=True,
+                    garment_type=garment_type,
+                    garment_type_override=garment_type_override,
+                    usage_identity=identity,
+                    usage_amount=GENERATION_COST,
+                )
+            except QuotaError as exc:
+                LOGGER.warning(
+                    "quota exceeded after edit/json generation", extra={"s3_key": key}
+                )
+                return _quota_json(exc)
             try:
                 url = generate_presigned_get_url(key)
             except Exception:
@@ -339,6 +426,7 @@ async def edit_json(
                 "pose": pose_for_storage,
                 "prompt": prompt_text,
                 "listing_id": listing_ctx.id if listing_ctx else listing_id,
+                "usage": usage.to_dict() if usage else None,
             }
 
         if not (prompt_override and prompt_override.strip()):
@@ -362,17 +450,25 @@ async def edit_json(
                 png_bytes = first_inline_image_bytes(resp2)
                 if png_bytes:
                     _, key = upload_image(png_bytes, pose=pose_for_storage)
-                    await persist_generation_result(
-                        s3_key=key,
-                        pose=pose_for_storage,
-                        prompt=prompt_text,
-                        options=dict(base_options, prompt_variant=prompt_variant),
-                        model_name=MODEL,
-                        listing=listing_ctx,
-                        update_listing_settings=True,
-                        garment_type=garment_type,
-                        garment_type_override=garment_type_override,
-                    )
+                    try:
+                        usage = await persist_generation_result(
+                            s3_key=key,
+                            pose=pose_for_storage,
+                            prompt=prompt_text,
+                            options=dict(base_options, prompt_variant=prompt_variant),
+                            model_name=MODEL,
+                            listing=listing_ctx,
+                            update_listing_settings=True,
+                            garment_type=garment_type,
+                            garment_type_override=garment_type_override,
+                            usage_identity=identity,
+                            usage_amount=GENERATION_COST,
+                        )
+                    except QuotaError as exc:
+                        LOGGER.warning(
+                            "quota exceeded after edit/json fallback", extra={"s3_key": key}
+                        )
+                        return _quota_json(exc)
                     try:
                         url = generate_presigned_get_url(key)
                     except Exception:
@@ -384,6 +480,7 @@ async def edit_json(
                         "pose": pose_for_storage,
                         "prompt": prompt_text,
                         "listing_id": listing_ctx.id if listing_ctx else listing_id,
+                        "usage": usage.to_dict() if usage else None,
                     }
             except Exception:
                 pass
@@ -414,8 +511,21 @@ async def edit_sequential_json(
     listing_id: str | None = Form(None),
     garment_type_override: str | None = Form(None),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    x_user_admin: str | None = Header(default=None, alias="X-User-Is-Admin"),
 ):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+        identity = build_usage_identity(
+            x_user_id,
+            email=x_user_email,
+            is_admin_hint=_parse_bool_header(x_user_admin),
+        )
+        try:
+            await ensure_can_consume(identity, amount=GENERATION_COST)
+        except QuotaError as exc:
+            return _quota_json(exc)
         listing_ctx = await resolve_listing_context(
             listing_id, x_user_id, required=not (image and image.filename)
         )
@@ -562,17 +672,23 @@ async def edit_sequential_json(
 
         pose_for_storage = inputs.primary_pose or "pose"
         _, key = upload_image(png_bytes, pose=pose_for_storage)
-        await persist_generation_result(
-            s3_key=key,
-            pose=pose_for_storage,
-            prompt=step2_prompt,
-            options=dict(base_options, prompt_variant=step2_variant),
-            model_name=MODEL,
-            listing=listing_ctx,
-            update_listing_settings=False,
-            garment_type=garment_type,
-            garment_type_override=garment_type_override,
-        )
+        try:
+            usage = await persist_generation_result(
+                s3_key=key,
+                pose=pose_for_storage,
+                prompt=step2_prompt,
+                options=dict(base_options, prompt_variant=step2_variant),
+                model_name=MODEL,
+                listing=listing_ctx,
+                update_listing_settings=False,
+                garment_type=garment_type,
+                garment_type_override=garment_type_override,
+                usage_identity=identity,
+                usage_amount=GENERATION_COST,
+            )
+        except QuotaError as exc:
+            LOGGER.warning("quota exceeded after sequential edit", extra={"s3_key": key})
+            return _quota_json(exc)
         try:
             url = generate_presigned_get_url(key)
         except Exception:
@@ -584,6 +700,7 @@ async def edit_sequential_json(
             "pose": pose_for_storage,
             "prompt": step2_prompt,
             "listing_id": listing_ctx.id if listing_ctx else listing_id,
+            "usage": usage.to_dict() if usage else None,
         }
     except EditingError as exc:
         return JSONResponse({"error": exc.message}, status_code=exc.status_code)
