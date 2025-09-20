@@ -2,11 +2,13 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import { createAuthClient } from "better-auth/react";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
 import { VB_STUDIO_ACTIVE_TAB, VB_STUDIO_MODEL_GENDER } from "@/app/lib/storage-keys";
 import { CheckCircle2, MinusCircle, PlusCircle, Trash2 } from "lucide-react";
+import { useSubscription } from "@/app/components/subscription-provider";
 
 const authClient = createAuthClient();
 const ENV_TABS = ["generated", "defaults", "sources"];
@@ -16,6 +18,29 @@ const GENDER_FILTERS = ["all", "man", "woman"];
 export default function StudioPage() {
   const { data: session } = authClient.useSession();
   const { userId, isAdmin } = getSessionBasics(session);
+  const { usage, isBillingEnabled, applyUsageFromResponse, refresh } = useSubscription();
+
+  const quotaMessage = "You're out of quota. Visit Billing to upgrade.";
+
+  const remainingQuota = typeof usage?.remaining === "number" ? usage.remaining : null;
+
+  function ensureQuota() {
+    if (isBillingEnabled && remainingQuota !== null && remainingQuota <= 0) {
+      toast.error(quotaMessage);
+      return false;
+    }
+    return true;
+  }
+
+  async function applyQuotaFromResponse(res) {
+    if (res.status !== 402) return false;
+    try {
+      const payload = await res.json();
+      if (payload) applyUsageFromResponse(payload);
+    } catch {}
+    toast.error(quotaMessage);
+    return true;
+  }
 
   const [activeSection, setActiveSection] = useState("environment");
   const [envLibraryView, setEnvLibraryView] = useState("generated");
@@ -127,6 +152,7 @@ export default function StudioPage() {
 
   async function handleGenerate() {
     try {
+      if (!ensureQuota()) return;
       setIsGenerating(true);
       const baseUrl = getApiBase();
       const endpoint = prompt.trim() ? "/env/generate" : "/env/random";
@@ -138,9 +164,13 @@ export default function StudioPage() {
       } else {
         res = await fetch(`${baseUrl}${endpoint}`, { method: "POST", headers: withUserId({}, userId) });
       }
+      if (await applyQuotaFromResponse(res)) return;
       if (!res.ok) throw new Error(await res.text());
       await res.blob();
       await refreshGenerated();
+      try {
+        await refresh();
+      } catch {}
     } catch (err) {
       console.error(err);
       alert("Environment generation failed.");
@@ -335,6 +365,7 @@ export default function StudioPage() {
       alert(`Pick a ${gender} source image first`);
       return;
     }
+    if (!ensureQuota()) return;
     try {
       setIsModelGenerating(true);
       const form = new FormData();
@@ -343,9 +374,13 @@ export default function StudioPage() {
       if (modelPrompt.trim()) form.append("prompt", modelPrompt.trim());
       const baseUrl = getApiBase();
       const res = await fetch(`${baseUrl}/model/generate`, { method: "POST", body: form, headers: withUserId({}, userId) });
+      if (await applyQuotaFromResponse(res)) return;
       if (!res.ok) throw new Error(await res.text());
       await res.blob();
       await refreshModelGenerated();
+      try {
+        await refresh();
+      } catch {}
     } catch (err) {
       console.error(err);
       alert("Model generation failed.");
