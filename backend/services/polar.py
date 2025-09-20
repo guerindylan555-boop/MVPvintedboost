@@ -78,18 +78,24 @@ async def close_polar_client() -> None:
 def _extract_allowance(data: dict[str, Any] | None) -> int:
     if not data:
         return 0
-    raw = (
-        data.get("metadata", {}).get("allowance")
-        or data.get("metadata", {}).get("usage_allowance")
-        or data.get("metadata", {}).get("quota")
-    )
+    metadata = data.get("metadata") or {}
+
+    def pick(meta: dict[str, Any]) -> Any:
+        for key in ("gen_allowance", "allowance", "usage_allowance", "quota"):
+            if key in meta:
+                return meta[key]
+            if f"{key}:" in meta:
+                return meta[f"{key}:"]
+        # handle sloppy keys with whitespace
+        for k, v in meta.items():
+            if isinstance(k, str) and k.strip(": ") in {"gen_allowance", "allowance", "usage_allowance", "quota"}:
+                return v
+        return None
+
+    raw = pick(metadata)
     if raw is None and data.get("prices"):
         for price in data.get("prices") or []:
-            raw = (
-                price.get("metadata", {}).get("allowance")
-                or price.get("metadata", {}).get("usage_allowance")
-                or price.get("metadata", {}).get("quota")
-            )
+            raw = pick(price.get("metadata") or {})
             if raw is not None:
                 break
     try:
