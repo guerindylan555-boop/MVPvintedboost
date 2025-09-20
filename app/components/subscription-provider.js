@@ -8,7 +8,7 @@ import { getSubscriptionPlans } from "@/app/lib/subscription-config";
 
 const authClient = createAuthClient();
 const SubscriptionContext = createContext(undefined);
-const PLAN_OPTIONS = getSubscriptionPlans();
+const INITIAL_PLANS = getSubscriptionPlans();
 
 function extractUsage(payload) {
   if (!payload || typeof payload !== "object") return null;
@@ -83,6 +83,7 @@ export function SubscriptionProvider({ children }) {
   const { userId } = getSessionBasics(session);
 
   const [usage, setUsage] = useState(null);
+  const [planOptions, setPlanOptions] = useState(INITIAL_PLANS);
   const [costs, setCosts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -105,6 +106,46 @@ export function SubscriptionProvider({ children }) {
       setCosts(payload.costs);
     }
     return null;
+  }, []);
+
+  const mergePlans = useCallback((payload) => {
+    if (!payload || !Array.isArray(payload.plans)) return;
+    setPlanOptions((prev) => {
+      const byId = new Map(
+        payload.plans
+          .filter((item) => item && typeof item === "object" && typeof item.id === "string")
+          .map((item) => [item.id, item])
+      );
+      return prev.map((option) => {
+        if (!option.id) {
+          return option;
+        }
+        const remote = byId.get(option.id);
+        if (!remote) {
+          return {
+            ...option,
+            isAvailable: option.isAvailable,
+          };
+        }
+        const allowance =
+          typeof remote.allowance === "number" && remote.allowance >= 0
+            ? remote.allowance
+            : option.allowance;
+        return {
+          ...option,
+          name: remote.name || option.name,
+          allowance,
+          planMetadata: remote.metadata || option.planMetadata,
+          interval: remote.interval || option.interval,
+          currency: remote.currency || option.currency,
+          priceId: remote.default_price_id || option.priceId,
+          isAvailable: true,
+        };
+      });
+    });
+    if (payload?.costs && typeof payload.costs === "object") {
+      setCosts(payload.costs);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -153,6 +194,20 @@ export function SubscriptionProvider({ children }) {
     }
     refresh();
   }, [userId, refresh]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/billing/plans", { cache: "no-store" });
+        const data = await readResponseBody(res);
+        if (res.ok && data) {
+          mergePlans(data);
+        }
+      } catch (err) {
+        console.warn("Failed to load billing plans", err);
+      }
+    })();
+  }, [mergePlans]);
 
   const startCheckout = useCallback(
     async (planId, { successUrl, cancelUrl, theme } = {}) => {
@@ -236,7 +291,7 @@ export function SubscriptionProvider({ children }) {
       costs: usage?.costs && typeof usage.costs === "object" ? usage.costs : costs,
       isBillingEnabled: billingEnabled,
       manageUrl,
-      plans: PLAN_OPTIONS,
+      plans: planOptions,
       refresh,
       applyUsageFromResponse,
       startCheckout,
@@ -251,6 +306,7 @@ export function SubscriptionProvider({ children }) {
       loading,
       manageUrl,
       openPortal,
+      planOptions,
       plan,
       refresh,
       remaining,

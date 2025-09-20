@@ -17,9 +17,11 @@ from backend.services.polar import (
     PolarConfigurationError,
     create_checkout_session,
     create_customer_portal_session,
+    list_cached_plans,
+    refresh_plan_cache,
     upsert_plan_from_payload,
 )
-from backend.services.usage import get_usage_summary
+from backend.services.usage import get_usage_costs_mapping, get_usage_summary
 
 router = APIRouter()
 
@@ -192,3 +194,40 @@ async def webhook_endpoint(request: Request):
     except Exception:  # pragma: no cover - defensive logging
         LOGGER.exception("Failed to process Polar webhook", extra={"event_type": event_type})
         return JSONResponse({"error": "internal error"}, status_code=500)
+
+
+@router.get("/billing/plans")
+async def list_plans():
+    try:
+        plans = await list_cached_plans()
+        if not plans:
+            cache = await refresh_plan_cache(force=True)
+            plans = list(cache.values())
+    except PolarConfigurationError:
+        raise HTTPException(status_code=503, detail="billing not configured")
+    except PolarAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Failed to load Polar plans")
+        raise HTTPException(status_code=500, detail="failed to load plans") from exc
+
+    serialized = []
+    for plan in plans:
+        serialized.append(
+            {
+                "id": plan.id,
+                "name": plan.name,
+                "allowance": plan.allowance,
+                "interval": plan.interval,
+                "currency": plan.currency,
+                "default_price_id": plan.default_price_id,
+                "metadata": plan.metadata,
+                "is_active": plan.is_active,
+            }
+        )
+
+    return {
+        "ok": True,
+        "plans": serialized,
+        "costs": get_usage_costs_mapping(),
+    }
