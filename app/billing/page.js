@@ -33,22 +33,35 @@ export default function BillingPage() {
   const [portalBusy, setPortalBusy] = useState(false);
 
   const planId = plan?.id || null;
-  const planName = plan?.name || "Free";
   const allowanceNumber = typeof allowance === "number" ? allowance : null;
   const usedNumber = typeof used === "number" ? used : null;
   const remainingNumber = typeof remaining === "number" ? Math.max(remaining, 0) : null;
 
+  const fallbackPlan = useMemo(() => plans.find((p) => p.key === "free") || plans[0] || null, [plans]);
+  const activePlanOption = useMemo(() => {
+    if (planId) {
+      return plans.find((p) => p.id === planId) || fallbackPlan;
+    }
+    return fallbackPlan;
+  }, [fallbackPlan, planId, plans]);
+
+  const displayPlanName = plan?.name || activePlanOption?.name || "Free";
+  const displayAllowance = allowanceNumber ?? activePlanOption?.allowance ?? null;
+  const displayRemaining = remainingNumber ?? (displayAllowance != null && usedNumber != null
+    ? Math.max(displayAllowance - usedNumber, 0)
+    : null);
+
   const allowanceLabel = useMemo(() => {
-    if (allowanceNumber === null) return "—";
-    if (allowanceNumber === 0) return "Unlimited";
-    return `${allowanceNumber.toLocaleString()} / month`;
-  }, [allowanceNumber]);
+    if (displayAllowance === null) return "—";
+    if (displayAllowance === 0) return "Unlimited";
+    return `${displayAllowance.toLocaleString()} / month`;
+  }, [displayAllowance]);
 
   const remainingLabel = useMemo(() => {
-    if (allowanceNumber === 0) return "Unlimited";
-    if (remainingNumber === null) return "—";
-    return `${remainingNumber.toLocaleString()} left`;
-  }, [allowanceNumber, remainingNumber]);
+    if (displayAllowance === 0) return "Unlimited";
+    if (displayRemaining === null) return "—";
+    return `${displayRemaining.toLocaleString()} left`;
+  }, [displayAllowance, displayRemaining]);
 
   async function handleSelectPlan(option) {
     if (!option?.id) {
@@ -116,7 +129,7 @@ export default function BillingPage() {
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-2xl border border-[var(--color-border)]/60 bg-[var(--color-background)]/40 p-4">
             <p className="text-xs uppercase tracking-wide text-foreground/50">Plan</p>
-            <p className="mt-1 text-base font-semibold text-foreground">{planName}</p>
+            <p className="mt-1 text-base font-semibold text-foreground">{displayPlanName}</p>
             {plan?.interval ? (
               <p className="text-xs text-foreground/60">{plan.interval}</p>
             ) : null}
@@ -201,4 +214,3 @@ export default function BillingPage() {
     </div>
   );
 }
-
