@@ -12,3 +12,4 @@ redis==5.1.1
 celery[redis]==5.4.0
 flower==2.0.1
 standardwebhooks==1.0.0
+polar-sdk==0.23.1

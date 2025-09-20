@@ -1,12 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { createAuthClient } from "better-auth/react";
+
+import { authClient } from "@/app/lib/auth-client";
 
 import { getSessionBasics } from "@/app/lib/session";
 import { getSubscriptionPlans } from "@/app/lib/subscription-config";
 
-const authClient = createAuthClient();
 const SubscriptionContext = createContext(undefined);
 const INITIAL_PLANS = getSubscriptionPlans();
 

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback } from "react";
-import { createAuthClient } from "better-auth/react";
-const authClient = createAuthClient();
+
+import { authClient } from "@/app/lib/auth-client";
 
 export default function LoginPage() {
   const onGoogle = useCallback(async () => {

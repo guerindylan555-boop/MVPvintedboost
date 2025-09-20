@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { toast } from "react-hot-toast";
-import { createAuthClient } from "better-auth/react";
 
-const authClient = createAuthClient();
+import { authClient } from "@/app/lib/auth-client";
 
 export default function SettingsPage() {
   const { data: session } = authClient.useSession();

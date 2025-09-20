@@ -3,12 +3,10 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createAuthClient } from "better-auth/react";
 import clsx from "clsx";
 
+import { authClient } from "@/app/lib/auth-client";
 import { getSessionBasics } from "@/app/lib/session";
-
-const authClient = createAuthClient();
 
 function formatDate(value) {
   if (!value) return "—";

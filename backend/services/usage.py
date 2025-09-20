@@ -12,8 +12,16 @@ from typing import Any, Iterable
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import POLAR_USAGE_EVENT_NAME, POLAR_USAGE_METER_ID
 from backend.db import Subscription, SubscriptionPlan, UsageCounter, db_session
-from backend.services.polar import PolarPlan, get_plan
+from backend.services.polar import (
+    PolarAPIError,
+    PolarConfigurationError,
+    PolarPlan,
+    get_plan,
+    ingest_events,
+    list_customer_meters,
+)
 
 _ACTIVE_STATUSES = {"active", "trialing", "past_due"}
 
@@ -22,6 +30,90 @@ LOGGER = logging.getLogger(__name__)
 
 def _now_utc() -> datetime:
     return datetime.utcnow()
+
+
+def _sanitize_units(value: Any) -> int | None:
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return max(number, 0)
+
+
+def _select_meter_record(meters: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not meters:
+        return None
+    if POLAR_USAGE_METER_ID:
+        for meter in meters:
+            if meter.get("meter_id") == POLAR_USAGE_METER_ID:
+                return meter
+            inner = meter.get("meter")
+            if isinstance(inner, dict) and inner.get("id") == POLAR_USAGE_METER_ID:
+                return meter
+    return meters[0]
+
+
+async def _enrich_summary_with_polar_meter(summary: "UsageSummary") -> "UsageSummary":
+    if not (POLAR_USAGE_METER_ID or POLAR_USAGE_EVENT_NAME):
+        return summary
+
+    try:
+        meters = await list_customer_meters(
+            external_customer_id=summary.user_id,
+            meter_id=POLAR_USAGE_METER_ID or None,
+        )
+    except PolarConfigurationError:
+        return summary
+    except PolarAPIError:
+        LOGGER.exception("Failed to load Polar customer meters", extra={"user_id": summary.user_id})
+        return summary
+    except Exception:  # pragma: no cover - defensive
+        LOGGER.exception("Unexpected error while loading Polar customer meters", extra={"user_id": summary.user_id})
+        return summary
+
+    meter = _select_meter_record(meters)
+    if not meter:
+        return summary
+
+    consumed = _sanitize_units(meter.get("consumed_units"))
+    credited = _sanitize_units(meter.get("credited_units"))
+    balance = _sanitize_units(meter.get("balance"))
+
+    if credited is not None:
+        summary.allowance = max(credited, summary.allowance)
+    if consumed is not None:
+        summary.used = max(consumed, 0)
+    if balance is not None:
+        summary.remaining = max(balance, 0)
+    else:
+        summary.remaining = max(summary.allowance - summary.used, 0)
+    return summary
+
+
+async def _ingest_usage_event(user_id: str, amount: int, metadata: dict[str, Any] | None = None) -> None:
+    if amount <= 0 or not POLAR_USAGE_EVENT_NAME:
+        return
+
+    payload_metadata: dict[str, Any] = {"amount": int(amount)}
+    if POLAR_USAGE_METER_ID:
+        payload_metadata["meter_id"] = POLAR_USAGE_METER_ID
+    if metadata:
+        payload_metadata.update(metadata)
+
+    event = {
+        "name": POLAR_USAGE_EVENT_NAME,
+        "external_customer_id": user_id,
+        "metadata": payload_metadata,
+    }
+
+    try:
+        await ingest_events([event])
+    except PolarConfigurationError:
+        LOGGER.debug("Polar not configured for usage ingestion")
+    except PolarAPIError:
+        LOGGER.exception("Failed to ingest Polar usage event", extra={"user_id": user_id, "amount": amount})
+    except Exception:  # pragma: no cover - defensive
+        LOGGER.exception("Unexpected error during Polar usage ingestion", extra={"user_id": user_id, "amount": amount})
 
 
 @dataclass(slots=True)
@@ -214,6 +306,7 @@ async def get_usage_summary(user_id: str) -> UsageSummary:
         polar_plan = await get_plan(subscription.plan_id, refresh=False)
         if polar_plan:
             summary.apply_plan(polar_plan)
+    summary = await _enrich_summary_with_polar_meter(summary)
     return summary
 
 
@@ -241,7 +334,7 @@ async def consume_quota_with_session(
             polar_plan = await get_plan(subscription.plan_id, refresh=False)
             if polar_plan:
                 summary.apply_plan(polar_plan)
-        return summary
+        return await _enrich_summary_with_polar_meter(summary)
 
     if not subscription or usage is None:
         raise QuotaError(summary)
@@ -254,6 +347,13 @@ async def consume_quota_with_session(
         polar_plan = await get_plan(subscription.plan_id, refresh=False)
         if polar_plan:
             summary.apply_plan(polar_plan)
+
+    metadata: dict[str, Any] = {}
+    if subscription and subscription.plan_id:
+        metadata["plan_id"] = subscription.plan_id
+    await _ingest_usage_event(user_id, amount, metadata or None)
+
+    summary = await _enrich_summary_with_polar_meter(summary)
     return summary
 
 
@@ -344,5 +444,6 @@ async def get_usage_summaries(user_ids: Iterable[str]) -> list[UsageSummary]:
                 polar_plan = await get_plan(subscription.plan_id, refresh=False)
                 if polar_plan:
                     summary.apply_plan(polar_plan)
+            summary = await _enrich_summary_with_polar_meter(summary)
             summaries.append(summary)
     return summaries

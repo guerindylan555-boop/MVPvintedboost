@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 import httpx
+from polar_sdk import Polar, models as polar_models
+from polar_sdk.sdkconfiguration import SERVER_PRODUCTION, SERVER_SANDBOX, SERVERS
 from sqlalchemy import select
 
 from backend.config import LOGGER, POLAR_API_BASE, POLAR_OAT, POLAR_ORG_ID
@@ -35,44 +37,75 @@ class PolarPlan:
     is_active: bool
 
 
-_client: httpx.AsyncClient | None = None
-_client_lock = asyncio.Lock()
+_sdk: Polar | None = None
+_sdk_lock = asyncio.Lock()
 _plan_cache: dict[str, PolarPlan] = {}
 _plan_cache_expiry: float = 0.0
 _plan_cache_lock = asyncio.Lock()
 _PLAN_CACHE_TTL_SECONDS = 300.0
 
 
-async def _get_client() -> httpx.AsyncClient:
+def _resolve_server() -> tuple[Optional[str], Optional[str]]:
+    base = (POLAR_API_BASE or "https://api.polar.sh/v1").strip()
+    base = base.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+
+    if base == SERVERS[SERVER_PRODUCTION]:
+        return SERVER_PRODUCTION, None
+    if base == SERVERS[SERVER_SANDBOX]:
+        return SERVER_SANDBOX, None
+    if base:
+        return None, base
+    return SERVER_PRODUCTION, None
+
+
+def _build_polar_client() -> Polar:
+    server, server_url = _resolve_server()
+    client = Polar(
+        access_token=POLAR_OAT,
+        server=server,
+        server_url=server_url,
+        timeout_ms=20_000,
+    )
+    # Preserve prior custom user agent for observability parity
+    client.sdk_configuration.user_agent = "vintedboost-backend/1.0"
+    return client
+
+
+async def _get_client() -> Polar:
     if not POLAR_API_BASE or not POLAR_OAT:
         raise PolarConfigurationError("Polar API base or access token not configured")
 
-    async with _client_lock:
-        global _client
-        if _client is None:
-            headers = {
-                "authorization": f"Bearer {POLAR_OAT}",
-                "accept": "application/json",
-                "user-agent": "vintedboost-backend/1.0",
-            }
-            _client = httpx.AsyncClient(
-                base_url=POLAR_API_BASE.rstrip("/"),
-                timeout=httpx.Timeout(20.0, connect=10.0),
-                headers=headers,
-            )
-        return _client
+    async with _sdk_lock:
+        global _sdk
+        if _sdk is None:
+            _sdk = _build_polar_client()
+        return _sdk
 
 
 async def close_polar_client() -> None:
-    """Close the shared HTTP client, if created."""
+    """Close the shared Polar SDK client, if created."""
 
-    async with _client_lock:
-        global _client
-        if _client is not None:
-            try:
-                await _client.aclose()
-            finally:
-                _client = None
+    async with _sdk_lock:
+        global _sdk
+        if _sdk is None:
+            return
+
+        cfg = _sdk.sdk_configuration
+        try:
+            if cfg.client is not None and not cfg.client_supplied:
+                try:
+                    cfg.client.close()
+                finally:
+                    cfg.client = None
+            if cfg.async_client is not None and not cfg.async_client_supplied:
+                try:
+                    await cfg.async_client.aclose()
+                finally:
+                    cfg.async_client = None
+        finally:
+            _sdk = None
 
 
 def _extract_allowance(data: dict[str, Any] | None) -> int:
@@ -104,15 +137,35 @@ def _extract_allowance(data: dict[str, Any] | None) -> int:
         return 0
 
 
-def _plan_from_product(product: dict[str, Any]) -> PolarPlan:
-    prices = product.get("prices") or []
+def _coerce_dict(payload: Any) -> dict[str, Any]:
+    if payload is None:
+        return {}
+    if isinstance(payload, dict):
+        return dict(payload)
+    if hasattr(payload, "model_dump"):
+        try:
+            return payload.model_dump(mode="json")  # type: ignore[call-arg]
+        except TypeError:
+            return payload.model_dump()  # type: ignore[call-arg]
+    return {}
+
+
+def _plan_from_product(product_obj: Any) -> PolarPlan:
+    product = _coerce_dict(product_obj)
+    prices_raw = product.get("prices") or []
+    prices = [_coerce_dict(price) for price in prices_raw]
     default_price = prices[0] if prices else {}
+    currency = (
+        default_price.get("currency")
+        or default_price.get("price_currency")
+        or default_price.get("priceCurrency")
+    )
     return PolarPlan(
         id=product.get("id", ""),
         name=product.get("name", ""),
         allowance=_extract_allowance(product),
         interval=product.get("recurring_interval"),
-        currency=default_price.get("currency"),
+        currency=currency,
         default_price_id=default_price.get("id"),
         metadata=product.get("metadata") or {},
         is_active=not product.get("is_archived", False),
@@ -154,45 +207,53 @@ async def _persist_plans(plans: Iterable[PolarPlan]) -> None:
                 )
 
 
-async def _request(method: str, path: str, *, json: Any | None = None, params: dict[str, Any] | None = None) -> Any:
-    client = await _get_client()
-    try:
-        response = await client.request(method, path, json=json, params=params)
-    except httpx.HTTPError as exc:
-        LOGGER.exception("Polar request transport error", extra={"path": path})
-        raise PolarAPIError(f"Polar request failed: {exc}") from exc
-
-    if response.status_code >= 400:
-        detail = response.text or response.reason_phrase
-        LOGGER.error(
-            "Polar API error", extra={"status": response.status_code, "path": path, "detail": detail[:256]}
-        )
-        raise PolarAPIError(f"Polar API {response.status_code}: {detail}")
-
-    if response.status_code == 204:
-        return None
-    return response.json()
-
-
 async def refresh_plan_cache(force: bool = False) -> dict[str, PolarPlan]:
     """Fetch subscription plans from Polar and refresh cache/DB."""
+
+    global _plan_cache_expiry
 
     now = asyncio.get_running_loop().time()
     async with _plan_cache_lock:
         if not force and _plan_cache and now < _plan_cache_expiry:
             return dict(_plan_cache)
 
-    params: dict[str, Any] = {
+    client = await _get_client()
+    request_kwargs: dict[str, Any] = {
         "is_recurring": True,
         "is_archived": False,
         "limit": 50,
     }
     if POLAR_ORG_ID:
-        params["organization_id"] = POLAR_ORG_ID
+        request_kwargs["organization_id"] = POLAR_ORG_ID
 
-    payload = await _request("GET", "/products/", params=params)
-    items = payload.get("items", []) if isinstance(payload, dict) else []
-    plans = [_plan_from_product(item) for item in items if item.get("id")]
+    try:
+        response = await client.products.list_async(**request_kwargs)
+    except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+        LOGGER.exception("Polar products request failed")
+        raise PolarAPIError(f"Polar products request failed: {exc}") from exc
+    except httpx.HTTPError as exc:
+        LOGGER.exception("Polar products transport error")
+        raise PolarAPIError(f"Polar transport error: {exc}") from exc
+
+    products: list[dict[str, Any]] = []
+    while response is not None:
+        result = getattr(response, "result", None)
+        if result and getattr(result, "items", None):
+            products.extend(_coerce_dict(item) for item in result.items)
+        fetch_next = getattr(response, "next", None)
+        if callable(fetch_next):
+            try:
+                response = await fetch_next()
+            except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+                LOGGER.exception("Polar products pagination failed")
+                raise PolarAPIError(f"Polar products pagination failed: {exc}") from exc
+            except httpx.HTTPError as exc:
+                LOGGER.exception("Polar products pagination transport error")
+                raise PolarAPIError(f"Polar transport error: {exc}") from exc
+        else:
+            break
+
+    plans = [_plan_from_product(item) for item in products if item.get("id")]
 
     await _persist_plans(plans)
 
@@ -245,10 +306,11 @@ async def get_plan(plan_id: str, *, refresh: bool = True) -> PolarPlan | None:
 async def upsert_plan_from_payload(product: dict[str, Any] | None) -> PolarPlan | None:
     """Update plan cache/DB using a product payload embedded in a webhook."""
 
-    if not product or not product.get("id"):
+    product_data = _coerce_dict(product)
+    if not product_data or not product_data.get("id"):
         return None
 
-    plan = _plan_from_product(product)
+    plan = _plan_from_product(product_data)
     await _persist_plans([plan])
     async with _plan_cache_lock:
         _plan_cache[plan.id] = plan
@@ -278,14 +340,108 @@ async def create_checkout_session(
     if customer_email:
         payload["customer_email"] = customer_email
 
-    data = await _request("POST", "/checkouts/", json=payload)
-    if isinstance(data, dict):
-        return data
-    return {"id": None, "url": None}
+    client = await _get_client()
+    try:
+        checkout = await client.checkouts.create_async(request=payload)
+    except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+        LOGGER.exception("Polar checkout creation failed", extra={"plan_id": plan_id, "user_id": user_id})
+        raise PolarAPIError(f"Polar checkout creation failed: {exc}") from exc
+    except httpx.HTTPError as exc:
+        LOGGER.exception("Polar checkout transport error", extra={"plan_id": plan_id, "user_id": user_id})
+        raise PolarAPIError(f"Polar transport error: {exc}") from exc
+
+    return _coerce_dict(checkout)
 
 
 async def create_customer_portal_session(*, user_id: str) -> dict[str, Any]:
     """Create a Polar customer session using the external user identifier."""
 
-    payload = {"external_customer_id": user_id}
-    return await _request("POST", "/customer-sessions/", json=payload)
+    client = await _get_client()
+    try:
+        session = await client.customer_sessions.create_async(
+            request={"external_customer_id": user_id}
+        )
+    except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+        LOGGER.exception("Polar portal session failed", extra={"user_id": user_id})
+        raise PolarAPIError(f"Polar portal session failed: {exc}") from exc
+    except httpx.HTTPError as exc:
+        LOGGER.exception("Polar portal transport error", extra={"user_id": user_id})
+        raise PolarAPIError(f"Polar transport error: {exc}") from exc
+
+    return _coerce_dict(session)
+
+
+async def ingest_events(events: Iterable[dict[str, Any]]) -> None:
+    """Ingest usage events into Polar."""
+
+    normalized: list[dict[str, Any]] = []
+    for event in events:
+        payload = _coerce_dict(event)
+        if not payload.get("name") or not payload.get("external_customer_id"):
+            continue
+        if POLAR_ORG_ID and not payload.get("organization_id"):
+            payload["organization_id"] = POLAR_ORG_ID
+        normalized.append(payload)
+
+    if not normalized:
+        return
+
+    client = await _get_client()
+    try:
+        await client.events.ingest_async(request={"events": normalized})
+    except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+        LOGGER.exception("Polar event ingestion failed", extra={"count": len(normalized)})
+        raise PolarAPIError(f"Polar event ingestion failed: {exc}") from exc
+    except httpx.HTTPError as exc:
+        LOGGER.exception("Polar event ingestion transport error", extra={"count": len(normalized)})
+        raise PolarAPIError(f"Polar transport error: {exc}") from exc
+
+
+async def list_customer_meters(
+    *,
+    external_customer_id: str,
+    meter_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch customer meter balances for a user."""
+
+    if not external_customer_id:
+        return []
+
+    client = await _get_client()
+    params: dict[str, Any] = {
+        "external_customer_id": external_customer_id,
+        "limit": 50,
+    }
+    if meter_id:
+        params["meter_id"] = meter_id
+    if POLAR_ORG_ID:
+        params["organization_id"] = POLAR_ORG_ID
+
+    try:
+        response = await client.customer_meters.list_async(**params)
+    except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+        LOGGER.exception("Polar customer meters request failed", extra={"external_customer_id": external_customer_id})
+        raise PolarAPIError(f"Polar customer meters request failed: {exc}") from exc
+    except httpx.HTTPError as exc:
+        LOGGER.exception("Polar customer meters transport error", extra={"external_customer_id": external_customer_id})
+        raise PolarAPIError(f"Polar transport error: {exc}") from exc
+
+    meters: list[dict[str, Any]] = []
+    while response is not None:
+        result = getattr(response, "result", None)
+        if result and getattr(result, "items", None):
+            meters.extend(_coerce_dict(item) for item in result.items)
+        fetch_next = getattr(response, "next", None)
+        if callable(fetch_next):
+            try:
+                response = await fetch_next()
+            except (polar_models.SDKError, polar_models.HTTPValidationError) as exc:
+                LOGGER.exception("Polar customer meters pagination failed", extra={"external_customer_id": external_customer_id})
+                raise PolarAPIError(f"Polar customer meters pagination failed: {exc}") from exc
+            except httpx.HTTPError as exc:
+                LOGGER.exception("Polar customer meters pagination transport error", extra={"external_customer_id": external_customer_id})
+                raise PolarAPIError(f"Polar transport error: {exc}") from exc
+        else:
+            break
+
+    return meters

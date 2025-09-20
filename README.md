@@ -20,6 +20,15 @@ Admin-only
 - Auth: Better Auth (cookie sessions) with Google OAuth, Postgres adapter
 - Deployment: Dokploy with Dockerfiles for frontend and backend
 
+### Billing & Usage (Polar)
+- Backend FastAPI service now uses the official [`polar-sdk`](https://pypi.org/project/polar-sdk/) client for plan caching, checkout sessions, customer portal sessions, and usage ingestion. Configure it with:
+  - `POLAR_OAT` (or `POLAR_ACCESS_TOKEN`) – Polar organization access token used server-side
+  - `POLAR_API_BASE` (optional) to target production vs sandbox (`https://api.polar.sh/v1` by default)
+  - `POLAR_WEBHOOK_SECRET` for verifying `/billing/webhook`
+  - `POLAR_USAGE_EVENT_NAME` (defaults to `app.usage`) and `POLAR_USAGE_METER_ID` when you want to tie events to a specific customer meter
+- Better Auth is extended with `@polar-sh/better-auth` + `@polar-sh/sdk`, so the shared auth client exposes `checkout`, `portal`, and `usage` helpers. Provide the same access token to the Next.js runtime via `POLAR_ACCESS_TOKEN` (or `POLAR_OAT`) and optionally set `POLAR_SERVER=sandbox` when working against the sandbox API.
+- Usage quota responses returned by `/api/usage/me` are now backed by Polar customer meters—local counters remain for safety, but Polar is the source of truth and receives every consumption event via ingestion.
+
 ### Features
 - Upload clothing image (tap or drag-and-drop) from a dedicated hero workspace with quick links to Studio and Settings
 - Garment type selector (auto/top/bottom/full): 3 buttons directly under the upload box. If set, overrides detection; if not set, the backend auto-detects the garment type once and caches it.

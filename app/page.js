@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "react-hot-toast";
-import { createAuthClient } from "better-auth/react";
+import { authClient } from "@/app/lib/auth-client";
 
 import {
   AdminReviewPanel,
@@ -28,7 +28,6 @@ import { preprocessImage } from "@/app/lib/image-preprocess";
 import { broadcastListingsUpdated } from "@/app/lib/listings-events";
 import { usePersistentState } from "@/app/lib/usePersistentState";
 
-const authClient = createAuthClient();
 const POSE_MAX = 10;
 
 const FLOW_MODE_VALUES = new Set(["classic", "sequential", "both"]);

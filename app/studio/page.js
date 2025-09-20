@@ -4,15 +4,14 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
-import { createAuthClient } from "better-auth/react";
+import { CheckCircle2, MinusCircle, PlusCircle, Trash2 } from "lucide-react";
+
+import { authClient } from "@/app/lib/auth-client";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
 import { VB_STUDIO_ACTIVE_TAB, VB_STUDIO_MODEL_GENDER } from "@/app/lib/storage-keys";
-import { CheckCircle2, MinusCircle, PlusCircle, Trash2 } from "lucide-react";
 import { useSubscription } from "@/app/components/subscription-provider";
 import { getEnvironmentCost, getModelCost } from "@/app/lib/usage-costs";
-
-const authClient = createAuthClient();
 const ENV_TABS = ["generated", "defaults", "sources"];
 const MODEL_TABS = ["generated", "defaults", "sources"];
 const GENDER_FILTERS = ["all", "man", "woman"];

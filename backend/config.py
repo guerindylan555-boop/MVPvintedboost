@@ -40,6 +40,8 @@ POLAR_API_BASE = _POLAR_API_BASE_RAW.rstrip("/") or "https://api.polar.sh/v1"
 POLAR_OAT = os.getenv("POLAR_OAT") or os.getenv("POLAR_ACCESS_TOKEN", "")
 POLAR_ORG_ID = os.getenv("POLAR_ORG_ID", "").strip()
 POLAR_WEBHOOK_SECRET = os.getenv("POLAR_WEBHOOK_SECRET", "").strip()
+POLAR_USAGE_EVENT_NAME = os.getenv("POLAR_USAGE_EVENT_NAME", "app.usage").strip()
+POLAR_USAGE_METER_ID = os.getenv("POLAR_USAGE_METER_ID", "").strip()
 
 _env_origins = os.getenv("CORS_ALLOW_ORIGINS", "*")
 CORS_ALLOW_ORIGINS: List[str] = [o.strip() for o in _env_origins.split(",") if o.strip()]
@@ -61,6 +63,8 @@ __all__ = [
     "POLAR_OAT",
     "POLAR_ORG_ID",
     "POLAR_WEBHOOK_SECRET",
+    "POLAR_USAGE_EVENT_NAME",
+    "POLAR_USAGE_METER_ID",
     "REDIS_OP_TIMEOUT_SECONDS",
     "REDIS_OPERATION_RETRIES",
     "REDIS_RETRY_BACKOFF_SECONDS",

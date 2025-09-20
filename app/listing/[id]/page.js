@@ -5,13 +5,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
 import { toast } from "react-hot-toast";
-import { createAuthClient } from "better-auth/react";
 import { ChevronLeft, ChevronRight, Maximize2, X as XIcon } from "lucide-react";
+
+import { authClient } from "@/app/lib/auth-client";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
 import { broadcastListingsUpdated } from "@/app/lib/listings-events";
-
-const authClient = createAuthClient();
 
 export default function ListingPage() {
   const params = useParams();

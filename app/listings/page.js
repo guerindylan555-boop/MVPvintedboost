@@ -3,13 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { createAuthClient } from "better-auth/react";
 import { Plus } from "lucide-react";
+
+import { authClient } from "@/app/lib/auth-client";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
 import { subscribeToListingsUpdates } from "@/app/lib/listings-events";
-
-const authClient = createAuthClient();
 
 export default function ListingsPage() {
   const { data: session } = authClient.useSession();

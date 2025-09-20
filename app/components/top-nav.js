@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
-import { createAuthClient } from "better-auth/react";
 import { Sparkles, Palette, Settings, List, CreditCard, Shield } from "lucide-react";
+
+import { authClient } from "@/app/lib/auth-client";
 
 import { getSessionBasics } from "@/app/lib/session";
 import { useSubscription } from "./subscription-provider";
-
-const authClient = createAuthClient();
 
 const BASE_LINKS = [
   { href: "/", label: "Create", icon: Sparkles },

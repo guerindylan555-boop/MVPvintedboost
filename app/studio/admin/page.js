@@ -4,11 +4,10 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { createAuthClient } from "better-auth/react";
+
+import { authClient } from "@/app/lib/auth-client";
 import { getApiBase } from "@/app/lib/api";
 import { getSessionBasics } from "@/app/lib/session";
-
-const authClient = createAuthClient();
 
 export default function StudioAdminPage() {
   const { data: session } = authClient.useSession();
