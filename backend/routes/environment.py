@@ -15,6 +15,8 @@ from backend.services.genai import (
     genai_generate_with_retries,
     types as genai_types,
 )
+from backend.services.editing import persist_generation_result
+from backend.services.usage import QuotaError, ensure_can_consume, get_usage_cost
 from backend.storage import (
     delete_objects,
     generate_presigned_get_url,
@@ -24,6 +26,20 @@ from backend.storage import (
 )
 
 router = APIRouter()
+
+ENVIRONMENT_USAGE_COST = get_usage_cost("studio_environment") or 0
+
+
+def _attach_usage_headers(response: StreamingResponse, usage) -> None:
+    if not usage:
+        return
+    response.headers["X-Usage-Allowance"] = str(usage.allowance)
+    response.headers["X-Usage-Used"] = str(usage.used)
+    response.headers["X-Usage-Remaining"] = str(usage.remaining)
+    if getattr(usage, "plan_id", None):
+        response.headers["X-Usage-Plan-Id"] = usage.plan_id  # type: ignore[attr-defined]
+    if getattr(usage, "plan_name", None):
+        response.headers["X-Usage-Plan-Name"] = usage.plan_name  # type: ignore[attr-defined]
 
 
 def build_env_prompt(user_prompt: Optional[str] = None) -> str:
@@ -68,7 +84,13 @@ def build_env_prompt(user_prompt: Optional[str] = None) -> str:
     return "\n".join(lines)
 
 
-async def _generate_env_with_random_source(prompt_text: str, *, options: dict[str, Any]):
+async def _generate_env_with_random_source(
+    prompt_text: str,
+    *,
+    options: dict[str, Any],
+    user_id: str,
+    usage_cost: int,
+):
     async with db_session() as session:
         stmt = text("SELECT s3_key FROM env_sources ORDER BY RANDOM() LIMIT 1")
         res = await session.execute(stmt)
@@ -90,16 +112,24 @@ async def _generate_env_with_random_source(prompt_text: str, *, options: dict[st
     _, key = upload_image(png_bytes, pose="env")
     payload = dict(options)
     payload["source_s3_key"] = source_key
-    async with db_session() as session:
-        rec = Generation(
+
+    try:
+        usage = await persist_generation_result(
             s3_key=key,
             pose="env",
             prompt=prompt_text,
-            options_json=payload,
-            model=MODEL,
+            options=payload,
+            model_name=MODEL,
+            usage_user_id=user_id,
+            usage_amount=max(usage_cost, 0),
         )
-        session.add(rec)
-    return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+    except QuotaError as exc:
+        LOGGER.warning("quota exceeded after env generation", extra={"user_id": user_id})
+        return JSONResponse({"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402)
+
+    response = StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+    _attach_usage_headers(response, usage)
+    return response
 
 
 @router.post("/env/sources/upload")
@@ -150,10 +180,18 @@ async def delete_env_sources():
 @router.post("/env/random")
 async def generate_env_random(x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+        try:
+            await ensure_can_consume(x_user_id, amount=max(ENVIRONMENT_USAGE_COST, 0))
+        except QuotaError as exc:
+            return JSONResponse({"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402)
         instruction = build_env_prompt()
         return await _generate_env_with_random_source(
             instruction,
             options={"mode": "random", "user_id": x_user_id},
+            user_id=x_user_id,
+            usage_cost=ENVIRONMENT_USAGE_COST,
         )
     except Exception as exc:
         LOGGER.exception("env random failed")
@@ -163,6 +201,12 @@ async def generate_env_random(x_user_id: str | None = Header(default=None, alias
 @router.post("/env/generate")
 async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(default=None, alias="X-User-Id")):
     try:
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+        try:
+            await ensure_can_consume(x_user_id, amount=max(ENVIRONMENT_USAGE_COST, 0))
+        except QuotaError as exc:
+            return JSONResponse({"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402)
         full = build_env_prompt(prompt)
         user_prompt = (prompt or "").strip()
         return await _generate_env_with_random_source(
@@ -172,6 +216,8 @@ async def generate_env(prompt: str = Form(""), x_user_id: str | None = Header(de
                 "user_prompt": user_prompt,
                 "user_id": x_user_id,
             },
+            user_id=x_user_id,
+            usage_cost=ENVIRONMENT_USAGE_COST,
         )
     except Exception as exc:
         LOGGER.exception("env generate failed")

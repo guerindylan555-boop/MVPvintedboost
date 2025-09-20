@@ -24,6 +24,8 @@ from backend.services.genai import (
     get_client,
     types as genai_types,
 )
+from backend.services.editing import persist_generation_result
+from backend.services.usage import QuotaError, ensure_can_consume, get_usage_cost
 from backend.storage import (
     delete_objects,
     generate_presigned_get_url,
@@ -34,6 +36,20 @@ from backend.storage import (
 from backend.utils.normalization import normalize_gender
 
 router = APIRouter()
+
+MODEL_USAGE_COST = get_usage_cost("studio_model") or 0
+
+
+def _attach_usage_headers(response: StreamingResponse, usage) -> None:
+    if not usage:
+        return
+    response.headers["X-Usage-Allowance"] = str(usage.allowance)
+    response.headers["X-Usage-Used"] = str(usage.used)
+    response.headers["X-Usage-Remaining"] = str(usage.remaining)
+    if getattr(usage, "plan_id", None):
+        response.headers["X-Usage-Plan-Id"] = usage.plan_id  # type: ignore[attr-defined]
+    if getattr(usage, "plan_name", None):
+        response.headers["X-Usage-Plan-Name"] = usage.plan_name  # type: ignore[attr-defined]
 
 
 def build_model_prompt(gender: str, user_prompt: Optional[str]) -> str:
@@ -91,6 +107,13 @@ async def model_generate(
         gender = normalize_gender(gender)
         user_prompt = (prompt or "").strip()
 
+        if not x_user_id:
+            return JSONResponse({"error": "missing user id"}, status_code=400)
+        try:
+            await ensure_can_consume(x_user_id, amount=max(MODEL_USAGE_COST, 0))
+        except QuotaError as exc:
+            return JSONResponse({"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402)
+
         instruction = build_model_prompt(gender, user_prompt if user_prompt else None)
         parts: list[genai_types.Part] = [genai_types.Part.from_text(text=instruction)]
 
@@ -132,20 +155,24 @@ async def model_generate(
         png_bytes = first_inline_image_bytes(resp)
         if png_bytes:
             _, key = upload_image(png_bytes, pose=f"model-{gender}")
-            async with db_session() as session:
-                rec = Generation(
+            try:
+                usage = await persist_generation_result(
                     s3_key=key,
                     pose=f"model-{gender}",
                     prompt=instruction,
-                    options_json={
+                    options={
                         "mode": "model",
                         "gender": gender,
                         "user_prompt": user_prompt,
                         "user_id": x_user_id,
                     },
-                    model=MODEL,
+                    model_name=MODEL,
+                    usage_user_id=x_user_id,
+                    usage_amount=max(MODEL_USAGE_COST, 0),
                 )
-                session.add(rec)
+            except QuotaError as exc:
+                LOGGER.warning("quota exceeded after model generation", extra={"user_id": x_user_id})
+                return JSONResponse({"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402)
             try:
                 describe_prompt = (
                     "Describe this person precisely for identity reference (plain text, MINIMUM 500 words). "
@@ -182,7 +209,9 @@ async def model_generate(
                         session.add(ModelDescription(s3_key=key, description=description_text))
             except Exception:
                 pass
-            return StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+            response = StreamingResponse(BytesIO(png_bytes), media_type="image/png")
+            _attach_usage_headers(response, usage)
+            return response
         return JSONResponse({"error": "no image from model"}, status_code=502)
     except Exception as exc:
         LOGGER.exception("model generate failed")

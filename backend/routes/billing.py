@@ -166,7 +166,17 @@ async def usage_endpoint(x_user_id: str | None = Header(default=None, alias="X-U
     if not x_user_id:
         return JSONResponse({"error": "missing user id"}, status_code=400)
     summary = await get_usage_summary(x_user_id)
-    return {"ok": True, "usage": summary.to_dict()}
+    payload = summary.to_dict()
+    return {
+        "ok": True,
+        "allowance": payload.get("allowance", 0),
+        "used": payload.get("used", 0),
+        "remaining": payload.get("remaining", 0),
+        "current_period_start": payload.get("current_period_start"),
+        "current_period_end": payload.get("current_period_end"),
+        "plan": payload.get("plan"),
+        "usage": payload,
+    }
 
 
 @router.post("/billing/webhook")

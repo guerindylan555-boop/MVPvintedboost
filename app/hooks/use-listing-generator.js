@@ -6,6 +6,7 @@ import { toast } from "react-hot-toast";
 import { getApiBase, withUserId } from "@/app/lib/api";
 import { broadcastListingsUpdated } from "@/app/lib/listings-events";
 import { useSubscription } from "@/app/components/subscription-provider";
+import { getUsageCost } from "@/app/lib/usage-costs";
 
 export function useListingGenerator({
   selectedFile,
@@ -30,7 +31,7 @@ export function useListingGenerator({
   const [isGenerating, setIsGenerating] = useState(false);
   const [poseStatus, setPoseStatus] = useState({});
   const [poseErrors, setPoseErrors] = useState({});
-  const { usage, isBillingEnabled, applyUsageFromResponse } = useSubscription();
+  const { usage, costs: usageCosts, isBillingEnabled, applyUsageFromResponse } = useSubscription();
   const quotaToastRef = useRef(null);
 
   const showQuotaToast = useCallback(() => {
@@ -64,8 +65,25 @@ export function useListingGenerator({
 
     const remainingQuota =
       typeof usage?.remaining === "number" ? usage.remaining : null;
-    if (isBillingEnabled && remainingQuota !== null && remainingQuota <= 0) {
+    const listingCreateCost =
+      typeof usageCosts?.listing_create === "number"
+        ? usageCosts.listing_create
+        : getUsageCost("listing_create", 1);
+    const listingImageCost =
+      typeof usageCosts?.listing_image === "number"
+        ? usageCosts.listing_image
+        : getUsageCost("listing_image", 1);
+    const imageCount = Number.isFinite(plannedImagesCount)
+      ? Math.max(0, plannedImagesCount)
+      : 0;
+    const requiredCredits = listingCreateCost + imageCount * listingImageCost;
+    if (
+      isBillingEnabled &&
+      remainingQuota !== null &&
+      remainingQuota < Math.max(requiredCredits, listingCreateCost)
+    ) {
       showQuotaToast();
+      toast.error("Not enough quota for the planned listing.");
       return;
     }
 

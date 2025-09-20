@@ -9,6 +9,7 @@ import { getSessionBasics } from "@/app/lib/session";
 import { VB_STUDIO_ACTIVE_TAB, VB_STUDIO_MODEL_GENDER } from "@/app/lib/storage-keys";
 import { CheckCircle2, MinusCircle, PlusCircle, Trash2 } from "lucide-react";
 import { useSubscription } from "@/app/components/subscription-provider";
+import { getEnvironmentCost, getModelCost } from "@/app/lib/usage-costs";
 
 const authClient = createAuthClient();
 const ENV_TABS = ["generated", "defaults", "sources"];
@@ -18,14 +19,23 @@ const GENDER_FILTERS = ["all", "man", "woman"];
 export default function StudioPage() {
   const { data: session } = authClient.useSession();
   const { userId, isAdmin } = getSessionBasics(session);
-  const { usage, isBillingEnabled, applyUsageFromResponse, refresh } = useSubscription();
+  const { usage, costs: usageCosts, isBillingEnabled, applyUsageFromResponse, refresh } = useSubscription();
 
   const quotaMessage = "You're out of quota. Visit Billing to upgrade.";
 
   const remainingQuota = typeof usage?.remaining === "number" ? usage.remaining : null;
+  const environmentCost =
+    typeof usageCosts?.studio_environment === "number"
+      ? usageCosts.studio_environment
+      : getEnvironmentCost();
+  const modelCost =
+    typeof usageCosts?.studio_model === "number"
+      ? usageCosts.studio_model
+      : getModelCost();
 
-  function ensureQuota() {
-    if (isBillingEnabled && remainingQuota !== null && remainingQuota <= 0) {
+  function ensureQuota(required = 1) {
+    const needed = Number.isFinite(required) ? Math.max(required, 0) : 0;
+    if (isBillingEnabled && remainingQuota !== null && remainingQuota < needed) {
       toast.error(quotaMessage);
       return false;
     }
@@ -152,7 +162,7 @@ export default function StudioPage() {
 
   async function handleGenerate() {
     try {
-      if (!ensureQuota()) return;
+      if (!ensureQuota(environmentCost || 0)) return;
       setIsGenerating(true);
       const baseUrl = getApiBase();
       const endpoint = prompt.trim() ? "/env/generate" : "/env/random";
@@ -365,7 +375,7 @@ export default function StudioPage() {
       alert(`Pick a ${gender} source image first`);
       return;
     }
-    if (!ensureQuota()) return;
+    if (!ensureQuota(modelCost || 0)) return;
     try {
       setIsModelGenerating(true);
       const form = new FormData();

@@ -83,6 +83,7 @@ export function SubscriptionProvider({ children }) {
   const { userId } = getSessionBasics(session);
 
   const [usage, setUsage] = useState(null);
+  const [costs, setCosts] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [billingEnabled, setBillingEnabled] = useState(true);
@@ -93,7 +94,15 @@ export function SubscriptionProvider({ children }) {
     const next = extractUsage(payload);
     if (next) {
       setUsage(next);
+      if (next.costs && typeof next.costs === "object") {
+        setCosts(next.costs);
+      } else if (payload && typeof payload === "object" && payload.costs && typeof payload.costs === "object") {
+        setCosts(payload.costs);
+      }
       return next;
+    }
+    if (payload && typeof payload === "object" && payload.costs && typeof payload.costs === "object") {
+      setCosts(payload.costs);
     }
     return null;
   }, []);
@@ -101,6 +110,7 @@ export function SubscriptionProvider({ children }) {
   const refresh = useCallback(async () => {
     if (!userId) {
       setUsage(null);
+      setCosts(null);
       setBillingEnabled(true);
       setManageUrl(null);
       return;
@@ -109,7 +119,7 @@ export function SubscriptionProvider({ children }) {
     fetchAbortRef.current = runId;
     setLoading(true);
     try {
-      const res = await fetch("/api/billing/usage", {
+      const res = await fetch("/api/usage/me", {
         method: "GET",
         cache: "no-store",
       });
@@ -223,6 +233,7 @@ export function SubscriptionProvider({ children }) {
       allowance,
       used,
       remaining,
+      costs: usage?.costs && typeof usage.costs === "object" ? usage.costs : costs,
       isBillingEnabled: billingEnabled,
       manageUrl,
       plans: PLAN_OPTIONS,
@@ -232,6 +243,7 @@ export function SubscriptionProvider({ children }) {
       openPortal,
     }),
     [
+      costs,
       allowance,
       applyUsageFromResponse,
       billingEnabled,
@@ -258,4 +270,3 @@ export function useSubscription() {
   }
   return context;
 }
-

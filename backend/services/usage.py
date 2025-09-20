@@ -1,16 +1,23 @@
 """Subscription usage helpers and quota enforcement."""
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Select, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db import Subscription, SubscriptionPlan, UsageCounter, db_session
 from backend.services.polar import PolarPlan, get_plan
 
 _ACTIVE_STATUSES = {"active", "trialing", "past_due"}
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _now_utc() -> datetime:
@@ -35,6 +42,8 @@ class UsageSummary:
     period_end: datetime | None
 
     def to_dict(self) -> dict[str, Any]:
+        period_start = self.period_start.isoformat() if self.period_start else None
+        period_end = self.period_end.isoformat() if self.period_end else None
         return {
             "plan": {
                 "id": self.plan_id,
@@ -47,10 +56,13 @@ class UsageSummary:
             "allowance": self.allowance,
             "used": self.used,
             "remaining": self.remaining,
+            "current_period_start": period_start,
+            "current_period_end": period_end,
             "period": {
-                "start": self.period_start.isoformat() if self.period_start else None,
-                "end": self.period_end.isoformat() if self.period_end else None,
+                "start": period_start,
+                "end": period_end,
             },
+            "costs": get_usage_costs_mapping(),
         }
 
     def apply_plan(self, plan: PolarPlan) -> None:
@@ -116,14 +128,28 @@ async def _ensure_usage_record(
         await session.flush()
         return usage
 
+    now = _now_utc()
     reset_needed = usage.period_start != period_start
     if reset_needed:
         usage.period_start = period_start
         usage.used = 0
     if usage.period_end != period_end:
         usage.period_end = period_end
+    if usage.period_end and usage.period_end <= now and period_start:
+        usage.period_start = period_start
+        usage.period_end = period_end
+        usage.used = 0
+        reset_needed = True
     if reset_needed:
-        usage.updated_at = _now_utc()
+        usage.updated_at = now
+        LOGGER.info(
+            "usage window reset",
+            extra={
+                "user_id": user_id,
+                "period_start": period_start.isoformat() if period_start else None,
+                "period_end": period_end.isoformat() if period_end else None,
+            },
+        )
     return usage
 
 
@@ -198,35 +224,75 @@ async def ensure_can_consume(user_id: str, amount: int = 1) -> UsageSummary:
     return summary
 
 
-async def consume_quota(user_id: str, amount: int = 1) -> UsageSummary:
+async def consume_quota_with_session(
+    session: AsyncSession,
+    user_id: str,
+    amount: int = 1,
+) -> UsageSummary:
+    subscription = await _select_subscription(session, user_id)
+    plan = await session.get(SubscriptionPlan, subscription.plan_id) if subscription and subscription.plan_id else None
+    usage = await _ensure_usage_record(session, user_id, subscription)
+
+    summary = _build_summary(user_id, subscription, plan, usage)
+    if amount > 0 and summary.remaining < amount:
+        raise QuotaError(summary)
     if amount <= 0:
-        return await get_usage_summary(user_id)
+        if subscription and subscription.plan_id and plan is None:
+            polar_plan = await get_plan(subscription.plan_id, refresh=False)
+            if polar_plan:
+                summary.apply_plan(polar_plan)
+        return summary
 
-    subscription: Subscription | None = None
-    plan: SubscriptionPlan | None = None
-    usage: UsageCounter | None = None
+    if not subscription or usage is None:
+        raise QuotaError(summary)
 
-    async with db_session() as session:
-        subscription = await _select_subscription(session, user_id)
-        if not subscription:
-            summary = _build_summary(user_id, None, None, None)
-            raise QuotaError(summary)
-
-        if subscription.plan_id:
-            plan = await session.get(SubscriptionPlan, subscription.plan_id)
-        usage = await _ensure_usage_record(session, user_id, subscription)
-        summary = _build_summary(user_id, subscription, plan, usage)
-        if summary.remaining < amount:
-            raise QuotaError(summary)
-        if usage is None:
-            raise QuotaError(summary)
-
-        usage.used = usage.used + amount
-        usage.updated_at = _now_utc()
-        summary = _build_summary(user_id, subscription, plan, usage)
+    usage.used += amount
+    usage.updated_at = _now_utc()
+    summary = _build_summary(user_id, subscription, plan, usage)
 
     if subscription and subscription.plan_id and plan is None:
         polar_plan = await get_plan(subscription.plan_id, refresh=False)
         if polar_plan:
             summary.apply_plan(polar_plan)
     return summary
+
+
+async def consume_quota(user_id: str, amount: int = 1) -> UsageSummary:
+    async with db_session() as session:
+        return await consume_quota_with_session(session, user_id, amount)
+
+
+@lru_cache(maxsize=1)
+def _load_usage_costs() -> dict[str, int]:
+    root = Path(__file__).resolve().parents[2]
+    path = root / "shared" / "usage_costs.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+    data: dict[str, int] = {}
+    for key, value in (payload or {}).items():
+        try:
+            data[key] = max(int(value), 0)
+        except (TypeError, ValueError):
+            continue
+    return data
+
+
+def get_usage_costs_mapping() -> dict[str, int]:
+    return dict(_load_usage_costs())
+
+
+def get_usage_cost(action: str, *, default: int = 1) -> int:
+    if not action:
+        return max(default, 0)
+    costs = _load_usage_costs()
+    value = costs.get(action, default)
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return max(default, 0)

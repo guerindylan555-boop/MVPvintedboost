@@ -10,6 +10,12 @@ from PIL import Image
 from sqlalchemy import text
 
 from backend.db import Generation, ListingImage, db_session
+from backend.services.usage import (
+    QuotaError,
+    UsageSummary,
+    consume_quota_with_session,
+    get_usage_cost,
+)
 from backend.storage import get_object_bytes
 from backend.utils.normalization import normalize_choice
 
@@ -210,9 +216,17 @@ async def persist_generation_result(
     update_listing_settings: bool = False,
     garment_type: str | None = None,
     garment_type_override: str | None = None,
-) -> None:
-    """Persist generation metadata and optional listing attachments."""
+    usage_user_id: str | None = None,
+    usage_amount: int | None = None,
+) -> UsageSummary | None:
+    """Persist generation metadata and optional listing attachments.
 
+    When ``usage_user_id`` and a positive ``usage_amount`` are provided, this function
+    also consumes the user's quota within the same transaction and returns the
+    resulting :class:`UsageSummary`.
+    """
+
+    usage_summary: UsageSummary | None = None
     async with db_session() as session:
         session.add(
             Generation(
@@ -224,44 +238,51 @@ async def persist_generation_result(
             )
         )
 
-        if not listing:
-            return
-
-        session.add(
-            ListingImage(
-                listing_id=listing.id,
-                s3_key=s3_key,
-                pose=pose,
-                prompt=prompt,
+        if listing:
+            session.add(
+                ListingImage(
+                    listing_id=listing.id,
+                    s3_key=s3_key,
+                    pose=pose,
+                    prompt=prompt,
+                )
             )
-        )
-        await session.execute(
-            text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
-            {"k": s3_key, "id": listing.id},
-        )
+            await session.execute(
+                text("UPDATE listings SET cover_s3_key = COALESCE(cover_s3_key, :k) WHERE id = :id"),
+                {"k": s3_key, "id": listing.id},
+            )
 
-        if update_listing_settings and garment_type:
-            try:
-                result = await session.execute(
-                    text("SELECT settings_json FROM listings WHERE id = :id"),
-                    {"id": listing.id},
-                )
-                row = result.first()
-                settings = (row[0] or {}) if row else {}
-                origin = (
-                    "user"
-                    if garment_type_override and garment_type_override.strip()
-                    else "model"
-                )
-                settings.update(
-                    {
-                        "garment_type": garment_type,
-                        "garment_type_origin": origin,
-                    }
-                )
-                await session.execute(
-                    text("UPDATE listings SET settings_json = :j WHERE id = :id"),
-                    {"j": settings, "id": listing.id},
-                )
-            except Exception:  # pragma: no cover - best-effort update
-                pass
+            if update_listing_settings and garment_type:
+                try:
+                    result = await session.execute(
+                        text("SELECT settings_json FROM listings WHERE id = :id"),
+                        {"id": listing.id},
+                    )
+                    row = result.first()
+                    settings = (row[0] or {}) if row else {}
+                    origin = (
+                        "user"
+                        if garment_type_override and garment_type_override.strip()
+                        else "model"
+                    )
+                    settings.update(
+                        {
+                            "garment_type": garment_type,
+                            "garment_type_origin": origin,
+                        }
+                    )
+                    await session.execute(
+                        text("UPDATE listings SET settings_json = :j WHERE id = :id"),
+                        {"j": settings, "id": listing.id},
+                    )
+                except Exception:  # pragma: no cover - best-effort update
+                    pass
+
+        if usage_user_id and (usage_amount or 0) > 0:
+            usage_summary = await consume_quota_with_session(
+                session,
+                usage_user_id,
+                usage_amount or 0,
+            )
+
+    return usage_summary
