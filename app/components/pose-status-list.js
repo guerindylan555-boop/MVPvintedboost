@@ -7,6 +7,7 @@ export function PoseStatusList({ items }) {
     if (status === "running") return "Generating…";
     if (status === "done") return "Ready";
     if (status === "error") return error || "Failed";
+    if (status === "blocked") return "Upgrade required";
     return "Queued";
   };
 
@@ -23,7 +24,9 @@ export function PoseStatusList({ items }) {
                   ? "text-red-500"
                   : status === "done"
                     ? "text-green-400"
-                    : "text-foreground/60"
+                    : status === "blocked"
+                      ? "text-amber-400"
+                      : "text-foreground/60"
               }
             >
               {resolveStatusLabel(status, error)}

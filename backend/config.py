@@ -35,6 +35,12 @@ REDIS_OP_TIMEOUT_SECONDS = max(0.1, _env_float("REDIS_OP_TIMEOUT_SECONDS", 0.5))
 REDIS_OPERATION_RETRIES = max(0, _env_int("REDIS_OPERATION_RETRIES", 1))
 REDIS_RETRY_BACKOFF_SECONDS = max(5.0, _env_float("REDIS_RETRY_BACKOFF_SECONDS", 60.0))
 
+_POLAR_API_BASE_RAW = os.getenv("POLAR_API_BASE", "https://api.polar.sh/v1").strip()
+POLAR_API_BASE = _POLAR_API_BASE_RAW.rstrip("/") or "https://api.polar.sh/v1"
+POLAR_OAT = os.getenv("POLAR_OAT") or os.getenv("POLAR_ACCESS_TOKEN", "")
+POLAR_ORG_ID = os.getenv("POLAR_ORG_ID", "").strip()
+POLAR_WEBHOOK_SECRET = os.getenv("POLAR_WEBHOOK_SECRET", "").strip()
+
 _env_origins = os.getenv("CORS_ALLOW_ORIGINS", "*")
 CORS_ALLOW_ORIGINS: List[str] = [o.strip() for o in _env_origins.split(",") if o.strip()]
 
@@ -51,6 +57,10 @@ __all__ = [
     "GARMENT_TYPE_TTL_SECONDS",
     "LOGGER",
     "MODEL",
+    "POLAR_API_BASE",
+    "POLAR_OAT",
+    "POLAR_ORG_ID",
+    "POLAR_WEBHOOK_SECRET",
     "REDIS_OP_TIMEOUT_SECONDS",
     "REDIS_OPERATION_RETRIES",
     "REDIS_RETRY_BACKOFF_SECONDS",

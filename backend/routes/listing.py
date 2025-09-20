@@ -11,10 +11,8 @@ from sqlalchemy import text
 
 from backend.config import LOGGER
 from backend.db import Listing, ListingImage, db_session
-from backend.storage import (
-    generate_presigned_get_url,
-    upload_product_source_image,
-)
+from backend.services.usage import QuotaError, consume_quota, ensure_can_consume
+from backend.storage import generate_presigned_get_url, upload_product_source_image
 
 router = APIRouter()
 
@@ -51,6 +49,12 @@ async def create_listing(
     try:
         if not x_user_id:
             return JSONResponse({"error": "missing user id"}, status_code=400)
+        try:
+            await ensure_can_consume(x_user_id, amount=1)
+        except QuotaError as exc:
+            return JSONResponse(
+                {"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402
+            )
         if not image or not image.filename:
             return JSONResponse({"error": "image file required"}, status_code=400)
         raw_bytes = await image.read()
@@ -97,12 +101,23 @@ async def create_listing(
         except Exception:
             src_url = None
 
+        try:
+            usage = await consume_quota(x_user_id, amount=1)
+        except QuotaError as exc:
+            LOGGER.warning("quota exceeded after listing creation", extra={"listing_id": lid})
+            async with db_session() as session:
+                await session.execute(text("DELETE FROM listings WHERE id = :id"), {"id": lid})
+            return JSONResponse(
+                {"error": "quota exceeded", "usage": exc.summary.to_dict()}, status_code=402
+            )
+
         return {
             "ok": True,
             "id": lid,
             "source_s3_key": src_key,
             "source_url": src_url,
             "settings": settings,
+            "usage": usage.to_dict(),
         }
     except Exception as exc:
         LOGGER.exception("failed to create listing")

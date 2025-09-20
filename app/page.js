@@ -552,7 +552,7 @@ export default function Home() {
       key,
       index: idx,
       label: randomLabel || `Image ${idx + 1}`,
-      status: poseStatus[key] || (isGenerating ? "running" : "pending"),
+      status: poseStatus[key] || (isGenerating ? "queued" : "pending"),
       error: poseErrors[key],
     };
   });

@@ -4,7 +4,7 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, JSON, Integer, Text, DateTime
+from sqlalchemy import Boolean, JSON, Integer, String, Text, DateTime, UniqueConstraint
 from datetime import datetime
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -123,6 +123,61 @@ class ListingImage(Base):
     pose: Mapped[str] = mapped_column(String(64), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
+class SubscriptionPlan(Base):
+    __tablename__ = "subscription_plans"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    allowance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    interval: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    default_price_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    plan_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    product_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    price_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    customer_external_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    raw_product_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    raw_subscription_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class UsageCounter(Base):
+    __tablename__ = "usage_counters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("user_id", "period_start", name="uq_usage_counters_period"),)
 
 
 _engine: AsyncEngine | None = None

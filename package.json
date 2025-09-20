@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "better-auth": "^1.3.9",
+    "@polar-sh/checkout": "^0.1.12",
     "browser-image-compression": "^2.0.2",
     "clsx": "^2.1.1",
     "heic2any": "^0.0.4",
